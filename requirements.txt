@@ -1,0 +1,13 @@
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+requests==2.32.3
+langchain==0.3.7
+langchain-core==0.3.15
+langchain-openai==0.2.8
+langchain-anthropic==0.3.0
+langchain-google-genai==2.0.4
+cryptography==43.0.3
+openai==1.54.3
+anthropic==0.39.0
+google-generativeai==0.8.3

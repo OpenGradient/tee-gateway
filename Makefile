@@ -1,5 +1,5 @@
-prog := python-enclave
-version := 1.0.0# $(shell git describe --tag --dirty)
+prog := tee-llm-router
+version := 1.0.0
 image_tag := $(prog):$(version)
 image_tar := $(prog)-$(version)-kaniko.tar
 image_eif := $(image_tar:%.tar=%.eif)
@@ -18,8 +18,7 @@ all: run
 .PHONY: image
 image: $(image_tar)
 
-# Testing storage/models/QmbbzDwqSxZSgkz1EbsNHp2mb67rYeUYHYWJ4wECE24S7A
-$(image_tar): Dockerfile server.py start.sh
+$(image_tar): Dockerfile server.py start.sh requirements.txt
 	docker run \
 		-v $(PWD):/workspace \
 		gcr.io/kaniko-project/executor:v1.9.2 \
@@ -40,11 +39,14 @@ $(image_eif): $(image_tar)
 
 .PHONY: run
 run: $(image_eif)
-	# Terminate already-running enclave.
 	nitro-cli terminate-enclave --all
-	# Start our proxy and the enclave.
 	./run-enclave.sh $(image_eif)
 
 .PHONY: clean
 clean:
 	rm -f $(image_tar) $(image_eif)
+
+.PHONY: test-local
+test-local:
+	# Test locally without TEE (for development)
+	python3 tee_llm_router.py

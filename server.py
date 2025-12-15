@@ -70,7 +70,59 @@ class TEEKeyManager:
         ).decode('utf-8')
         
         logger.info("TEE key pair generated successfully")
-    
+
+        # Register with nitriding
+        self.register_with_nitriding()
+
+    def register_with_nitriding(self):
+        """Register public key hash with nitriding"""
+        try:
+            # Get public key in DER format
+            public_key_der = self.public_key.public_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            )
+            
+            # Compute SHA256 hash of the public key
+            key_hash = hashlib.sha256(public_key_der).digest()
+            
+            # Base64 encode the hash (this is what nitriding expects!)
+            key_hash_b64 = base64.b64encode(key_hash).decode('utf-8')
+            
+            logger.info(f"Public key DER length: {len(public_key_der)} bytes")
+            logger.info(f"Public key SHA256 hash (hex): {key_hash.hex()}")
+            logger.info(f"Public key SHA256 hash (base64): {key_hash_b64}")
+            
+            # POST the BASE64-ENCODED HASH to nitriding
+            nitriding_hash_url = "http://127.0.0.1:8080/enclave/hash"
+            
+            req = urllib.request.Request(
+                nitriding_hash_url,
+                data=key_hash_b64.encode('utf-8'),  # Send base64-encoded hash as UTF-8 string
+                method='POST'
+            )
+            
+            response = urllib.request.urlopen(req, timeout=5)
+            response_body = response.read().decode('utf-8')
+            
+            if response.getcode() == 200:
+                logger.info("Successfully registered public key hash with nitriding")
+                logger.info(f"Response: {response_body}")
+                return True
+            else:
+                logger.error(f"Failed to register public key hash: HTTP {response.getcode()}")
+                logger.error(f"Response: {response_body}")
+                return False
+                
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8') if e.fp else "No error body"
+            logger.error(f"HTTP Error {e.code}: {e.reason}")
+            logger.error(f"Error response: {error_body}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error registering public key: {e}", exc_info=True)
+            return False
+
     def sign_data(self, data: str) -> str:
         """Sign data with private key and return base64 signature"""
         data_bytes = data.encode('utf-8')
@@ -235,7 +287,6 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
             api_key=api_key,
             temperature=temperature,
             max_tokens=max_tokens,
-            rate_limiter=rate_limiter,
         )
     elif provider == "anthropic":
         return ChatAnthropic(
@@ -243,7 +294,6 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
             api_key=api_key,
             temperature=temperature,
             max_tokens=max_tokens,
-            rate_limiter=rate_limiter,
         )
     else:
         logger.warning(f"Using fallback initialization for model: {model}")
@@ -253,7 +303,6 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
             temperature=temperature,
             max_tokens=max_tokens,
             api_key=api_key,
-            rate_limiter=rate_limiter,
         )
 
 

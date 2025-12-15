@@ -49,4 +49,4 @@ clean:
 .PHONY: test-local
 test-local:
 	# Test locally without TEE (for development)
-	python3 tee_llm_router.py
+	python3 server.py

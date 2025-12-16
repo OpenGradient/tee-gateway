@@ -12,7 +12,7 @@ import hashlib
 import base64
 import asyncio
 from typing import List, Dict, Optional, Any
-from datetime import datetime
+from datetime import datetime, UTC
 import urllib.request
 
 from fastapi import FastAPI, HTTPException, Header
@@ -193,6 +193,7 @@ class CompletionResponse(BaseModel):
     completion: str
     model: str
     usage: Optional[Dict] = None
+    timestamp: Optional[str] = None
     signature: Optional[str] = None  # TEE signature
     request_hash: Optional[str] = None  # Hash of request
 
@@ -202,6 +203,7 @@ class ChatResponse(BaseModel):
     message: Dict[str, Any]
     model: str
     usage: Optional[Dict] = None
+    timestamp: Optional[str] = None
     signature: Optional[str] = None  # TEE signature
     request_hash: Optional[str] = None  # Hash of request
 
@@ -367,7 +369,7 @@ async def get_attestation():
         # For now, we'll return a mock attestation structure
         attestation = AttestationResponse(
             public_key=tee_keys.get_public_key(),
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             enclave_info={
                 "platform": "aws-nitro",
                 "instance_type": "tee-enabled",
@@ -416,11 +418,12 @@ async def create_completion(
         response = await asyncio.to_thread(model.invoke, messages)
         
         # Create response data for signing
+        timestamp = datetime.now(UTC).isoformat()
         response_data = {
             "completion": response.content,
             "model": request.model,
             "request_hash": request_hash,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": timestamp
         }
         
         # Sign the response
@@ -430,6 +433,7 @@ async def create_completion(
             completion=response.content,
             model=request.model,
             usage=extract_usage(response),
+            timestamp=timestamp,
             signature=signature,
             request_hash=request_hash
         )
@@ -503,12 +507,13 @@ async def create_chat_completion(
             ]
         
         # Create response data for signing
+        timestamp = datetime.now(UTC).isoformat()
         response_data = {
             "message": message_dict,
             "model": request.model,
             "finish_reason": finish_reason,
             "request_hash": request_hash,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": timestamp
         }
         
         # Sign the response
@@ -519,6 +524,7 @@ async def create_chat_completion(
             message=message_dict,
             model=request.model,
             usage=extract_usage(response),
+            timestamp=timestamp,
             signature=signature,
             request_hash=request_hash
         )

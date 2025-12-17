@@ -19,6 +19,8 @@ FROM python:3.12-slim-bullseye
 # Environment keys for LLMs
 ENV OPENAI_API_KEY=
 ENV GOOGLE_API_KEY=
+ENV ANTHROPIC_API_KEY=
+ENV XAI_API_KEY=
 
 # Install necessary tools
 RUN apt-get update && apt-get install -y \

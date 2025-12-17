@@ -7,6 +7,7 @@ langchain-core==0.3.17
 langchain-openai==0.2.8
 langchain-anthropic==0.3.0
 langchain-google-genai==2.0.4
+langchain-xai==1.1.0
 cryptography==43.0.3
 openai==1.54.3
 anthropic==0.39.0

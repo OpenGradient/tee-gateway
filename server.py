@@ -29,6 +29,7 @@ from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
+from langchain_xai import ChatXAI
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -235,6 +236,7 @@ def get_api_key(model: str, auth_header: Optional[str]) -> Optional[str]:
         "anthropic": "ANTHROPIC_API_KEY",
         "google": "GOOGLE_API_KEY",
         "gemini": "GOOGLE_API_KEY",
+        "x-ai": "XAI_API_KEY",
         "cohere": "COHERE_API_KEY",
         "groq": "GROQ_API_KEY",
         "together": "TOGETHER_API_KEY",
@@ -254,12 +256,14 @@ def get_provider_from_model(model: str) -> str:
     """Infer provider from model name"""
     model_lower = model.lower()
     
-    if "gpt" in model_lower or model.startswith("openai/"):
+    if "gpt" in model_lower or model.startswith("openai/") or model_lower.startswith("o3") or model_lower.startswith("o4"):
         return "openai"
     elif "claude" in model_lower or model.startswith("anthropic/"):
         return "anthropic"
     elif "gemini" in model_lower or model.startswith("google/") or "google" in model_lower:
         return "google"
+    elif "grok" in model_lower or model.startswith("x-ai/"):
+        return "x-ai"
     elif "command" in model_lower or model.startswith("cohere/"):
         return "cohere"
     elif model.startswith("groq/"):
@@ -277,22 +281,61 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
     logger.info(f"Creating chat model - Provider: {provider}, Model: {model}")
     
     if provider in ["google", "gemini"]:
+        # Handle thinking budget for Gemini 2.5 models
+        thinking_budget = None
+        if "2.5-flash" in model:
+            thinking_budget = 0
+        elif "2.5-pro" in model:
+            thinking_budget = 128
+            
         return ChatGoogleGenerativeAI(
             model=model,
             google_api_key=api_key,
             temperature=temperature,
             max_output_tokens=max_tokens,
+            thinking_budget=thinking_budget,
+            include_thoughts=False if thinking_budget is not None else None,
         )
     elif provider == "openai":
+        # Handle o3/o4 models with temperature=1.0
+        model_temp = 1.0 if model in ["o4-mini", "o3"] else temperature
+        
         return ChatOpenAI(
             model=model,
+            api_key=api_key,
+            temperature=model_temp,
+            max_tokens=max_tokens,
+        )
+    elif provider == "anthropic":
+        # Map model names to Anthropic's actual model names
+        anthropic_model = model
+        if model == "claude-3.7-sonnet":
+            anthropic_model = "claude-3-7-sonnet-latest"
+        elif model == "claude-3.5-haiku":
+            anthropic_model = "claude-3-5-haiku-latest"
+        elif model == "claude-4.0-sonnet":
+            anthropic_model = "claude-sonnet-4-0"
+            
+        return ChatAnthropic(
+            model=anthropic_model,
             api_key=api_key,
             temperature=temperature,
             max_tokens=max_tokens,
         )
-    elif provider == "anthropic":
-        return ChatAnthropic(
-            model=model,
+    elif provider == "x-ai":
+        # Map model names to xAI's actual model names
+        xai_model = model
+        if model == "grok-3-mini-beta":
+            xai_model = "grok-3-mini"
+        elif model == "grok-3-beta":
+            xai_model = "grok-3-latest"
+        elif model == "grok-2-1212":
+            xai_model = "grok-2-latest"
+        elif model == "grok-4.1-fast":
+            xai_model = "grok-4-1-fast"
+            
+        return ChatXAI(
+            model=xai_model,
             api_key=api_key,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -602,10 +645,21 @@ async def list_models():
             {"id": "gpt-4o", "provider": "openai"},
             {"id": "gpt-4o-mini", "provider": "openai"},
             {"id": "gpt-4-turbo", "provider": "openai"},
+            {"id": "o4-mini", "provider": "openai"},
+            {"id": "o3", "provider": "openai"},
             {"id": "claude-3-5-sonnet-20240620", "provider": "anthropic"},
             {"id": "claude-3-opus-20240229", "provider": "anthropic"},
+            {"id": "claude-3.7-sonnet", "provider": "anthropic"},
+            {"id": "claude-4.0-sonnet", "provider": "anthropic"},
             {"id": "gemini-2.0-flash-exp", "provider": "google"},
+            {"id": "gemini-2.5-flash-preview", "provider": "google"},
+            {"id": "gemini-2.5-pro-preview", "provider": "google"},
             {"id": "gemini-1.5-pro", "provider": "google"},
+            {"id": "grok-3-mini-beta", "provider": "x-ai"},
+            {"id": "grok-3-beta", "provider": "x-ai"},
+            {"id": "grok-2-1212", "provider": "x-ai"},
+            {"id": "grok-4.1-fast", "provider": "x-ai"},
+            {"id": "grok-4-1-fast-non-reasoning", "provider": "x-ai"},
         ]
     }
 

@@ -175,16 +175,16 @@ class Tool(BaseModel):
 class CompletionRequest(BaseModel):
     model: str
     prompt: str
-    max_tokens: int = 100
     temperature: float = 0.0
+    max_tokens: Optional[int] = None
     stop: Optional[List[str]] = None
 
 
 class ChatRequest(BaseModel):
     model: str
     messages: List[Message]
-    max_tokens: int = 100
     temperature: float = 0.0
+    max_tokens: Optional[int] = None
     stop: Optional[List[str]] = None
     tools: Optional[List[Tool]] = None
     tool_choice: Optional[str] = "auto"

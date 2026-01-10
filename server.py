@@ -283,7 +283,7 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
     if provider in ["google", "gemini"]:
         # Handle thinking budget for Gemini 2.5 models
         thinking_budget = None
-        if "2.5-flash" in model:
+        if "2.5-flash" in model or "flash-lite" in model::
             thinking_budget = 0
         elif "2.5-pro" in model:
             thinking_budget = 128

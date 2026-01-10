@@ -655,6 +655,7 @@ async def list_models():
             {"id": "gemini-2.5-flash-preview", "provider": "google"},
             {"id": "gemini-2.5-pro-preview", "provider": "google"},
             {"id": "gemini-1.5-pro", "provider": "google"},
+            {"id": "gemini-2.5-flash-lite", "provider": "google"},
             {"id": "grok-3-mini-beta", "provider": "x-ai"},
             {"id": "grok-3-beta", "provider": "x-ai"},
             {"id": "grok-2-1212", "provider": "x-ai"},

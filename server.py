@@ -582,7 +582,7 @@ async def create_chat_completion_stream(
     request: ChatRequest,
     authorization: Optional[str] = Header(None)
 ):
-    """Create a streaming chat completion"""
+    """Create a streaming chat completion with final token usage"""
     try:
         api_key = get_api_key(request.model, authorization)
         if not api_key:
@@ -609,20 +609,57 @@ async def create_chat_completion_stream(
         messages = convert_messages(request.messages)
         
         async def generate():
-            """Generate SSE stream"""
+            """Generate SSE stream with token usage"""
             try:
+                # Track accumulated content and usage
+                full_content = ""
+                final_usage = None
+                
                 async for chunk in model.astream(messages):
+                    # Accumulate content
+                    if chunk.content:
+                        full_content += chunk.content
+                    
+                    # Stream content delta
                     data = {
                         "choices": [{
                             "delta": {
                                 "content": chunk.content or "",
                                 "role": "assistant"
-                            }
-                        }]
+                            },
+                            "index": 0,     # This maintains compatability with OpenAI API format
+                            "finish_reason": None
+                        }],
+                        "model": request.model
                     }
                     yield f"data: {json.dumps(data)}\n\n"
+                    
+                    # Capture usage metadata from the last chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        final_usage = chunk.usage_metadata
                 
+                # Send final chunk with finish_reason and usage
+                final_data = {
+                    "choices": [{
+                        "delta": {},
+                        "index": 0,
+                        "finish_reason": "stop"
+                    }],
+                    "model": request.model
+                }
+                
+                # Add usage information if available
+                if final_usage:
+                    final_data["usage"] = {
+                        "prompt_tokens": final_usage.get("input_tokens", 0),
+                        "completion_tokens": final_usage.get("output_tokens", 0),
+                        "total_tokens": final_usage.get("total_tokens", 0)
+                    }
+                    logger.info(f"Stream completed - Usage: {final_data['usage']}")
+                
+                yield f"data: {json.dumps(final_data)}\n\n"
                 yield "data: [DONE]\n\n"
+                
             except Exception as e:
                 logger.error(f"Streaming error: {str(e)}")
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"

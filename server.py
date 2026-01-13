@@ -339,6 +339,7 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
             api_key=api_key,
             temperature=temperature,
             max_tokens=max_tokens,
+            stream_usage=True,
         )
     else:
         logger.warning(f"Using fallback initialization for model: {model}")

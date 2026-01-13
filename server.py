@@ -543,7 +543,7 @@ async def create_chat_completion(
                     "type": "function",
                     "function": {
                         "name": tc.get("name", ""),
-                        "arguments": tc.get("args", {}),
+                        "arguments": json.dumps(tc.get("args", {})),
                     }
                 }
                 for tc in response.tool_calls

@@ -1,3 +1,8 @@
+HOST ?= https://3.133.152.176:443
+MODEL ?= gemini-2.5-flash-lite
+PROMPT ?= "Describe to me the 7 layers of the network stack"
+TEMPERATURE ?= 0.7
+
 prog := tee-llm-router
 version := 1.0.0
 image_tag := $(prog):$(version)
@@ -50,3 +55,13 @@ clean:
 test-local:
 	# Test locally without TEE (for development)
 	python3 server.py
+
+test-completion:
+	curl -i -k -X POST $(HOST)/v1/completions \
+		-H "Content-Type: application/json" \
+		-d '{"model": "$(MODEL)", "prompt": $(PROMPT), "temperature": $(TEMPERATURE)}'
+
+test-chat:
+	curl -i -k -X POST $(HOST)/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-d '{"model": "$(MODEL)", "messages": [{"role": "user", "content": $(PROMPT)}], "temperature": $(TEMPERATURE)}'

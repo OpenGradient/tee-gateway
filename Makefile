@@ -1,7 +1,8 @@
-HOST ?= https://3.133.152.176:443
+HOST ?= https://127.0.0.1:443
 MODEL ?= gemini-2.5-flash-lite
 PROMPT ?= "Describe to me the 7 layers of the network stack"
 TEMPERATURE ?= 0.7
+MAX_TOKENS ?= 150
 
 prog := tee-llm-router
 version := 1.0.0
@@ -65,3 +66,10 @@ test-chat:
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
 		-d '{"model": "$(MODEL)", "messages": [{"role": "user", "content": $(PROMPT)}], "temperature": $(TEMPERATURE)}'
+
+test-stream:
+	curl -i -X POST ${HOST}/v1/chat/completions/stream \
+ 		-H "Content-Type: application/json" \
+		-N \
+		--insecure \
+		-d '{"model": "${MODEL}","messages": [{"role": "user","content": ${PROMPT}}],"temperature": ${TEMPERATURE},"max_tokens": ${MAX_TOKENS}}'	

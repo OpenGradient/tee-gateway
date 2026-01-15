@@ -22,6 +22,7 @@ import uvicorn
 import psutil
 import gc
 import time
+import httpx
 
 from functools import lru_cache
 import hashlib
@@ -36,6 +37,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_xai import ChatXAI
+from langchain.chat_models import init_chat_model
 
 # LLM Client request timeout
 TIMEOUT = 120
@@ -357,12 +359,20 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
     elif provider == "openai":
         model_temp = 1.0 if model in ["o4-mini", "o3"] else temperature
         
+        http_client = httpx.Client(
+            limits=httpx.Limits(
+                max_connections=http_client_config["max_connections"],
+                max_keepalive_connections=http_client_config["max_keepalive_connections"]
+            ),
+            timeout=httpx.Timeout(http_client_config["timeout"])
+        )
+
         return ChatOpenAI(
             model=model,
             api_key=api_key,
             temperature=model_temp,
             max_tokens=max_tokens,
-            http_client={"timeout": TIMEOUT},
+            http_client=http_client,
         )
     elif provider == "anthropic":
         anthropic_model = model
@@ -401,7 +411,6 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
         )
     else:
         logger.warning(f"Using fallback initialization for model: {model}")
-        from langchain.chat_models import init_chat_model
         return init_chat_model(
             model=model,
             temperature=temperature,
@@ -746,7 +755,6 @@ async def create_chat_completion_stream(
                         await stream.aclose()
                     except:
                         pass
-                gc.collect()
         
         return StreamingResponse(
             generate(),

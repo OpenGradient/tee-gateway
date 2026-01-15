@@ -44,7 +44,7 @@ $(image_tar): Dockerfile server.py start.sh requirements.txt
 		--custom-platform linux/$(ARCH)
 
 $(image_eif): $(image_tar)
-	docker load -i $
+	docker load -i $<
 	nitro-cli build-enclave \
 		--docker-uri $(image_tag) \
 		--output-file $(image_eif)

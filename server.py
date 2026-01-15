@@ -19,6 +19,8 @@ from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import uvicorn
+import psutil
+import gc
 
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
@@ -397,11 +399,26 @@ def extract_usage(response: AIMessage) -> Optional[Dict]:
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    process = psutil.Process()
+
+    connections = process.connections()
+    conn_states = {}
+    for conn in connections:
+        state = str(conn.status)
+        conn_states[state] = conn_states.get(state, 0) + 1
+    
     return {
         "status": "healthy",
         "version": "1.0.0",
         "tee_enabled": True,
-        "has_keys": tee_keys.public_key is not None
+        "uptime_seconds": time.time() - process.create_time(),
+        "memory_mb": process.memory_info().rss / 1024 / 1024,
+        "threads": process.num_threads(),
+        "open_files": len(process.open_files()),
+        "num_fds": process.num_fds(),
+        "connections": len(connections),
+        "connection_states": conn_states,
+        "gc_objects": len(gc.get_objects()),
     }
 
 
@@ -739,4 +756,10 @@ if __name__ == "__main__":
     logger.info(f"Server starting on {host}:{port}")
     logger.info(f"Public Key (first 100 chars): {tee_keys.get_public_key()[:100]}...")
     
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        limit_concurrency=100,
+        timeout_keep_alive=30,
+    )

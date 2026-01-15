@@ -23,6 +23,9 @@ import psutil
 import gc
 import time
 
+from functools import lru_cache
+import hashlib
+
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.backends import default_backend
@@ -33,6 +36,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_xai import ChatXAI
+
+# LLM Client request timeout
+TIMEOUT = 120
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -255,6 +261,48 @@ def get_api_key(model: str, auth_header: Optional[str]) -> Optional[str]:
     return None
 
 
+@lru_cache(maxsize=32)
+def _get_chat_model_from_env(model: str, temperature: float, max_tokens: int):
+    """
+    Internal cached function for environment-based API keys.
+    Only caches models using environment variables.
+    """
+    provider = get_provider_from_model(model)
+    env_var_map = {
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "google": "GOOGLE_API_KEY",
+        "gemini": "GOOGLE_API_KEY",
+        "x-ai": "XAI_API_KEY",
+    }
+    
+    env_var = env_var_map.get(provider)
+    if not env_var:
+        raise ValueError(f"Unknown provider: {provider}")
+    
+    api_key = os.getenv(env_var)
+    if not api_key:
+        raise ValueError(f"Missing {env_var} in environment")
+    
+    return get_chat_model(model, api_key, temperature, max_tokens)
+
+
+def get_chat_model_cached(model: str, temperature: float, max_tokens: int, api_key: Optional[str] = None):
+    """
+    Get chat model instance, using cache for environment keys.
+    
+    - If api_key is None: Use cached model with environment variable
+    - If api_key is provided: Create fresh model instance (no caching)
+    """
+    if api_key:
+        # User-provided key - create fresh instance, don't cache
+        logger.info(f"Creating fresh model instance with user-provided API key for {model}")
+        return get_chat_model(model, api_key, temperature, max_tokens)
+    else:
+        # Environment key - use cached instance
+        return _get_chat_model_from_env(model, temperature, max_tokens)
+
+
 def get_provider_from_model(model: str) -> str:
     """Infer provider from model name"""
     model_lower = model.lower()
@@ -283,8 +331,14 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
     
     logger.info(f"Creating chat model - Provider: {provider}, Model: {model}")
     
+    # Common HTTP client configuration to limit connections
+    http_client_config = {
+        "max_connections": 10,
+        "max_keepalive_connections": 5,
+        "timeout": TIMEOUT,
+    }
+    
     if provider in ["google", "gemini"]:
-        # Handle thinking budget for Gemini 2.5 models
         thinking_budget = None
         if "2.5-flash" in model or "flash-lite" in model:
             thinking_budget = 0
@@ -298,9 +352,9 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
             max_output_tokens=max_tokens,
             thinking_budget=thinking_budget,
             include_thoughts=False if thinking_budget is not None else None,
+            http_client_config=http_client_config,
         )
     elif provider == "openai":
-        # Handle o3/o4 models with temperature=1.0
         model_temp = 1.0 if model in ["o4-mini", "o3"] else temperature
         
         return ChatOpenAI(
@@ -308,9 +362,9 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
             api_key=api_key,
             temperature=model_temp,
             max_tokens=max_tokens,
+            http_client={"timeout": TIMEOUT},
         )
     elif provider == "anthropic":
-        # Map model names to Anthropic's actual model names
         anthropic_model = model
         if model == "claude-3.7-sonnet":
             anthropic_model = "claude-3-7-sonnet-latest"
@@ -324,9 +378,9 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
             api_key=api_key,
             temperature=temperature,
             max_tokens=max_tokens,
+            timeout=TIMEOUT,
         )
     elif provider == "x-ai":
-        # Map model names to xAI's actual model names
         xai_model = model
         if model == "grok-3-mini-beta":
             xai_model = "grok-3-mini"
@@ -343,6 +397,7 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
             temperature=temperature,
             max_tokens=max_tokens,
             stream_usage=True,
+            timeout=TIMEOUT,
         )
     else:
         logger.warning(f"Using fallback initialization for model: {model}")
@@ -466,11 +521,11 @@ async def create_completion(
             )
         
         # Get model instance
-        model = get_chat_model(
+        model = get_chat_model_cached(
             model=request.model,
-            api_key=api_key,
             temperature=request.temperature,
-            max_tokens=request.max_tokens
+            max_tokens=request.max_tokens or 4096,
+            api_key=api_key,
         )
         
         # Convert prompt to message
@@ -526,11 +581,11 @@ async def create_chat_completion(
             )
         
         # Get model instance
-        model = get_chat_model(
+        model = get_chat_model_cached(
             model=request.model,
-            api_key=api_key,
             temperature=request.temperature,
-            max_tokens=request.max_tokens
+            max_tokens=request.max_tokens or 4096,
+            api_key=api_key,
         )
         
         # Bind tools if provided
@@ -611,11 +666,11 @@ async def create_chat_completion_stream(
             )
         
         # Get model instance
-        model = get_chat_model(
+        model = get_chat_model_cached(
             model=request.model,
-            api_key=api_key,
             temperature=request.temperature,
-            max_tokens=request.max_tokens
+            max_tokens=request.max_tokens or 4096,
+            api_key=api_key,
         )
         
         # Bind tools if provided
@@ -629,12 +684,14 @@ async def create_chat_completion_stream(
         
         async def generate():
             """Generate SSE stream with token usage"""
+            stream = None
             try:
                 # Track accumulated content and usage
                 full_content = ""
                 final_usage = None
                 
-                async for chunk in model.astream(messages):
+                stream = model.astream(messages)
+                async for chunk in stream:
                     # Accumulate content
                     if chunk.content:
                         full_content += chunk.content
@@ -682,10 +739,22 @@ async def create_chat_completion_stream(
             except Exception as e:
                 logger.error(f"Streaming error: {str(e)}")
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            finally:
+                # Ensure stream is properly closed
+                if stream is not None:
+                    try:
+                        await stream.aclose()
+                    except:
+                        pass
+                gc.collect()
         
         return StreamingResponse(
             generate(),
-            media_type="text/event-stream"
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            }
         )
         
     except Exception as e:

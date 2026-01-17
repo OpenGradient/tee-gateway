@@ -429,14 +429,50 @@ def convert_messages(messages: List[Message]) -> List[Any]:
         
         if role == "system":
             langchain_messages.append(SystemMessage(content=content))
+            logger.info(f"Added SystemMessage: {content[:100]}...")
+            
         elif role == "user":
             langchain_messages.append(HumanMessage(content=content))
+            logger.info(f"Added HumanMessage: {content[:100]}...")
+            
         elif role == "assistant":
-            ai_msg = AIMessage(content=content)
             if msg.tool_calls:
-                ai_msg.additional_kwargs["tool_calls"] = msg.tool_calls
+                logger.info(f"Processing assistant message with {len(msg.tool_calls)} tool calls")
+                
+                # Convert tool_calls from dict format to LangChain's expected format
+                langchain_tool_calls = []
+                for tc in msg.tool_calls:
+                    logger.info(f"Tool call: id={tc.get('id')}, type={tc.get('type')}, function={tc.get('function', {}).get('name')}")
+                    
+                    args = tc.get('function', {}).get('arguments', '{}')
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except json.JSONDecodeError:
+                            logger.warning(f"Could not parse tool arguments as JSON: {args}")
+                            args = {}
+                    
+                    langchain_tool_calls.append({
+                        "name": tc.get('function', {}).get('name', ''),
+                        "args": args,
+                        "id": tc.get('id', ''),
+                        "type": tc.get('type', 'function')
+                    })
+                
+                # Create AIMessage with tool_calls as direct attribute
+                ai_msg = AIMessage(
+                    content=content or "",
+                    tool_calls=langchain_tool_calls
+                )
+                logger.info(f"Created AIMessage with tool_calls: {langchain_tool_calls}")
+            else:
+                ai_msg = AIMessage(content=content)
+                logger.info(f"Added AIMessage (no tools): {content[:100]}...")
+            
             langchain_messages.append(ai_msg)
+            
         elif role == "tool":
+            logger.info(f"Adding ToolMessage: tool_call_id={msg.tool_call_id}, name={msg.name}, content={content[:100]}...")
             langchain_messages.append(
                 ToolMessage(
                     content=content,
@@ -445,8 +481,8 @@ def convert_messages(messages: List[Message]) -> List[Any]:
                 )
             )
     
+    logger.info(f"Converted {len(messages)} messages to {len(langchain_messages)} LangChain messages")
     return langchain_messages
-
 
 def extract_usage(response: AIMessage) -> Optional[Dict]:
     """Extract token usage information from response"""
@@ -576,7 +612,22 @@ async def create_chat_completion(
 ):
     """Create a chat completion with TEE signing"""
     try:
+        logger.info(f"=" * 80)
         logger.info(f"Chat request for model: {request.model}")
+        logger.info(f"Number of messages: {len(request.messages)}")
+        
+        # Log tool information
+        if request.tools:
+            logger.info(f"Tools provided: {len(request.tools)}")
+            for tool in request.tools:
+                logger.info(f"  Tool: {tool.function.get('name', 'unnamed')}")
+        
+        # Log messages with tool calls
+        for i, msg in enumerate(request.messages):
+            logger.info(f"Message {i}: role={msg.role}, has_tool_calls={bool(msg.tool_calls)}")
+            if msg.tool_calls:
+                for tc in msg.tool_calls:
+                    logger.info(f"  Tool call in message: {tc}")
         
         # Compute request hash
         request_dict = request.dict()

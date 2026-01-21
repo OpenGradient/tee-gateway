@@ -37,6 +37,8 @@ from langchain_anthropic import ChatAnthropic
 from langchain_xai import ChatXAI
 
 # HTTP Client Configuration
+ANTHROPIC_TIMEOUT = 120.0
+
 TIMEOUT = httpx.Timeout(
     timeout=120.0,
     connect=15.0,
@@ -61,12 +63,7 @@ openai_http_client = httpx.AsyncClient(
     follow_redirects=False,
 )
 
-anthropic_http_client = httpx.AsyncClient(
-    timeout=TIMEOUT,
-    limits=LIMITS,
-    http2=True,
-    follow_redirects=False,
-)
+# Note: Anthropic SDK manages its own HTTP client internally and doesn't accept custom clients
 
 xai_http_client = httpx.AsyncClient(
     base_url="https://api.x.ai/v1",
@@ -346,12 +343,14 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY not found in environment")
             
+        # Note: ChatAnthropic doesn't support http_async_client parameter
+        # The Anthropic SDK manages its own HTTP client internally
         return ChatAnthropic(
             model=anthropic_model,
             api_key=api_key,
             temperature=temperature,
             max_tokens=max_tokens,
-            http_async_client=anthropic_http_client,
+            timeout=ANTHROPIC_TIMEOUT,
             streaming=True,
             stream_usage=True,
         )

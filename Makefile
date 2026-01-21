@@ -199,118 +199,40 @@ test-tools-openai:
 	@echo "\n=========================================="
 	@echo "Testing OpenAI Tools: $(OPENAI_MODEL)"
 	@echo "==========================================\n"
+	@echo '{"model":"$(OPENAI_MODEL)","messages":[{"role":"user","content":"What is the weather in San Francisco?"}],"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"get_weather","description":"Get current weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["location"]}}}]}' | \
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
-		-d '{ \
-			"model": "$(OPENAI_MODEL)", \
-			"messages": [{"role": "user", "content": "What is the weather in San Francisco?"}], \
-			"temperature": $(TEMPERATURE), \
-			"max_tokens": $(MAX_TOKENS), \
-			"tools": [{ \
-				"type": "function", \
-				"function": { \
-					"name": "get_weather", \
-					"description": "Get current weather for a location", \
-					"parameters": { \
-						"type": "object", \
-						"properties": { \
-							"location": {"type": "string", "description": "City name"}, \
-							"unit": {"type": "string", "enum": ["celsius", "fahrenheit"]} \
-						}, \
-						"required": ["location"] \
-					} \
-				} \
-			}] \
-		}'
+		-d @-
 
 .PHONY: test-tools-anthropic
 test-tools-anthropic:
 	@echo "\n=========================================="
 	@echo "Testing Anthropic Tools: $(ANTHROPIC_MODEL)"
 	@echo "==========================================\n"
+	@echo '{"model":"$(ANTHROPIC_MODEL)","messages":[{"role":"user","content":"Calculate 15 times 23 plus 47"}],"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"calculator","description":"Perform basic arithmetic operations","parameters":{"type":"object","properties":{"operation":{"type":"string","enum":["add","subtract","multiply","divide"]},"a":{"type":"number"},"b":{"type":"number"}},"required":["operation","a","b"]}}}]}' | \
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
-		-d '{ \
-			"model": "$(ANTHROPIC_MODEL)", \
-			"messages": [{"role": "user", "content": "Calculate 15 times 23 plus 47"}], \
-			"temperature": $(TEMPERATURE), \
-			"max_tokens": $(MAX_TOKENS), \
-			"tools": [{ \
-				"type": "function", \
-				"function": { \
-					"name": "calculator", \
-					"description": "Perform basic arithmetic operations", \
-					"parameters": { \
-						"type": "object", \
-						"properties": { \
-							"operation": {"type": "string", "enum": ["add", "subtract", "multiply", "divide"]}, \
-							"a": {"type": "number"}, \
-							"b": {"type": "number"} \
-						}, \
-						"required": ["operation", "a", "b"] \
-					} \
-				} \
-			}] \
-		}'
+		-d @-
 
 .PHONY: test-tools-google
 test-tools-google:
 	@echo "\n=========================================="
 	@echo "Testing Google Tools: $(GOOGLE_MODEL)"
 	@echo "==========================================\n"
+	@echo '{"model":"$(GOOGLE_MODEL)","messages":[{"role":"user","content":"Search for recent AI news"}],"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"web_search","description":"Search the web for information","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"num_results":{"type":"integer","description":"Number of results","default":5}},"required":["query"]}}}]}' | \
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
-		-d '{ \
-			"model": "$(GOOGLE_MODEL)", \
-			"messages": [{"role": "user", "content": "Search for recent AI news"}], \
-			"temperature": $(TEMPERATURE), \
-			"max_tokens": $(MAX_TOKENS), \
-			"tools": [{ \
-				"type": "function", \
-				"function": { \
-					"name": "web_search", \
-					"description": "Search the web for information", \
-					"parameters": { \
-						"type": "object", \
-						"properties": { \
-							"query": {"type": "string", "description": "Search query"}, \
-							"num_results": {"type": "integer", "description": "Number of results", "default": 5} \
-						}, \
-						"required": ["query"] \
-					} \
-				} \
-			}] \
-		}'
+		-d @-
 
 .PHONY: test-tools-xai
 test-tools-xai:
 	@echo "\n=========================================="
 	@echo "Testing xAI Tools: $(XAI_MODEL)"
 	@echo "==========================================\n"
+	@echo '{"model":"$(XAI_MODEL)","messages":[{"role":"user","content":"Send an email to john@example.com about the meeting tomorrow at 2pm"}],"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"send_email","description":"Send an email to a recipient","parameters":{"type":"object","properties":{"to":{"type":"string","description":"Recipient email"},"subject":{"type":"string","description":"Email subject"},"body":{"type":"string","description":"Email body"}},"required":["to","subject","body"]}}}]}' | \
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
-		-d '{ \
-			"model": "$(XAI_MODEL)", \
-			"messages": [{"role": "user", "content": "Send an email to john@example.com about the meeting tomorrow at 2pm"}], \
-			"temperature": $(TEMPERATURE), \
-			"max_tokens": $(MAX_TOKENS), \
-			"tools": [{ \
-				"type": "function", \
-				"function": { \
-					"name": "send_email", \
-					"description": "Send an email to a recipient", \
-					"parameters": { \
-						"type": "object", \
-						"properties": { \
-							"to": {"type": "string", "description": "Recipient email"}, \
-							"subject": {"type": "string", "description": "Email subject"}, \
-							"body": {"type": "string", "description": "Email body"} \
-						}, \
-						"required": ["to", "subject", "body"] \
-					} \
-				} \
-			}] \
-		}'
+		-d @-
 
 # Multi-turn tool calling test (weather example)
 .PHONY: test-tools-multiturn
@@ -319,59 +241,14 @@ test-tools-multiturn:
 	@echo "Testing Multi-turn Tool Calling: $(GOOGLE_MODEL)"
 	@echo "==========================================\n"
 	@echo "Step 1: Initial request with tool..."
-	@curl -s -k -X POST $(HOST)/v1/chat/completions \
+	@echo '{"model":"$(GOOGLE_MODEL)","messages":[{"role":"user","content":"What is the weather in Tokyo?"}],"tools":[{"type":"function","function":{"name":"get_weather","description":"Get current weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["location"]}}}]}' | \
+	curl -s -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
-		-d '{ \
-			"model": "$(GOOGLE_MODEL)", \
-			"messages": [{"role": "user", "content": "What is the weather in Tokyo?"}], \
-			"tools": [{ \
-				"type": "function", \
-				"function": { \
-					"name": "get_weather", \
-					"description": "Get current weather for a location", \
-					"parameters": { \
-						"type": "object", \
-						"properties": { \
-							"location": {"type": "string"}, \
-							"unit": {"type": "string", "enum": ["celsius", "fahrenheit"]} \
-						}, \
-						"required": ["location"] \
-					} \
-				} \
-			}] \
-		}' > /tmp/tool_response.json
+		-d @- > /tmp/tool_response.json
 	@echo "\n"
 	@cat /tmp/tool_response.json | python3 -m json.tool
 	@echo "\n\nStep 2: Sending tool result back..."
-	@# Extract tool_call_id and construct second request
-	@python3 -c ' \
-import json; \
-resp = json.load(open("/tmp/tool_response.json")); \
-tc = resp["message"]["tool_calls"][0]; \
-req = { \
-	"model": "$(GOOGLE_MODEL)", \
-	"messages": [ \
-		{"role": "user", "content": "What is the weather in Tokyo?"}, \
-		{"role": "assistant", "content": "", "tool_calls": [tc]}, \
-		{"role": "tool", "tool_call_id": tc["id"], "name": "get_weather", "content": "{\"temperature\": 18, \"condition\": \"cloudy\", \"humidity\": 75}"} \
-	], \
-	"tools": [{ \
-		"type": "function", \
-		"function": { \
-			"name": "get_weather", \
-			"description": "Get current weather for a location", \
-			"parameters": { \
-				"type": "object", \
-				"properties": { \
-					"location": {"type": "string"}, \
-					"unit": {"type": "string", "enum": ["celsius", "fahrenheit"]} \
-				}, \
-				"required": ["location"] \
-			} \
-		} \
-	}] \
-}; \
-print(json.dumps(req))' | \
+	@python3 -c 'import json; resp = json.load(open("/tmp/tool_response.json")); tc = resp["message"]["tool_calls"][0]; req = {"model": "$(GOOGLE_MODEL)", "messages": [{"role": "user", "content": "What is the weather in Tokyo?"}, {"role": "assistant", "content": "", "tool_calls": [tc]}, {"role": "tool", "tool_call_id": tc["id"], "name": "get_weather", "content": "{\"temperature\": 18, \"condition\": \"cloudy\", \"humidity\": 75}"}], "tools": [{"type": "function", "function": {"name": "get_weather", "description": "Get current weather for a location", "parameters": {"type": "object", "properties": {"location": {"type": "string"}, "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]}}, "required": ["location"]}}}]}; print(json.dumps(req))' | \
 	curl -s -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
 		-d @- | python3 -m json.tool
@@ -382,42 +259,10 @@ test-tools-complex:
 	@echo "\n=========================================="
 	@echo "Testing Complex Tool Parameters: $(ANTHROPIC_MODEL)"
 	@echo "==========================================\n"
+	@echo '{"model":"$(ANTHROPIC_MODEL)","messages":[{"role":"user","content":"Find all users who signed up in the last 7 days from California"}],"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"query_database","description":"Query the user database with filters","parameters":{"type":"object","properties":{"table":{"type":"string","description":"Database table name"},"filters":{"type":"array","description":"Filter conditions","items":{"type":"object","properties":{"field":{"type":"string"},"operator":{"type":"string","enum":["equals","greater_than","less_than","contains"]},"value":{}},"required":["field","operator","value"]}},"limit":{"type":"integer","description":"Max results"}},"required":["table","filters"]}}}]}' | \
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
-		-d '{ \
-			"model": "$(ANTHROPIC_MODEL)", \
-			"messages": [{"role": "user", "content": "Find all users who signed up in the last 7 days from California"}], \
-			"temperature": $(TEMPERATURE), \
-			"max_tokens": $(MAX_TOKENS), \
-			"tools": [{ \
-				"type": "function", \
-				"function": { \
-					"name": "query_database", \
-					"description": "Query the user database with filters", \
-					"parameters": { \
-						"type": "object", \
-						"properties": { \
-							"table": {"type": "string", "description": "Database table name"}, \
-							"filters": { \
-								"type": "array", \
-								"description": "Filter conditions", \
-								"items": { \
-									"type": "object", \
-									"properties": { \
-										"field": {"type": "string"}, \
-										"operator": {"type": "string", "enum": ["equals", "greater_than", "less_than", "contains"]}, \
-										"value": {} \
-									}, \
-									"required": ["field", "operator", "value"] \
-								} \
-							}, \
-							"limit": {"type": "integer", "description": "Max results"} \
-						}, \
-						"required": ["table", "filters"] \
-					} \
-				} \
-			}] \
-		}'
+		-d @-
 
 # Comprehensive test suite
 .PHONY: test-all

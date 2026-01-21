@@ -14,8 +14,9 @@ import asyncio
 from typing import List, Dict, Optional, Any
 from datetime import datetime, UTC
 import urllib.request
+from functools import lru_cache
 
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import uvicorn
@@ -23,9 +24,6 @@ import psutil
 import gc
 import time
 import httpx
-
-from functools import lru_cache
-import hashlib
 
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
@@ -37,10 +35,47 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_xai import ChatXAI
-from langchain.chat_models import init_chat_model
 
-# LLM Client request timeout
-TIMEOUT = 120
+# HTTP Client Configuration
+TIMEOUT = httpx.Timeout(
+    timeout=120.0,
+    connect=15.0,
+    read=15.0,
+    write=30.0,
+    pool=10.0,
+)
+
+LIMITS = httpx.Limits(
+    max_keepalive_connections=10,
+    max_connections=50,
+    keepalive_expiry=60 * 20,  # 20 minutes
+)
+
+# Shared HTTP clients for each provider
+openai_http_client = httpx.AsyncClient(
+    base_url="https://api.openai.com/v1",
+    headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY', '')}"},
+    timeout=TIMEOUT,
+    limits=LIMITS,
+    http2=True,
+    follow_redirects=False,
+)
+
+anthropic_http_client = httpx.AsyncClient(
+    timeout=TIMEOUT,
+    limits=LIMITS,
+    http2=True,
+    follow_redirects=False,
+)
+
+xai_http_client = httpx.AsyncClient(
+    base_url="https://api.x.ai/v1",
+    headers={"Authorization": f"Bearer {os.getenv('XAI_API_KEY', '')}"},
+    timeout=TIMEOUT,
+    limits=LIMITS,
+    http2=True,
+    follow_redirects=False,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -235,76 +270,6 @@ def compute_request_hash(request_data: Dict) -> str:
     return hashlib.sha256(request_json.encode('utf-8')).hexdigest()
 
 
-def get_api_key(model: str, auth_header: Optional[str]) -> Optional[str]:
-    """Extract API key from authorization header or environment variables"""
-    if auth_header and auth_header.startswith("Bearer "):
-        logger.info(f"Using API key from Authorization header for {model}")
-        return auth_header.replace("Bearer ", "")
-    
-    provider = get_provider_from_model(model)
-    env_var_map = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "google": "GOOGLE_API_KEY",
-        "gemini": "GOOGLE_API_KEY",
-        "x-ai": "XAI_API_KEY",
-        "cohere": "COHERE_API_KEY",
-        "groq": "GROQ_API_KEY",
-        "together": "TOGETHER_API_KEY",
-    }
-    
-    env_var = env_var_map.get(provider)
-    if env_var:
-        api_key = os.getenv(env_var)
-        if api_key:
-            logger.info(f"Using {env_var} from environment for {model}")
-            return api_key
-    
-    return None
-
-
-@lru_cache(maxsize=32)
-def _get_chat_model_from_env(model: str, temperature: float, max_tokens: int):
-    """
-    Internal cached function for environment-based API keys.
-    Only caches models using environment variables.
-    """
-    provider = get_provider_from_model(model)
-    env_var_map = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "google": "GOOGLE_API_KEY",
-        "gemini": "GOOGLE_API_KEY",
-        "x-ai": "XAI_API_KEY",
-    }
-    
-    env_var = env_var_map.get(provider)
-    if not env_var:
-        raise ValueError(f"Unknown provider: {provider}")
-    
-    api_key = os.getenv(env_var)
-    if not api_key:
-        raise ValueError(f"Missing {env_var} in environment")
-    
-    return get_chat_model(model, api_key, temperature, max_tokens)
-
-
-def get_chat_model_cached(model: str, temperature: float, max_tokens: int, api_key: Optional[str] = None):
-    """
-    Get chat model instance, using cache for environment keys.
-    
-    - If api_key is None: Use cached model with environment variable
-    - If api_key is provided: Create fresh model instance (no caching)
-    """
-    if api_key:
-        # User-provided key - create fresh instance, don't cache
-        logger.info(f"Creating fresh model instance with user-provided API key for {model}")
-        return get_chat_model(model, api_key, temperature, max_tokens)
-    else:
-        # Environment key - use cached instance
-        return _get_chat_model_from_env(model, temperature, max_tokens)
-
-
 def get_provider_from_model(model: str) -> str:
     """Infer provider from model name"""
     model_lower = model.lower()
@@ -317,28 +282,19 @@ def get_provider_from_model(model: str) -> str:
         return "google"
     elif "grok" in model_lower or model.startswith("x-ai/"):
         return "x-ai"
-    elif "command" in model_lower or model.startswith("cohere/"):
-        return "cohere"
-    elif model.startswith("groq/"):
-        return "groq"
-    elif model.startswith("together/"):
-        return "together"
     else:
         return "openai"
 
 
-def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_tokens: int = 100):
-    """Get the appropriate chat model instance based on the model name"""
+@lru_cache(maxsize=32)
+def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
+    """
+    Get cached chat model instance using environment API keys.
+    Models are cached by (model, temperature, max_tokens) tuple.
+    """
     provider = get_provider_from_model(model)
     
-    logger.info(f"Creating chat model - Provider: {provider}, Model: {model}")
-    
-    # Common HTTP client configuration to limit connections
-    http_client_config = {
-        "max_connections": 10,
-        "max_keepalive_connections": 5,
-        "timeout": TIMEOUT,
-    }
+    logger.info(f"Creating cached chat model - Provider: {provider}, Model: {model}")
     
     if provider in ["google", "gemini"]:
         thinking_budget = None
@@ -346,6 +302,10 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
             thinking_budget = 0
         elif "2.5-pro" in model:
             thinking_budget = 128
+        
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError("GOOGLE_API_KEY not found in environment")
             
         return ChatGoogleGenerativeAI(
             model=model,
@@ -354,26 +314,25 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
             max_output_tokens=max_tokens,
             thinking_budget=thinking_budget,
             include_thoughts=False if thinking_budget is not None else None,
-            http_client_config=http_client_config,
         )
+        
     elif provider == "openai":
         model_temp = 1.0 if model in ["o4-mini", "o3"] else temperature
         
-        http_client = httpx.Client(
-            limits=httpx.Limits(
-                max_connections=http_client_config["max_connections"],
-                max_keepalive_connections=http_client_config["max_keepalive_connections"]
-            ),
-            timeout=httpx.Timeout(http_client_config["timeout"])
-        )
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY not found in environment")
 
         return ChatOpenAI(
             model=model,
             api_key=api_key,
             temperature=model_temp,
             max_tokens=max_tokens,
-            http_client=http_client,
+            http_async_client=openai_http_client,
+            streaming=True,
+            stream_usage=True,
         )
+        
     elif provider == "anthropic":
         anthropic_model = model
         if model == "claude-3.7-sonnet":
@@ -382,14 +341,21 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
             anthropic_model = "claude-3-5-haiku-latest"
         elif model == "claude-4.0-sonnet":
             anthropic_model = "claude-sonnet-4-0"
+        
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY not found in environment")
             
         return ChatAnthropic(
             model=anthropic_model,
             api_key=api_key,
             temperature=temperature,
             max_tokens=max_tokens,
-            timeout=TIMEOUT,
+            http_async_client=anthropic_http_client,
+            streaming=True,
+            stream_usage=True,
         )
+        
     elif provider == "x-ai":
         xai_model = model
         if model == "grok-3-mini-beta":
@@ -400,23 +366,25 @@ def get_chat_model(model: str, api_key: str, temperature: float = 0.7, max_token
             xai_model = "grok-2-latest"
         elif model == "grok-4.1-fast":
             xai_model = "grok-4-1-fast"
+        elif model == "grok-4-1-fast-non-reasoning":
+            xai_model = "grok-4-1-fast-non-reasoning"
+        
+        api_key = os.getenv("XAI_API_KEY")
+        if not api_key:
+            raise ValueError("XAI_API_KEY not found in environment")
             
         return ChatXAI(
             model=xai_model,
             api_key=api_key,
             temperature=temperature,
             max_tokens=max_tokens,
+            http_async_client=xai_http_client,
+            streaming=True,
             stream_usage=True,
-            timeout=TIMEOUT,
         )
+        
     else:
-        logger.warning(f"Using fallback initialization for model: {model}")
-        return init_chat_model(
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            api_key=api_key,
-        )
+        raise ValueError(f"Unsupported provider: {provider}")
 
 
 def convert_messages(messages: List[Message]) -> List[Any]:
@@ -484,6 +452,7 @@ def convert_messages(messages: List[Message]) -> List[Any]:
     logger.info(f"Converted {len(messages)} messages to {len(langchain_messages)} LangChain messages")
     return langchain_messages
 
+
 def extract_usage(response: AIMessage) -> Optional[Dict]:
     """Extract token usage information from response"""
     if hasattr(response, 'usage_metadata') and response.usage_metadata:
@@ -548,29 +517,18 @@ async def get_attestation():
 
 
 @app.post("/v1/completions", response_model=CompletionResponse)
-async def create_completion(
-    request: CompletionRequest,
-    authorization: Optional[str] = Header(None)
-):
+async def create_completion(request: CompletionRequest):
     """Create a text completion with TEE signing"""
     try:
         # Compute request hash
         request_dict = request.dict()
         request_hash = compute_request_hash(request_dict)
         
-        api_key = get_api_key(request.model, authorization)
-        if not api_key:
-            raise HTTPException(
-                status_code=401,
-                detail=f"No API key provided for {request.model}"
-            )
-        
-        # Get model instance
+        # Get cached model instance
         model = get_chat_model_cached(
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens or 4096,
-            api_key=api_key,
         )
         
         # Convert prompt to message
@@ -606,10 +564,7 @@ async def create_completion(
 
 
 @app.post("/v1/chat/completions", response_model=ChatResponse)
-async def create_chat_completion(
-    request: ChatRequest,
-    authorization: Optional[str] = Header(None)
-):
+async def create_chat_completion(request: ChatRequest):
     """Create a chat completion with TEE signing"""
     try:
         logger.info(f"=" * 80)
@@ -633,19 +588,11 @@ async def create_chat_completion(
         request_dict = request.dict()
         request_hash = compute_request_hash(request_dict)
         
-        api_key = get_api_key(request.model, authorization)
-        if not api_key:
-            raise HTTPException(
-                status_code=401,
-                detail=f"No API key provided for {request.model}"
-            )
-        
-        # Get model instance
+        # Get cached model instance
         model = get_chat_model_cached(
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens or 4096,
-            api_key=api_key,
         )
         
         # Bind tools if provided
@@ -712,25 +659,14 @@ async def create_chat_completion(
 
 
 @app.post("/v1/chat/completions/stream")
-async def create_chat_completion_stream(
-    request: ChatRequest,
-    authorization: Optional[str] = Header(None)
-):
+async def create_chat_completion_stream(request: ChatRequest):
     """Create a streaming chat completion with final token usage"""
     try:
-        api_key = get_api_key(request.model, authorization)
-        if not api_key:
-            raise HTTPException(
-                status_code=401,
-                detail=f"No API key provided for {request.model}"
-            )
-        
-        # Get model instance
+        # Get cached model instance
         model = get_chat_model_cached(
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens or 4096,
-            api_key=api_key,
         )
         
         # Bind tools if provided
@@ -868,7 +804,9 @@ async def root():
             "Remote Attestation",
             "Cryptographic Request Signing",
             "Multi-provider LLM Routing",
-            "Async Processing"
+            "Async Processing",
+            "Shared HTTP Clients",
+            "LLM Wrapper Caching"
         ]
     }
 

@@ -679,14 +679,13 @@ async def create_chat_completion_stream(request: ChatRequest):
         
         async def generate():
             """Generate SSE stream with token usage"""
-            stream = None
             try:
                 # Track accumulated content and usage
                 full_content = ""
                 final_usage = None
                 
-                stream = model.astream(messages)
-                async for chunk in stream:
+                # CRITICAL FIX: Call astream() here, not before the loop
+                async for chunk in model.astream(messages):
                     # Accumulate content
                     if chunk.content:
                         full_content += chunk.content
@@ -698,12 +697,15 @@ async def create_chat_completion_stream(request: ChatRequest):
                                 "content": chunk.content or "",
                                 "role": "assistant"
                             },
-                            "index": 0,     # This maintains compatability with OpenAI API format
+                            "index": 0,
                             "finish_reason": None
                         }],
                         "model": request.model
                     }
+                    
+                    # CRITICAL: Yield immediately and ensure it's sent
                     yield f"data: {json.dumps(data)}\n\n"
+                    await asyncio.sleep(0)  # Force context switch to send data
                     
                     # Capture usage metadata from the last chunk
                     if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
@@ -734,13 +736,6 @@ async def create_chat_completion_stream(request: ChatRequest):
             except Exception as e:
                 logger.error(f"Streaming error: {str(e)}")
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
-            finally:
-                # Ensure stream is properly closed
-                if stream is not None:
-                    try:
-                        await stream.aclose()
-                    except:
-                        pass
         
         return StreamingResponse(
             generate(),

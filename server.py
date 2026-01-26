@@ -729,30 +729,48 @@ async def create_chat_completion_stream(request: ChatRequest):
                                 tool_calls_map[tc_index]['id'] = tc_chunk['id']
                             if 'name' in tc_chunk and tc_chunk['name']:
                                 tool_calls_map[tc_index]['function']['name'] = tc_chunk['name']
+                            
+                            # Handle args - could be string or dict
                             if 'args' in tc_chunk and tc_chunk['args']:
-                                tool_calls_map[tc_index]['function']['arguments'] += tc_chunk['args']
+                                args_value = tc_chunk['args']
+                                # Convert to string if it's a dict or other type
+                                if isinstance(args_value, dict):
+                                    args_str = json.dumps(args_value)
+                                elif isinstance(args_value, str):
+                                    args_str = args_value
+                                else:
+                                    args_str = str(args_value)
+                                
+                                tool_calls_map[tc_index]['function']['arguments'] += args_str
                             
                             # Create delta for this chunk
                             delta = {
                                 "role": "assistant",
                                 "tool_calls": [{
                                     "index": tc_index,
-                                    "id": tc_chunk.get('id'),
                                     "type": "function",
-                                    "function": {
-                                        "name": tc_chunk.get('name'),
-                                        "arguments": tc_chunk.get('args', '')
-                                    }
+                                    "function": {}
                                 }]
                             }
                             
-                            # Remove None values
-                            if delta["tool_calls"][0]["id"] is None:
-                                del delta["tool_calls"][0]["id"]
-                            if delta["tool_calls"][0]["function"]["name"] is None:
-                                del delta["tool_calls"][0]["function"]["name"]
-                            if not delta["tool_calls"][0]["function"]["arguments"]:
-                                del delta["tool_calls"][0]["function"]["arguments"]
+                            # Add fields that are present in this chunk
+                            if tc_chunk.get('id'):
+                                delta["tool_calls"][0]["id"] = tc_chunk['id']
+                            if tc_chunk.get('name'):
+                                delta["tool_calls"][0]["function"]["name"] = tc_chunk['name']
+                            if tc_chunk.get('args'):
+                                args_value = tc_chunk['args']
+                                # Convert to string for the delta
+                                if isinstance(args_value, dict):
+                                    delta["tool_calls"][0]["function"]["arguments"] = json.dumps(args_value)
+                                elif isinstance(args_value, str):
+                                    delta["tool_calls"][0]["function"]["arguments"] = args_value
+                                else:
+                                    delta["tool_calls"][0]["function"]["arguments"] = str(args_value)
+                            
+                            # Remove empty function dict if nothing was added
+                            if not delta["tool_calls"][0]["function"]:
+                                del delta["tool_calls"][0]["function"]
                             
                             data = {
                                 "choices": [{

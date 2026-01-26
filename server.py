@@ -661,22 +661,28 @@ async def create_chat_completion(request: ChatRequest):
 async def create_chat_completion_stream(request: ChatRequest):
     """Create a streaming chat completion with tool calls and final token usage"""
     try:
+        # Get provider to determine buffering strategy
+        provider = get_provider_from_model(request.model)
+
+        # Determine if we should buffer tool calls (for OpenAI/Anthropic)
+        buffer_tool_calls = provider in ["openai", "anthropic"]
+
         # Get cached model instance
         model = get_chat_model_cached(
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens or 4096,
         )
-        
+
         # Bind tools if provided
         if request.tools:
-            tools_list = [{"type": "function", "function": tool.function} 
+            tools_list = [{"type": "function", "function": tool.function}
                          for tool in request.tools]
             model = model.bind_tools(tools_list)
-        
+
         # Convert messages
         messages = convert_messages(request.messages)
-        
+
         async def generate():
             """Generate SSE stream with tool calls and token usage"""
             try:
@@ -685,37 +691,53 @@ async def create_chat_completion_stream(request: ChatRequest):
                 final_usage = None
                 tool_calls_map = {}  # Track tool calls by index
                 finish_reason = "stop"
-                
+
+                # Buffer for complete tool calls (OpenAI/Anthropic only)
+                buffered_tool_calls = {}
+                tool_calls_complete = False
+
                 async for chunk in model.astream(messages):
-                    # Handle content delta
+                    # Handle content delta - normalize to string
                     if chunk.content:
-                        full_content += chunk.content
-                        
-                        data = {
-                            "choices": [{
-                                "delta": {
-                                    "content": chunk.content,
-                                    "role": "assistant"
-                                },
-                                "index": 0,
-                                "finish_reason": None
-                            }],
-                            "model": request.model
-                        }
-                        
-                        yield f"data: {json.dumps(data)}\n\n"
-                        await asyncio.sleep(0)
-                    
+                        # Convert content to string (handle both str and list)
+                        if isinstance(chunk.content, str):
+                            content_str = chunk.content
+                        elif isinstance(chunk.content, list):
+                            content_str = ''.join(
+                                item.get('text', '') if isinstance(item, dict) else str(item)
+                                for item in chunk.content
+                            )
+                        else:
+                            content_str = str(chunk.content)
+
+                        if content_str:
+                            full_content += content_str
+
+                            data = {
+                                "choices": [{
+                                    "delta": {
+                                        "content": content_str,
+                                        "role": "assistant"
+                                    },
+                                    "index": 0,
+                                    "finish_reason": None
+                                }],
+                                "model": request.model
+                            }
+
+                            yield f"data: {json.dumps(data)}\n\n"
+                            await asyncio.sleep(0)
+
                     # Handle tool call deltas
                     if hasattr(chunk, 'tool_call_chunks') and chunk.tool_call_chunks:
                         finish_reason = "tool_calls"
-                        
+
                         for tc_chunk in chunk.tool_call_chunks:
-                            # Get or initialize tool call tracking
                             tc_index = tc_chunk.get('index', 0)
-                            
-                            if tc_index not in tool_calls_map:
-                                tool_calls_map[tc_index] = {
+
+                            # Initialize or update buffered tool call
+                            if tc_index not in buffered_tool_calls:
+                                buffered_tool_calls[tc_index] = {
                                     'id': tc_chunk.get('id', ''),
                                     'type': 'function',
                                     'function': {
@@ -723,71 +745,93 @@ async def create_chat_completion_stream(request: ChatRequest):
                                         'arguments': ''
                                     }
                                 }
-                            
+
                             # Update tool call state
                             if 'id' in tc_chunk and tc_chunk['id']:
-                                tool_calls_map[tc_index]['id'] = tc_chunk['id']
+                                buffered_tool_calls[tc_index]['id'] = tc_chunk['id']
                             if 'name' in tc_chunk and tc_chunk['name']:
-                                tool_calls_map[tc_index]['function']['name'] = tc_chunk['name']
-                            
-                            # Handle args - could be string or dict
+                                buffered_tool_calls[tc_index]['function']['name'] = tc_chunk['name']
                             if 'args' in tc_chunk and tc_chunk['args']:
                                 args_value = tc_chunk['args']
-                                # Convert to string if it's a dict or other type
                                 if isinstance(args_value, dict):
                                     args_str = json.dumps(args_value)
                                 elif isinstance(args_value, str):
                                     args_str = args_value
                                 else:
                                     args_str = str(args_value)
-                                
-                                tool_calls_map[tc_index]['function']['arguments'] += args_str
-                            
-                            # Create delta for this chunk
-                            delta = {
-                                "role": "assistant",
-                                "tool_calls": [{
-                                    "index": tc_index,
-                                    "type": "function",
-                                    "function": {}
-                                }]
-                            }
-                            
-                            # Add fields that are present in this chunk
-                            if tc_chunk.get('id'):
-                                delta["tool_calls"][0]["id"] = tc_chunk['id']
-                            if tc_chunk.get('name'):
-                                delta["tool_calls"][0]["function"]["name"] = tc_chunk['name']
-                            if tc_chunk.get('args'):
-                                args_value = tc_chunk['args']
-                                # Convert to string for the delta
-                                if isinstance(args_value, dict):
-                                    delta["tool_calls"][0]["function"]["arguments"] = json.dumps(args_value)
-                                elif isinstance(args_value, str):
-                                    delta["tool_calls"][0]["function"]["arguments"] = args_value
-                                else:
-                                    delta["tool_calls"][0]["function"]["arguments"] = str(args_value)
-                            
-                            # Remove empty function dict if nothing was added
-                            if not delta["tool_calls"][0]["function"]:
-                                del delta["tool_calls"][0]["function"]
-                            
-                            data = {
-                                "choices": [{
-                                    "delta": delta,
-                                    "index": 0,
-                                    "finish_reason": None
-                                }],
-                                "model": request.model
-                            }
-                            
-                            yield f"data: {json.dumps(data)}\n\n"
-                            await asyncio.sleep(0)
-                    
-                    # Capture usage metadata from the last chunk
+                                buffered_tool_calls[tc_index]['function']['arguments'] += args_str
+
+                            # If NOT buffering (Google/xAI), stream immediately
+                            if not buffer_tool_calls:
+                                delta = {
+                                    "role": "assistant",
+                                    "tool_calls": [{
+                                        "index": tc_index,
+                                        "type": "function",
+                                        "function": {}
+                                    }]
+                                }
+
+                                if tc_chunk.get('id'):
+                                    delta["tool_calls"][0]["id"] = tc_chunk['id']
+                                if tc_chunk.get('name'):
+                                    delta["tool_calls"][0]["function"]["name"] = tc_chunk['name']
+                                if tc_chunk.get('args'):
+                                    args_value = tc_chunk['args']
+                                    if isinstance(args_value, dict):
+                                        delta["tool_calls"][0]["function"]["arguments"] = json.dumps(args_value)
+                                    elif isinstance(args_value, str):
+                                        delta["tool_calls"][0]["function"]["arguments"] = args_value
+                                    else:
+                                        delta["tool_calls"][0]["function"]["arguments"] = str(args_value)
+
+                                if not delta["tool_calls"][0]["function"]:
+                                    del delta["tool_calls"][0]["function"]
+
+                                data = {
+                                    "choices": [{
+                                        "delta": delta,
+                                        "index": 0,
+                                        "finish_reason": None
+                                    }],
+                                    "model": request.model
+                                }
+
+                                yield f"data: {json.dumps(data)}\n\n"
+                                await asyncio.sleep(0)
+
+                    # Capture usage metadata
                     if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
                         final_usage = chunk.usage_metadata
-                
+
+                # If we buffered tool calls (OpenAI/Anthropic), send them all at once now
+                if buffer_tool_calls and buffered_tool_calls:
+                    for tc_index, tc in buffered_tool_calls.items():
+                        delta = {
+                            "role": "assistant",
+                            "tool_calls": [{
+                                "index": tc_index,
+                                "id": tc['id'],
+                                "type": "function",
+                                "function": {
+                                    "name": tc['function']['name'],
+                                    "arguments": tc['function']['arguments']
+                                }
+                            }]
+                        }
+
+                        data = {
+                            "choices": [{
+                                "delta": delta,
+                                "index": 0,
+                                "finish_reason": None
+                            }],
+                            "model": request.model
+                        }
+
+                        yield f"data: {json.dumps(data)}\n\n"
+                        await asyncio.sleep(0)
+
                 # Send final chunk with finish_reason and usage
                 final_data = {
                     "choices": [{
@@ -797,8 +841,7 @@ async def create_chat_completion_stream(request: ChatRequest):
                     }],
                     "model": request.model
                 }
-                
-                # Add usage information if available
+
                 if final_usage:
                     final_data["usage"] = {
                         "prompt_tokens": final_usage.get("input_tokens", 0),
@@ -806,14 +849,14 @@ async def create_chat_completion_stream(request: ChatRequest):
                         "total_tokens": final_usage.get("total_tokens", 0)
                     }
                     logger.info(f"Stream completed - Usage: {final_data['usage']}, Finish: {finish_reason}")
-                
+
                 yield f"data: {json.dumps(final_data)}\n\n"
                 yield "data: [DONE]\n\n"
-                
+
             except Exception as e:
                 logger.error(f"Streaming error: {str(e)}", exc_info=True)
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        
+
         return StreamingResponse(
             generate(),
             media_type="text/event-stream",
@@ -822,7 +865,7 @@ async def create_chat_completion_stream(request: ChatRequest):
                 "Connection": "keep-alive",
             }
         )
-        
+
     except Exception as e:
         logger.error(f"Stream setup error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

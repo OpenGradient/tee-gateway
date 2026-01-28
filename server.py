@@ -11,6 +11,7 @@ import json
 import hashlib
 import base64
 import asyncio
+import sys
 from typing import List, Dict, Optional, Any
 from datetime import datetime, UTC
 import urllib.request
@@ -74,9 +75,40 @@ xai_http_client = httpx.AsyncClient(
     follow_redirects=False,
 )
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Store server start time for uptime calculation
+SERVER_START_TIME = time.time()
+
+class UptimeFormatter(logging.Formatter):
+    """Custom formatter that includes uptime since server start"""
+    
+    def format(self, record):
+        # Calculate uptime in seconds
+        uptime = time.time() - SERVER_START_TIME
+        
+        # Format uptime as HH:MM:SS
+        hours = int(uptime // 3600)
+        minutes = int((uptime % 3600) // 60)
+        seconds = int(uptime % 60)
+        record.uptime = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        
+        return super().format(record)
+
+# Configure logging with timestamp and uptime
+log_handler = logging.StreamHandler(sys.stdout)
+log_handler.setFormatter(UptimeFormatter(
+    fmt='%(asctime)s [+%(uptime)s] [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+))
+
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logger.addHandler(log_handler)
+
+# Also configure root logger for other modules
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+root_logger.handlers.clear()
+root_logger.addHandler(log_handler)
 
 app = FastAPI(title="TEE LLM Router", version="1.0.0")
 
@@ -239,8 +271,9 @@ class CompletionResponse(BaseModel):
     timestamp: str
     signature: str  # TEE signature
     request_hash: str  # Hash of request
-    usage: Optional[Dict] = None
-    metadata: Optional[Dict] = None
+    usage: Optional[Dict[str, int]] = None
+    metadata: Optional[Dict[str, str]] = None
+
 
 class ChatResponse(BaseModel):
     finish_reason: str
@@ -249,8 +282,8 @@ class ChatResponse(BaseModel):
     timestamp: str
     signature: str  # TEE signature
     request_hash: str  # Hash of request
-    usage: Optional[Dict] = None
-    metadata: Optional[Dict] = None
+    usage: Optional[Dict[str, int]] = None
+    metadata: Optional[Dict[str, str]] = None
 
 
 class AttestationResponse(BaseModel):
@@ -453,7 +486,7 @@ def convert_messages(messages: List[Message]) -> List[Any]:
     return langchain_messages
 
 
-def extract_usage(response: AIMessage) -> Optional[Dict]:
+def extract_usage(response: AIMessage) -> Optional[Dict[str, int]]:
     """Extract token usage information from response"""
     if hasattr(response, 'usage_metadata') and response.usage_metadata:
         usage_metadata = response.usage_metadata
@@ -539,11 +572,13 @@ async def create_completion(request: CompletionRequest):
         
         # Create response data for signing
         timestamp = datetime.now(UTC).isoformat()
+        usage = extract_usage(response)
+        
         response_data = {
             "completion": response.content,
             "model": request.model,
+            "timestamp": timestamp,
             "request_hash": request_hash,
-            "timestamp": timestamp
         }
         
         # Sign the response
@@ -552,10 +587,11 @@ async def create_completion(request: CompletionRequest):
         return CompletionResponse(
             completion=response.content,
             model=request.model,
-            usage=extract_usage(response),
             timestamp=timestamp,
             signature=signature,
-            request_hash=request_hash
+            request_hash=request_hash,
+            usage=usage,
+            metadata=None
         )
         
     except Exception as e:
@@ -630,14 +666,17 @@ async def create_chat_completion(request: ChatRequest):
                 for tc in response.tool_calls
             ]
         
+        # Extract usage
+        usage = extract_usage(response)
+        
         # Create response data for signing
         timestamp = datetime.now(UTC).isoformat()
         response_data = {
+            "finish_reason": finish_reason,
             "message": message_dict,
             "model": request.model,
-            "finish_reason": finish_reason,
+            "timestamp": timestamp,
             "request_hash": request_hash,
-            "timestamp": timestamp
         }
         
         # Sign the response
@@ -647,10 +686,11 @@ async def create_chat_completion(request: ChatRequest):
             finish_reason=finish_reason,
             message=message_dict,
             model=request.model,
-            usage=extract_usage(response),
             timestamp=timestamp,
             signature=signature,
-            request_hash=request_hash
+            request_hash=request_hash,
+            usage=usage,
+            metadata=None
         )
         
     except Exception as e:

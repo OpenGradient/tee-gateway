@@ -264,19 +264,75 @@ test-tools-complex:
 		-H "Content-Type: application/json" \
 		-d @-
 
-# Comprehensive test suite
+# Streaming tool calling tests for all providers
+.PHONY: test-stream-tools-all-models
+test-stream-tools-all-models: test-stream-tools-openai test-stream-tools-anthropic test-stream-tools-google test-stream-tools-xai
+
+.PHONY: test-stream-tools-openai
+test-stream-tools-openai:
+	@echo "\n=========================================="
+	@echo "Testing OpenAI Streaming Tools: $(OPENAI_MODEL)"
+	@echo "==========================================\n"
+	@echo '{"model":"$(OPENAI_MODEL)","messages":[{"role":"user","content":"What is the weather in San Francisco and New York?"}],"stream":true,"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"get_weather","description":"Get current weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["location"]}}}]}' | \
+	curl -N -X POST $(HOST)/v1/chat/completions/stream \
+		-H "Content-Type: application/json" \
+		--insecure \
+		-d @-
+
+.PHONY: test-stream-tools-anthropic
+test-stream-tools-anthropic:
+	@echo "\n=========================================="
+	@echo "Testing Anthropic Streaming Tools: $(ANTHROPIC_MODEL)"
+	@echo "==========================================\n"
+	@echo '{"model":"$(ANTHROPIC_MODEL)","messages":[{"role":"user","content":"Calculate 15 times 23, then add 47 to the result"}],"stream":true,"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"calculator","description":"Perform basic arithmetic operations","parameters":{"type":"object","properties":{"operation":{"type":"string","enum":["add","subtract","multiply","divide"]},"a":{"type":"number"},"b":{"type":"number"}},"required":["operation","a","b"]}}}]}' | \
+	curl -N -X POST $(HOST)/v1/chat/completions/stream \
+		-H "Content-Type: application/json" \
+		--insecure \
+		-d @-
+
+.PHONY: test-stream-tools-google
+test-stream-tools-google:
+	@echo "\n=========================================="
+	@echo "Testing Google Streaming Tools: $(GOOGLE_MODEL)"
+	@echo "==========================================\n"
+	@echo '{"model":"$(GOOGLE_MODEL)","messages":[{"role":"user","content":"Search for AI news and get the weather in Tokyo"}],"stream":true,"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"web_search","description":"Search the web for information","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"num_results":{"type":"integer","description":"Number of results","default":5}},"required":["query"]}}},{"type":"function","function":{"name":"get_weather","description":"Get current weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["location"]}}}]}' | \
+	curl -N -X POST $(HOST)/v1/chat/completions/stream \
+		-H "Content-Type: application/json" \
+		--insecure \
+		-d @-
+
+.PHONY: test-stream-tools-xai
+test-stream-tools-xai:
+	@echo "\n=========================================="
+	@echo "Testing xAI Streaming Tools: $(XAI_MODEL)"
+	@echo "==========================================\n"
+	@echo '{"model":"$(XAI_MODEL)","messages":[{"role":"user","content":"Send emails to john@example.com and jane@example.com about tomorrows meeting at 2pm"}],"stream":true,"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"send_email","description":"Send an email to a recipient","parameters":{"type":"object","properties":{"to":{"type":"string","description":"Recipient email"},"subject":{"type":"string","description":"Email subject"},"body":{"type":"string","description":"Email body"}},"required":["to","subject","body"]}}}]}' | \
+	curl -N -X POST $(HOST)/v1/chat/completions/stream \
+		-H "Content-Type: application/json" \
+		--insecure \
+		-d @-
+
+# Quick streaming tool test
+.PHONY: test-stream-tools-quick
+test-stream-tools-quick:
+	@echo "Running quick streaming tool test..."
+	@$(MAKE) test-stream-tools-openai
+	@$(MAKE) test-stream-tools-google
+
+# Update test-all to include streaming tools
 .PHONY: test-all
-test-all: test-chat-all-models test-stream-all-models test-completion-all-models test-tools-all-models
+test-all: test-chat-all-models test-stream-all-models test-completion-all-models test-tools-all-models test-stream-tools-all-models
 	@echo "\n=========================================="
 	@echo "All tests completed!"
 	@echo "==========================================\n"
 
-# Quick test with just one model per provider
+# Update test-quick to include a streaming tool test
 .PHONY: test-quick
 test-quick:
-	@echo "Running quick test with one model per provider..."
+	@echo "Running quick test suite..."
 	@$(MAKE) test-chat-openai
-	@$(MAKE) test-chat-google
+	@$(MAKE) test-stream-google
+	@$(MAKE) test-stream-tools-openai
 
 # Quick tool test with one model per provider
 .PHONY: test-tools-quick
@@ -284,27 +340,31 @@ test-tools-quick:
 	@echo "Running quick tool test with one model per provider..."
 	@$(MAKE) test-tools-google
 	@$(MAKE) test-tools-openai
+	@$(MAKE) test-tools-xai
+	@$(MAKE) test-tools-anthropic
 
-# Help target
+
 .PHONY: help
 help:
 	@echo "Available targets:"
-	@echo "  make run                      - Build and run enclave"
-	@echo "  make test-chat                - Test basic chat completion"
-	@echo "  make test-stream              - Test streaming completion"
-	@echo "  make test-chat-all-models     - Test chat with all providers"
-	@echo "  make test-stream-all-models   - Test streaming with all providers"
-	@echo "  make test-tools-all-models    - Test tool calling with all providers"
-	@echo "  make test-tools-multiturn     - Test multi-turn tool conversation"
-	@echo "  make test-tools-complex       - Test complex tool parameters"
-	@echo "  make test-tools-quick         - Quick tool test (Google + OpenAI)"
-	@echo "  make test-all                 - Run all tests"
-	@echo "  make test-quick               - Quick test (chat only)"
+	@echo "  make run                         - Build and run enclave"
+	@echo "  make test-chat                   - Test basic chat completion"
+	@echo "  make test-stream                 - Test streaming completion"
+	@echo "  make test-chat-all-models        - Test chat with all providers"
+	@echo "  make test-stream-all-models      - Test streaming with all providers"
+	@echo "  make test-tools-all-models       - Test tool calling with all providers"
+	@echo "  make test-stream-tools-all-models - Test streaming tools with all providers"
+	@echo "  make test-stream-tools-quick     - Quick streaming tool test (OpenAI + Google)"
+	@echo "  make test-tools-multiturn        - Test multi-turn tool conversation"
+	@echo "  make test-tools-complex          - Test complex tool parameters"
+	@echo "  make test-tools-quick            - Quick tool test (Google + OpenAI)"
+	@echo "  make test-all                    - Run all tests"
+	@echo "  make test-quick                  - Quick test (chat, stream, streaming tools)"
 	@echo ""
 	@echo "Environment variables:"
-	@echo "  HOST                          - API endpoint (default: https://127.0.0.1:443)"
-	@echo "  MODEL                         - Model to use (default: gemini-2.5-flash-lite)"
-	@echo "  OPENAI_MODEL                  - OpenAI model (default: gpt-4o)"
-	@echo "  ANTHROPIC_MODEL               - Anthropic model (default: claude-3.7-sonnet)"
-	@echo "  GOOGLE_MODEL                  - Google model (default: gemini-2.5-flash-lite)"
-	@echo "  XAI_MODEL                     - xAI model (default: grok-3-mini-beta)"
+	@echo "  HOST                             - API endpoint (default: https://127.0.0.1:443)"
+	@echo "  MODEL                            - Model to use (default: gemini-2.5-flash-lite)"
+	@echo "  OPENAI_MODEL                     - OpenAI model (default: gpt-4o)"
+	@echo "  ANTHROPIC_MODEL                  - Anthropic model (default: claude-3.7-sonnet)"
+	@echo "  GOOGLE_MODEL                     - Google model (default: gemini-2.5-flash-lite)"
+	@echo "  XAI_MODEL                        - xAI model (default: grok-3-mini-beta)"

@@ -236,20 +236,21 @@ class ChatRequest(BaseModel):
 class CompletionResponse(BaseModel):
     completion: str
     model: str
+    timestamp: str
+    signature: str  # TEE signature
+    request_hash: str  # Hash of request
     usage: Optional[Dict] = None
-    timestamp: Optional[str] = None
-    signature: Optional[str] = None  # TEE signature
-    request_hash: Optional[str] = None  # Hash of request
-
+    metadata: Optional[Dict] = None
 
 class ChatResponse(BaseModel):
     finish_reason: str
     message: Dict[str, Any]
     model: str
+    timestamp: str
+    signature: str  # TEE signature
+    request_hash: str  # Hash of request
     usage: Optional[Dict] = None
-    timestamp: Optional[str] = None
-    signature: Optional[str] = None  # TEE signature
-    request_hash: Optional[str] = None  # Hash of request
+    metadata: Optional[Dict] = None
 
 
 class AttestationResponse(BaseModel):

@@ -110,7 +110,8 @@ After launching, PCR measurements are saved to `measurements.txt`. Share these w
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |
-| `/attestation` | GET | TEE attestation with public key |
+| `/enclave/attestation?nonce={nonce}` | GET | Nitro-enclave TEE attestation with public key hash and PCR information |
+| `/attestation` | GET | Get public key (PEM format) and enclave info |
 | `/v1/completions` | POST | Text completion (signed) |
 | `/v1/chat/completions` | POST | Chat completion (signed) |
 | `/v1/chat/completions/stream` | POST | Streaming chat (SSE) |
@@ -255,8 +256,6 @@ assert computed_hash == response["request_hash"]
 | `ANTHROPIC_API_KEY` | - | Anthropic API key |
 | `GOOGLE_API_KEY` | - | Google AI API key |
 | `XAI_API_KEY` | - | xAI API key |
-
-API keys can also be passed per-request via `Authorization: Bearer <key>` header.
 
 ## License
 

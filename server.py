@@ -49,9 +49,9 @@ TIMEOUT = httpx.Timeout(
 )
 
 LIMITS = httpx.Limits(
-    max_keepalive_connections=10,
-    max_connections=50,
-    keepalive_expiry=60 * 20,  # 20 minutes
+    max_keepalive_connections=5,
+    max_connections=20,
+    keepalive_expiry=60 * 5,  # 5 minutes
 )
 
 # Shared HTTP clients for each provider
@@ -317,7 +317,7 @@ def get_provider_from_model(model: str) -> str:
         return "openai"
 
 
-@lru_cache(maxsize=32)
+@lru_cache(maxsize=4)
 def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
     """
     Get cached chat model instance using environment API keys.
@@ -503,7 +503,10 @@ def extract_usage(response: AIMessage) -> Optional[Dict[str, int]]:
 async def health_check():
     """Health check endpoint"""
     process = psutil.Process()
-
+    
+    # Get system-wide memory info (enclave total)
+    system_memory = psutil.virtual_memory()
+    
     connections = process.connections()
     conn_states = {}
     for conn in connections:
@@ -515,15 +518,28 @@ async def health_check():
         "version": "1.0.0",
         "tee_enabled": True,
         "uptime_seconds": time.time() - process.create_time(),
-        "memory_mb": process.memory_info().rss / 1024 / 1024,
+        
+        # Process memory
+        "process_memory_mb": process.memory_info().rss / 1024 / 1024,
+        "process_memory_percent": process.memory_percent(),
+        
+        # CRITICAL: System-wide enclave memory
+        "system_total_memory_mb": system_memory.total / 1024 / 1024,
+        "system_used_memory_mb": system_memory.used / 1024 / 1024,
+        "system_available_memory_mb": system_memory.available / 1024 / 1024,
+        "system_memory_percent": system_memory.percent,
+        
         "threads": process.num_threads(),
         "open_files": len(process.open_files()),
         "num_fds": process.num_fds(),
         "connections": len(connections),
         "connection_states": conn_states,
         "gc_objects": len(gc.get_objects()),
+        
+        # Cache stats
+        "model_cache_size": get_chat_model_cached.cache_info().currsize,
+        "model_cache_maxsize": get_chat_model_cached.cache_info().maxsize,
     }
-
 
 @app.get("/attestation")
 async def get_attestation():

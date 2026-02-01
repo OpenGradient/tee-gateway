@@ -1,0 +1,15 @@
+{
+  "session_timestamp": "20260131_071048",
+  "start_time": "2026-01-31T07:10:48.977335",
+  "end_time": "2026-01-31T13:10:48.982901",
+  "duration_hours_planned": 6.0,
+  "duration_hours_actual": 6.000001546111111,
+  "interval_seconds": 60,
+  "iterations_completed": 347,
+  "errors": [],
+  "output_files": {
+    "chat_results": "monitoring_results/chat_requests_20260131_071048.csv",
+    "stream_results": "monitoring_results/stream_requests_20260131_071048.csv",
+    "health_results": "monitoring_results/health_checks_20260131_071048.csv"
+  }
+}

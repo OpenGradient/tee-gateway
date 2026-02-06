@@ -1,15 +1,15 @@
-# TEE-llm-routing
+# OpenGradient TEE-gateway
 
 A secure LLM routing service designed to run within AWS Nitro Enclave TEE (Trusted Execution Environment). Provides cryptographically verifiable LLM responses with remote attestation, enabling clients to prove that responses were generated inside a trusted enclave and were not tampered with.
 
-## Why TEE for LLM Routing?
+## Why TEE for LLM Requests?
 
 When using third-party LLM providers, you typically must trust:
 1. The routing service operator isn't modifying your requests/responses
 2. Responses actually came from the claimed LLM provider
 3. Your requests weren't logged or intercepted
 
-TEE-llm-routing solves this by running inside a hardware-isolated Nitro Enclave where:
+The gateway solves this by running inside a hardware-isolated Nitro Enclave where:
 - Every response is **cryptographically signed** with a key generated inside the enclave
 - The signing key is bound to **remote attestation** proving the enclave's code integrity
 - Clients can **verify signatures** to ensure responses weren't tampered with

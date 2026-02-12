@@ -58,6 +58,10 @@ run: $(image_eif)
 clean:
 	rm -f $(image_tar) $(image_eif)
 
+.PHONY: health
+health:
+	curl -i -k https://localhost:443/health
+
 .PHONY: test-local
 test-local:
 	# Test locally without TEE (for development)
@@ -343,23 +347,111 @@ test-tools-quick:
 	@$(MAKE) test-tools-xai
 	@$(MAKE) test-tools-anthropic
 
+# TEE Public Key and Attestation Functions
+.PHONY: get-public-key
+get-public-key:
+	@echo "=========================================="
+	@echo "Fetching TEE Public Key"
+	@echo "=========================================="
+	@curl -s -k $(HOST)/attestation | python3 -c 'import json, sys; data = json.load(sys.stdin); print(data["public_key"])'
+
+# Nitro Enclave Attestation (via nitriding proxy)
+# Note: This calls the nitriding /enclave/attestation endpoint, not the application's /attestation endpoint
+.PHONY: get-enclave-attestation
+get-enclave-attestation:
+	@echo "=========================================="
+	@echo "Fetching Nitro Enclave Attestation Document"
+	@echo "=========================================="
+	@echo "Note: Using default nonce. Set NONCE env var to customize."
+	@echo "Example: NONCE=0123456789abcdef0123456789abcdef01234567 make get-enclave-attestation"
+	@echo ""
+	@curl -s -k "$(HOST)/enclave/attestation?nonce=$${NONCE:-0123456789abcdef0123456789abcdef01234567}"
+
+.PHONY: get-enclave-attestation-decoded
+get-enclave-attestation-decoded:
+# REPLACE ME WTIH THE SCRIPT
+
+.PHONY: save-enclave-attestation
+save-enclave-attestation:
+	@echo "Saving Nitro Enclave attestation document to enclave_attestation.b64..."
+	@curl -s -k "$(HOST)/enclave/attestation?nonce=$${NONCE:-0123456789abcdef0123456789abcdef01234567}" > enclave_attestation.b64
+	@echo "Attestation document saved (base64 encoded)"
+	@echo "To decode: base64 -d enclave_attestation.b64 > enclave_attestation.bin"
+
+.PHONY: get-attestation
+get-attestation:
+	@echo "=========================================="
+	@echo "Fetching Full Attestation Document"
+	@echo "=========================================="
+	@curl -s -k $(HOST)/attestation | python3 -m json.tool
+
+.PHONY: get-public-key-hash
+get-public-key-hash:
+	@echo "=========================================="
+	@echo "Computing Public Key Hash"
+	@echo "=========================================="
+	@curl -s -k $(HOST)/attestation | python3 -c 'import json, sys, hashlib, base64; data = json.load(sys.stdin); key_pem = data["public_key"]; from cryptography.hazmat.primitives import serialization; from cryptography.hazmat.backends import default_backend; public_key = serialization.load_pem_public_key(key_pem.encode(), backend=default_backend()); key_der = public_key.public_bytes(encoding=serialization.Encoding.DER, format=serialization.PublicFormat.SubjectPublicKeyInfo); key_hash = hashlib.sha256(key_der).digest(); print("SHA256 Hex:   ", key_hash.hex()); print("SHA256 Base64:", base64.b64encode(key_hash).decode())'
+
+.PHONY: save-public-key
+save-public-key:
+	@echo "Saving public key to tee_public_key.pem..."
+	@curl -s -k $(HOST)/attestation | python3 -c 'import json, sys; data = json.load(sys.stdin); print(data["public_key"])' > tee_public_key.pem
+	@echo "Public key saved to tee_public_key.pem"
+
+.PHONY: verify-signature
+verify-signature:
+	@echo "=========================================="
+	@echo "Verifying Response Signature"
+	@echo "=========================================="
+	@echo "Usage: First save a response to response.json, then run this target"
+	@echo "Example: curl -s -k $(HOST)/v1/chat/completions -H 'Content-Type: application/json' -d '{...}' > response.json"
+	@echo "Then: make verify-signature"
+	@python3 -c 'import json, base64, hashlib; from cryptography.hazmat.primitives import hashes, serialization; from cryptography.hazmat.primitives.asymmetric import padding; from cryptography.hazmat.backends import default_backend; resp = json.load(open("response.json")); pub_key = serialization.load_pem_public_key(open("tee_public_key.pem", "rb").read(), backend=default_backend()); signature = base64.b64decode(resp["signature"]); response_data = {k: v for k, v in resp.items() if k != "signature"}; data_str = json.dumps(response_data, sort_keys=True); pub_key.verify(signature, data_str.encode(), padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH), hashes.SHA256()); print("✓ Signature verification PASSED")'
 
 .PHONY: help
 help:
 	@echo "Available targets:"
+	@echo ""
+	@echo "Build & Run:"
 	@echo "  make run                         - Build and run enclave"
+	@echo "  make clean                       - Clean build artifacts"
+	@echo "  make test-local                  - Test locally without TEE"
+	@echo ""
+	@echo "Basic Tests:"
 	@echo "  make test-chat                   - Test basic chat completion"
 	@echo "  make test-stream                 - Test streaming completion"
+	@echo "  make test-completion             - Test text completion"
+	@echo ""
+	@echo "Provider Tests:"
 	@echo "  make test-chat-all-models        - Test chat with all providers"
 	@echo "  make test-stream-all-models      - Test streaming with all providers"
+	@echo "  make test-completion-all-models  - Test completions with all providers"
+	@echo ""
+	@echo "Tool Calling Tests:"
 	@echo "  make test-tools-all-models       - Test tool calling with all providers"
 	@echo "  make test-stream-tools-all-models - Test streaming tools with all providers"
 	@echo "  make test-stream-tools-quick     - Quick streaming tool test (OpenAI + Google)"
 	@echo "  make test-tools-multiturn        - Test multi-turn tool conversation"
 	@echo "  make test-tools-complex          - Test complex tool parameters"
 	@echo "  make test-tools-quick            - Quick tool test (Google + OpenAI)"
+	@echo ""
+	@echo "Test Suites:"
 	@echo "  make test-all                    - Run all tests"
 	@echo "  make test-quick                  - Quick test (chat, stream, streaming tools)"
+	@echo ""
+	@echo "TEE Attestation & Security:"
+	@echo "  make get-public-key              - Get TEE public key (PEM format)"
+	@echo "  make get-attestation             - Get full attestation document (JSON)"
+	@echo "  make get-public-key-hash         - Compute public key hash (hex and base64)"
+	@echo "  make save-public-key             - Save public key to tee_public_key.pem"
+	@echo "  make verify-signature            - Verify response signature (requires response.json)"
+	@echo ""
+	@echo "Nitro Enclave Attestation (nitriding):"
+	@echo "  make get-enclave-attestation     - Get Nitro enclave attestation document (base64)"
+	@echo "  make get-enclave-attestation-decoded - Get attestation with decode info"
+	@echo "  make save-enclave-attestation    - Save attestation document to file"
+	@echo "    Set NONCE env var for custom nonce (40 hex chars)"
+	@echo "    Example: NONCE=0123456789abcdef0123456789abcdef01234567 make get-enclave-attestation"
 	@echo ""
 	@echo "Environment variables:"
 	@echo "  HOST                             - API endpoint (default: https://127.0.0.1:443)"
@@ -368,3 +460,7 @@ help:
 	@echo "  ANTHROPIC_MODEL                  - Anthropic model (default: claude-3.7-sonnet)"
 	@echo "  GOOGLE_MODEL                     - Google model (default: gemini-2.5-flash-lite)"
 	@echo "  XAI_MODEL                        - xAI model (default: grok-3-mini-beta)"
+	@echo "  PROMPT                           - Test prompt (default: '7 layers of network stack')"
+	@echo "  TEMPERATURE                      - Temperature (default: 0.7)"
+	@echo "  MAX_TOKENS                       - Max tokens (default: 150)"
+	@echo "  NONCE                            - Attestation nonce (40 hex chars, default: 0123...4567)"

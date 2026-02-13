@@ -58,7 +58,7 @@ def create_app():
         payment_middleware.add(
             path=["/v1/chat/completions", "/v1/completions"],
             price="0.1",
-            pay_to_address="0xbcF7F5f8D7d8a0C03599Eb6d7aA4Bb44Bd84d3A1D",
+            pay_to_address="0xbcF7F5f8D7d8a0C03599Eb6d7aA4B44Bd84d3A1D",
             network="og-evm",
             facilitator_config=FacilitatorConfig(
                 url="https://facilitatorogevm.opengradient.ai",

@@ -1,0 +1,21 @@
+# Build artifacts
+*.tar
+*.eif
+measurements.txt
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Dev/test files
+venv/
+.git/
+verify/
+test_*.py
+*_test.py
+verify_*.py
+*.log
+
+# Docs
+README.md
+MIGRATION.md
+CLAUDE.md

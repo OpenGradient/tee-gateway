@@ -8,12 +8,13 @@ RUN git clone https://github.com/brave/nitriding-daemon.git
 ARG TARGETARCH
 RUN ARCH=${TARGETARCH} make -C nitriding-daemon/ nitriding
 
-# Use the intermediate builder image to add our files.
-# This is necessary to avoid intermediate layers that contain inconsistent file permissions.
-COPY server.py start.sh /bin/
-RUN chown root:root /bin/server.py /bin/start.sh
-RUN chmod 0755 /bin/server.py /bin/start.sh
+# Copy application files into builder for permission setting
+COPY start.sh /bin/
+COPY server.py /bin/
+RUN chown root:root /bin/start.sh /bin/server.py
+RUN chmod 0755 /bin/start.sh /bin/server.py
 
+# ---------- Final image ----------
 FROM python:3.12-slim-bullseye
 
 # Environment keys for LLMs
@@ -23,27 +24,37 @@ ENV ANTHROPIC_API_KEY=
 ENV XAI_API_KEY=
 
 # Install necessary tools
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     tar \
+    build-essential \
+    python3-dev \
+    git \
+    ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy nitriding and application files from builder
+# Copy nitriding and scripts from builder
 COPY --from=builder /nitriding-daemon/nitriding /bin/nitriding
-COPY --from=builder /bin/server.py /bin/server.py
 COPY --from=builder /bin/start.sh /bin/start.sh
+COPY --from=builder /bin/server.py /bin/server.py
 
-# Copy requirements file into final image
+# Install Python dependencies
 COPY requirements.txt /app/requirements.txt
-
-# Install the required Python packages.
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Set working directory
-WORKDIR /bin
+# Copy the openapi_server package
+COPY openapi_server /app/openapi_server
 
-# Expose ports
+# Set working directory to /app so `python -m openapi_server` resolves correctly
+WORKDIR /app
+
+# Expose ports:
+#   443  - nitriding (external TLS)
+#   8080 - Flask/connexion app (internal, proxied by nitriding)
+#   8000 - server.py LLM backend (internal only, temporary)
 EXPOSE 443
+EXPOSE 8080
 EXPOSE 8000
 
-CMD ["start.sh"]
+CMD ["/bin/start.sh"]

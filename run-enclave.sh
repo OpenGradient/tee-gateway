@@ -67,9 +67,9 @@ echo "$measurements" > measurements.txt
 
 echo "[ec2] Enclave is running!"
 echo "[ec2] Access endpoints:"
-echo "  - Health: http://localhost:443/health"
-echo "  - Attestation: http://localhost:443/attestation"
-echo "  - Chat: http://localhost:443/v1/chat/completions"
+echo "  - Health: https://localhost:443/health"
+echo "  - Attestation: https://localhost:443/attestation"
+echo "  - Chat: https://localhost:443/v1/chat/completions"
 echo ""
 echo "[ec2] To view logs: nitro-cli console --enclave-id $enclave_id"
 echo "[ec2] To stop: nitro-cli terminate-enclave --enclave-id $enclave_id"

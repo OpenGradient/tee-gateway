@@ -50,39 +50,39 @@ def create_app():
     app.app.add_url_rule('/attestation', 'attestation', attestation, methods=['GET'])
 
     # # Initialize x402 payment middleware
-    # try:
-    #     from x402.flask.middleware import PaymentMiddleware
-    #     from x402.facilitator import FacilitatorConfig
+    try:
+        from x402.flask.middleware import PaymentMiddleware
+        from x402.facilitator import FacilitatorConfig
 
-    #     payment_middleware = PaymentMiddleware(app.app)
-    #     payment_middleware.add(
-    #         path=["/v1/chat/completions", "/v1/completions"],
-    #         price="0.1",
-    #         pay_to_address="0xbcF7F5f8D7d8a0C03599Eb6d7aA4Bb44Bd84d3A1D",
-    #         network="og-evm",
-    #         facilitator_config=FacilitatorConfig(
-    #             url="https://facilitatorogevm.opengradient.ai",
-    #             config={
-    #                 "network": "og-evm",
-    #                 "price": {
-    #                     "amount": "0.1",
-    #                     "asset": {
-    #                         "address": "0x094E464A23B90A71a0894D5D1e5D470FfDD074e1",
-    #                         "decimals": 6,
-    #                         "eip712": {
-    #                             "name": "OUSDC",
-    #                             "version": "2",
-    #                         },
-    #                     },
-    #                 },
-    #             }
-    #         )
-    #     )
-    #     logger.info("x402 payment middleware initialized")
-    # except ImportError:
-    #     logger.warning("x402 payment middleware not available - running without payments")
-    # except Exception as e:
-    #     logger.warning(f"Failed to initialize x402 middleware: {e}")
+        payment_middleware = PaymentMiddleware(app.app)
+        payment_middleware.add(
+            path=["/v1/chat/completions", "/v1/completions"],
+            price="0.1",
+            pay_to_address="0xbcF7F5f8D7d8a0C03599Eb6d7aA4Bb44Bd84d3A1D",
+            network="og-evm",
+            facilitator_config=FacilitatorConfig(
+                url="https://facilitatorogevm.opengradient.ai",
+                config={
+                    "network": "og-evm",
+                    "price": {
+                        "amount": "0.1",
+                        "asset": {
+                            "address": "0x094E464A23B90A71a0894D5D1e5D470FfDD074e1",
+                            "decimals": 6,
+                            "eip712": {
+                                "name": "OUSDC",
+                                "version": "2",
+                            },
+                        },
+                    },
+                }
+            )
+        )
+        logger.info("x402 payment middleware initialized")
+    except ImportError:
+        logger.warning("x402 payment middleware not available - running without payments")
+    except Exception as e:
+        logger.warning(f"Failed to initialize x402 middleware: {e}")
 
     return app.app
 

@@ -515,8 +515,8 @@ async def health_check():
     }
 
 
-@app.get("/attestation")
-async def get_attestation():
+@app.get("/signing-key")
+async def get_signing_key():
     """Return TEE attestation document with public key"""
     try:
         attestation = AttestationResponse(

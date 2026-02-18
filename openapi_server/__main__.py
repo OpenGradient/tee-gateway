@@ -28,7 +28,7 @@ def health():
     return {"status": "OK", "tee_enabled": True}, 200
 
 
-def attestation():
+def signing_key():
     """Return TEE attestation document with public key"""
     try:
         tee_keys = get_tee_keys()
@@ -47,9 +47,9 @@ def create_app():
 
     # Add utility endpoints
     app.app.add_url_rule('/health', 'health', health, methods=['GET'])
-    app.app.add_url_rule('/attestation', 'attestation', attestation, methods=['GET'])
+    app.app.add_url_rule('/signing-key', 'signing-key', signing_key, methods=['GET'])
 
-    # # Initialize x402 payment middleware
+    # Initialize x402 payment middleware
     try:
         from x402.flask.middleware import PaymentMiddleware
         from x402.facilitator import FacilitatorConfig

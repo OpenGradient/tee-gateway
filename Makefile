@@ -58,6 +58,15 @@ run: $(image_eif)
 clean:
 	rm -f $(image_tar) $(image_eif)
 
+.PHONY: health
+health:
+        curl -i -k https://localhost:443/health
+
+.PHONY: get-signing-key
+get-signing-key:
+        echo "Fetching TEE signing key from localhost..."
+        curl -sk https://localhost:443/signing-key | python3 -c "import json,sys; print(json.load(sys.stdin)['public_key'])"
+
 .PHONY: test-local
 test-local:
 	# Test locally without TEE (for development)

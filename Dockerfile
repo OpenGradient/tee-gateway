@@ -24,7 +24,12 @@ ENV ANTHROPIC_API_KEY=
 ENV XAI_API_KEY=
 
 # Install necessary tools
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN echo 'Dir::Log "/dev/null";' > /etc/apt/apt.conf.d/00no-log \
+    && echo 'Dir::Log::Terminal "";' >> /etc/apt/apt.conf.d/00no-log \
+    && echo 'Dir::Log::History "";' >> /etc/apt/apt.conf.d/00no-log \
+    && ln -sf /dev/null /var/log/dpkg.log \
+    && ln -sf /dev/null /var/log/alternatives.log \
+    && apt-get update -qq && apt-get install -y --no-install-recommends \
     wget \
     tar \
     build-essential \
@@ -32,7 +37,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /var/cache/ldconfig/aux-cache \
+    && find /usr/lib/python3.9 -name "*.pyc" -delete \
+    && find /usr/lib/python3.9 -name "__pycache__" -type d -delete
 
 # Copy nitriding and scripts from builder
 COPY --from=builder /nitriding-daemon/nitriding /bin/nitriding
@@ -41,7 +49,8 @@ COPY --from=builder /bin/server.py /bin/server.py
 
 # Install Python dependencies
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+ENV PYTHONDONTWRITEBYTECODE=1
+RUN pip install --no-cache-dir --only-binary=:all: --no-compile -r /app/requirements.txt
 
 # Copy the openapi_server package
 COPY openapi_server /app/openapi_server

@@ -29,6 +29,7 @@ import httpx
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.backends import default_backend
+from Crypto.Hash import keccak as keccak_mod
 
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from langchain_core.rate_limiters import InMemoryRateLimiter
@@ -119,16 +120,42 @@ rate_limiter = InMemoryRateLimiter(
     max_bucket_size=100
 )
 
+# Ethereum-compatible cryptographic helpers
+def keccak256(data: bytes) -> bytes:
+    """Compute keccak256 hash (Ethereum-compatible, matching Solidity's keccak256)"""
+    k = keccak_mod.new(digest_bits=256, data=data)
+    return k.digest()
+
+
+def compute_input_hash(request_data: Dict) -> bytes:
+    """Compute keccak256 of request data, returning 32 bytes (bytes32 for on-chain)"""
+    request_json = json.dumps(request_data, sort_keys=True)
+    return keccak256(request_json.encode('utf-8'))
+
+
+def compute_output_hash(response_data: Dict) -> bytes:
+    """Compute keccak256 of response data, returning 32 bytes (bytes32 for on-chain)"""
+    response_json = json.dumps(response_data, sort_keys=True)
+    return keccak256(response_json.encode('utf-8'))
+
+
 # TEE Cryptographic state
 class TEEKeyManager:
-    """Manages private/public key pair for TEE attestation and signing"""
-    
+    """Manages private/public key pair for TEE attestation and signing.
+
+    Signing format is compatible with TEERegistry.verifySignature on-chain:
+      messageHash = keccak256(abi.encodePacked(inputHash, outputHash, timestamp))
+      signature = RSA-PSS-SHA256(messageHash)
+    """
+
     def __init__(self):
         self.private_key = None
         self.public_key = None
         self.public_key_pem = None
+        self.public_key_der = None
+        self._tee_id = None
         self._initialize_keys()
-    
+
     def _initialize_keys(self):
         """Generate RSA key pair for signing inference results"""
         logger.info("Generating TEE RSA key pair...")
@@ -138,14 +165,24 @@ class TEEKeyManager:
             backend=default_backend()
         )
         self.public_key = self.private_key.public_key()
-        
-        # Serialize public key for attestation
+
+        # Serialize public key in PEM format (for API responses)
         self.public_key_pem = self.public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         ).decode('utf-8')
-        
+
+        # Serialize public key in DER format (for on-chain registration)
+        self.public_key_der = self.public_key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+
+        # Compute TEE ID matching TEERegistry.computeTEEId: keccak256(publicKeyDER)
+        self._tee_id = keccak256(self.public_key_der)
+
         logger.info("TEE key pair generated successfully")
+        logger.info(f"TEE ID: 0x{self._tee_id.hex()}")
 
         # Register with nitriding
         self.register_with_nitriding()
@@ -199,11 +236,25 @@ class TEEKeyManager:
             logger.error(f"Unexpected error registering public key: {e}", exc_info=True)
             return False
 
-    def sign_data(self, data: str) -> str:
-        """Sign data with private key and return base64 signature"""
-        data_bytes = data.encode('utf-8')
+    def sign_for_verification(self, input_hash: bytes, output_hash: bytes, timestamp: int) -> str:
+        """Sign data in format compatible with TEERegistry.verifySignature.
+
+        Computes: messageHash = keccak256(abi.encodePacked(inputHash, outputHash, timestamp))
+        Signs:    RSA-PSS-SHA256(messageHash)
+
+        The precompile internally does SHA256(messageHash) before RSA-PSS verification.
+        Python's sign() with hashes.SHA256() also hashes the input, so passing
+        the 32-byte messageHash as input produces the same result.
+        """
+        # abi.encodePacked(bytes32, bytes32, uint256) = concatenation of raw bytes
+        packed = input_hash + output_hash + timestamp.to_bytes(32, byteorder='big')
+        message_hash = keccak256(packed)
+
+        # Sign the message hash with RSA-PSS SHA-256
+        # Python's sign() internally computes SHA256(message_hash), which matches
+        # the precompile's h := sha256.Sum256(messageHash[:])
         signature = self.private_key.sign(
-            data_bytes,
+            message_hash,
             padding.PSS(
                 mgf=padding.MGF1(hashes.SHA256()),
                 salt_length=padding.PSS.MAX_LENGTH
@@ -211,10 +262,18 @@ class TEEKeyManager:
             hashes.SHA256()
         )
         return base64.b64encode(signature).decode('utf-8')
-    
+
     def get_public_key(self) -> str:
         """Return public key in PEM format"""
         return self.public_key_pem
+
+    def get_public_key_der(self) -> bytes:
+        """Return public key in DER format (for on-chain registration)"""
+        return self.public_key_der
+
+    def get_tee_id(self) -> str:
+        """Return TEE ID as hex string, matching TEERegistry.computeTEEId(publicKey)"""
+        return '0x' + self._tee_id.hex()
 
 # Initialize key manager
 tee_keys = TEEKeyManager()
@@ -269,8 +328,11 @@ class CompletionResponse(BaseModel):
     completion: str
     model: str
     timestamp: str
-    signature: str  # TEE signature
-    request_hash: str  # Hash of request
+    timestamp_unix: int  # Unix epoch seconds (uint256 for on-chain)
+    input_hash: str  # keccak256 of request (0x-prefixed hex, bytes32)
+    output_hash: str  # keccak256 of response content (0x-prefixed hex, bytes32)
+    signature: str  # RSA-PSS signature compatible with TEERegistry.verifySignature
+    tee_id: str  # keccak256 of signing public key DER (0x-prefixed hex, bytes32)
     usage: Optional[Dict[str, int]] = None
     metadata: Optional[Dict[str, str]] = None
 
@@ -280,27 +342,26 @@ class ChatResponse(BaseModel):
     message: Dict[str, Any]
     model: str
     timestamp: str
-    signature: str  # TEE signature
-    request_hash: str  # Hash of request
+    timestamp_unix: int  # Unix epoch seconds (uint256 for on-chain)
+    input_hash: str  # keccak256 of request (0x-prefixed hex, bytes32)
+    output_hash: str  # keccak256 of response content (0x-prefixed hex, bytes32)
+    signature: str  # RSA-PSS signature compatible with TEERegistry.verifySignature
+    tee_id: str  # keccak256 of signing public key DER (0x-prefixed hex, bytes32)
     usage: Optional[Dict[str, int]] = None
     metadata: Optional[Dict[str, str]] = None
 
 
 class AttestationResponse(BaseModel):
-    """TEE attestation document"""
-    public_key: str
+    """TEE attestation document with on-chain registration info"""
+    public_key: str  # PEM format (for client-side verification)
+    public_key_der: str  # Base64-encoded DER format (for TEERegistry registration)
+    tee_id: str  # keccak256(publicKeyDER), 0x-prefixed hex (matches TEERegistry.computeTEEId)
     timestamp: str
     enclave_info: Dict[str, Any]
     measurements: Optional[Dict] = None
 
 
 # Helper functions
-def compute_request_hash(request_data: Dict) -> str:
-    """Compute SHA256 hash of request data"""
-    request_json = json.dumps(request_data, sort_keys=True)
-    return hashlib.sha256(request_json.encode('utf-8')).hexdigest()
-
-
 def get_provider_from_model(model: str) -> str:
     """Infer provider from model name"""
     model_lower = model.lower()
@@ -527,21 +588,21 @@ async def health_check():
 
 @app.get("/attestation")
 async def get_attestation():
-    """Return TEE attestation document with public key"""
+    """Return TEE attestation info with public key and on-chain identifiers"""
     try:
-        # In a real Nitro Enclave, you'd retrieve actual PCR measurements
-        # For now, we'll return a mock attestation structure
         attestation = AttestationResponse(
             public_key=tee_keys.get_public_key(),
+            public_key_der=base64.b64encode(tee_keys.get_public_key_der()).decode('utf-8'),
+            tee_id=tee_keys.get_tee_id(),
             timestamp=datetime.now(UTC).isoformat(),
             enclave_info={
                 "platform": "aws-nitro",
                 "instance_type": "tee-enabled",
                 "version": "1.0.0"
             },
-            measurements=None  # Would contain PCR values in real deployment
+            measurements=None  # Contains PCR values in real deployment
         )
-        
+
         logger.info("Attestation document requested")
         return attestation
     except Exception as e:
@@ -549,51 +610,118 @@ async def get_attestation():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _get_nitriding_tls_cert_der() -> Optional[bytes]:
+    """Fetch nitriding's TLS certificate in DER format by connecting to its HTTPS port"""
+    try:
+        import ssl
+        import socket
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with socket.create_connection(("127.0.0.1", 443), timeout=5) as sock:
+            with ctx.wrap_socket(sock, server_hostname="127.0.0.1") as ssock:
+                cert_der = ssock.getpeercert(binary_form=True)
+        return cert_der
+    except Exception as e:
+        logger.warning(f"Could not fetch nitriding TLS certificate: {e}")
+        return None
+
+
+@app.get("/v1/attestation/registration")
+async def get_registration_data():
+    """Return all data needed for on-chain TEE registration via TEERegistry.registerTEEWithAttestation.
+
+    The caller should use this data to call:
+      registerTEEWithAttestation(attestationDocument, signingPublicKey, tlsCertificate,
+                                  paymentAddress, endpoint, teeType)
+
+    The attestation_document is fetched from nitriding's /enclave/attestation endpoint.
+    The tls_certificate is extracted from nitriding's HTTPS connection.
+    All binary fields are base64-encoded.
+    """
+    try:
+        # Fetch attestation document from nitriding's HTTPS endpoint
+        import ssl
+        nonce = hashlib.sha256(os.urandom(32)).hexdigest()
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+        attestation_url = f"https://127.0.0.1/enclave/attestation?nonce={nonce}"
+        req = urllib.request.Request(attestation_url)
+        response = urllib.request.urlopen(req, context=ctx, timeout=10)
+        attestation_b64 = response.read().decode('utf-8').strip()
+
+        # The attestation endpoint returns base64-encoded CBOR.
+        # Decode to raw bytes (what the contract expects).
+        attestation_raw = base64.b64decode(attestation_b64)
+
+        # Get DER public key
+        public_key_der = tee_keys.get_public_key_der()
+
+        # Fetch TLS certificate from nitriding
+        tls_cert_der = _get_nitriding_tls_cert_der()
+
+        return {
+            "attestation_document": base64.b64encode(attestation_raw).decode('utf-8'),
+            "signing_public_key": base64.b64encode(public_key_der).decode('utf-8'),
+            "tls_certificate": base64.b64encode(tls_cert_der).decode('utf-8') if tls_cert_der else None,
+            "tee_id": tee_keys.get_tee_id(),
+            "encoding": "base64",
+            "note": "All binary fields are base64-encoded. Decode before passing to TEERegistry.registerTEEWithAttestation."
+        }
+    except Exception as e:
+        logger.error(f"Registration data error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/v1/completions", response_model=CompletionResponse)
 async def create_completion(request: CompletionRequest):
-    """Create a text completion with TEE signing"""
+    """Create a text completion with TEE signing (on-chain verifiable)"""
     try:
-        # Compute request hash
-        request_dict = request.dict()
-        request_hash = compute_request_hash(request_dict)
-        
         # Get cached model instance
         model = get_chat_model_cached(
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens or 4096,
         )
-        
+
         # Convert prompt to message
         messages = [HumanMessage(content=request.prompt)]
-        
+
         # Invoke model
         response = await asyncio.to_thread(model.invoke, messages)
-        
-        # Create response data for signing
-        timestamp = datetime.now(UTC).isoformat()
+
+        # Compute hashes for on-chain verification
+        now = datetime.now(UTC)
+        timestamp_iso = now.isoformat()
+        timestamp_unix = int(now.timestamp())
         usage = extract_usage(response)
-        
-        response_data = {
+
+        request_dict = request.dict()
+        input_hash = compute_input_hash(request_dict)
+        output_hash = compute_output_hash({
             "completion": response.content,
             "model": request.model,
-            "timestamp": timestamp,
-            "request_hash": request_hash,
-        }
-        
-        # Sign the response
-        signature = tee_keys.sign_data(json.dumps(response_data, sort_keys=True))
-        
+        })
+
+        # Sign using on-chain compatible format:
+        # keccak256(abi.encodePacked(inputHash, outputHash, timestamp))
+        signature = tee_keys.sign_for_verification(input_hash, output_hash, timestamp_unix)
+
         return CompletionResponse(
             completion=response.content,
             model=request.model,
-            timestamp=timestamp,
+            timestamp=timestamp_iso,
+            timestamp_unix=timestamp_unix,
+            input_hash='0x' + input_hash.hex(),
+            output_hash='0x' + output_hash.hex(),
             signature=signature,
-            request_hash=request_hash,
+            tee_id=tee_keys.get_tee_id(),
             usage=usage,
             metadata=None
         )
-        
+
     except Exception as e:
         logger.error(f"Completion error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -601,55 +729,51 @@ async def create_completion(request: CompletionRequest):
 
 @app.post("/v1/chat/completions", response_model=ChatResponse)
 async def create_chat_completion(request: ChatRequest):
-    """Create a chat completion with TEE signing"""
+    """Create a chat completion with TEE signing (on-chain verifiable)"""
     try:
         logger.info(f"=" * 80)
         logger.info(f"Chat request for model: {request.model}")
         logger.info(f"Number of messages: {len(request.messages)}")
-        
+
         # Log tool information
         if request.tools:
             logger.info(f"Tools provided: {len(request.tools)}")
             for tool in request.tools:
                 logger.info(f"  Tool: {tool.function.get('name', 'unnamed')}")
-        
+
         # Log messages with tool calls
         for i, msg in enumerate(request.messages):
             logger.info(f"Message {i}: role={msg.role}, has_tool_calls={bool(msg.tool_calls)}")
             if msg.tool_calls:
                 for tc in msg.tool_calls:
                     logger.info(f"  Tool call in message: {tc}")
-        
-        # Compute request hash
-        request_dict = request.dict()
-        request_hash = compute_request_hash(request_dict)
-        
+
         # Get cached model instance
         model = get_chat_model_cached(
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens or 4096,
         )
-        
+
         # Bind tools if provided
         if request.tools:
             logger.info(f"Binding {len(request.tools)} tools")
-            tools_list = [{"type": "function", "function": tool.function} 
+            tools_list = [{"type": "function", "function": tool.function}
                          for tool in request.tools]
             model = model.bind_tools(tools_list)
-        
+
         # Convert messages
         messages = convert_messages(request.messages)
-        
+
         # Invoke model asynchronously
         response = await asyncio.to_thread(model.invoke, messages)
-        
+
         # Extract message content
         message_dict = {
             "role": "assistant",
             "content": response.content or "",
         }
-        
+
         # Check for tool calls
         finish_reason = "stop"
         if hasattr(response, "tool_calls") and response.tool_calls:
@@ -665,34 +789,41 @@ async def create_chat_completion(request: ChatRequest):
                 }
                 for tc in response.tool_calls
             ]
-        
+
         # Extract usage
         usage = extract_usage(response)
-        
-        # Create response data for signing
-        timestamp = datetime.now(UTC).isoformat()
-        response_data = {
+
+        # Compute hashes for on-chain verification
+        now = datetime.now(UTC)
+        timestamp_iso = now.isoformat()
+        timestamp_unix = int(now.timestamp())
+
+        request_dict = request.dict()
+        input_hash = compute_input_hash(request_dict)
+        output_hash = compute_output_hash({
             "finish_reason": finish_reason,
             "message": message_dict,
             "model": request.model,
-            "timestamp": timestamp,
-            "request_hash": request_hash,
-        }
-        
-        # Sign the response
-        signature = tee_keys.sign_data(json.dumps(response_data, sort_keys=True))
-        
+        })
+
+        # Sign using on-chain compatible format:
+        # keccak256(abi.encodePacked(inputHash, outputHash, timestamp))
+        signature = tee_keys.sign_for_verification(input_hash, output_hash, timestamp_unix)
+
         return ChatResponse(
             finish_reason=finish_reason,
             message=message_dict,
             model=request.model,
-            timestamp=timestamp,
+            timestamp=timestamp_iso,
+            timestamp_unix=timestamp_unix,
+            input_hash='0x' + input_hash.hex(),
+            output_hash='0x' + output_hash.hex(),
             signature=signature,
-            request_hash=request_hash,
+            tee_id=tee_keys.get_tee_id(),
             usage=usage,
             metadata=None
         )
-        
+
     except Exception as e:
         logger.error(f"Chat completion error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -949,6 +1080,7 @@ async def root():
         "tee_enabled": True,
         "endpoints": {
             "attestation": "/attestation",
+            "registration": "/v1/attestation/registration",
             "completion": "/v1/completions",
             "chat": "/v1/chat/completions",
             "chat_stream": "/v1/chat/completions/stream",
@@ -957,7 +1089,7 @@ async def root():
         },
         "features": [
             "Remote Attestation",
-            "Cryptographic Request Signing",
+            "On-chain Verifiable Signatures (TEERegistry compatible)",
             "Multi-provider LLM Routing",
             "Async Processing",
             "Shared HTTP Clients",

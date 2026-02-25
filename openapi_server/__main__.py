@@ -144,6 +144,27 @@ payment_middleware(
 )
 logger.info("x402v2 payment middleware initialized")
 
+# --- DEBUG: wrap AFTER payment_middleware so we intercept first ---
+_payment_wsgi = application.wsgi_app
+
+def _debug_wsgi(environ, start_response):
+    method = environ.get("REQUEST_METHOD", "")
+    path = environ.get("PATH_INFO", "")
+    headers = {
+        k[5:].replace("_", "-"): v
+        for k, v in environ.items()
+        if k.startswith("HTTP_")
+    }
+    logger.info("=== REQUEST %s %s ===", method, path)
+    for name, value in sorted(headers.items()):
+        display = value if len(value) < 120 else value[:120] + "...[truncated]"
+        logger.info("  HEADER %s: %s", name, display)
+    logger.info("=== END HEADERS ===")
+    return _payment_wsgi(environ, start_response)
+
+application.wsgi_app = _debug_wsgi
+logger.info("Debug middleware enabled")
+# --- END DEBUG ---
 
 if __name__ == "__main__":
     port = int(os.getenv("API_SERVER_PORT", "8000"))

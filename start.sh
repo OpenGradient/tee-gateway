@@ -1,23 +1,36 @@
 #!/bin/sh
 
-# Start nitriding - proxies external port 443 to Flask app on port 8000
-# Internal API on port 8080 (for /enclave/ready, /enclave/hash)
 nitriding -fqdn localhost -appwebsrv "http://127.0.0.1:8000" -ext-pub-port 443 -intport 8080 -wait-for-app &
-echo "[sh] Started nitriding."
+NITRIDING_PID=$!
+echo "[sh] Started nitriding (PID $NITRIDING_PID)."
 
 sleep 1
 
-# Start server.py as internal LLM backend on port 8001 (no TEE management)
+if ! kill -0 $NITRIDING_PID 2>/dev/null; then
+    echo "[sh] ERROR: nitriding died immediately, aborting."
+    exit 1
+fi
+
 echo "[sh] Starting LLM backend on port 8001..."
-TEE_ENABLED=false LLM_SERVER_PORT=8001 python3 /bin/server.py &
-echo "[sh] LLM backend started."
+TEE_ENABLED=false LLM_SERVER_PORT=8001 LLM_SERVER_HOST=127.0.0.1 python3 /bin/server.py &
+LLM_PID=$!
+echo "[sh] Started LLM backend (PID $LLM_PID)."
 
-sleep 2
+sleep 3
 
-# Start the Flask/connexion OpenAI-compatible API on port 8000
-# This is the front-facing server that nitriding proxies to.
-# TEE key management and nitriding readiness signaling happen here.
+if ! kill -0 $LLM_PID 2>/dev/null; then
+    echo "[sh] ERROR: LLM backend died, aborting."
+    exit 1
+fi
+
 echo "[sh] Starting OpenAI-compatible API server on port 8000..."
 cd /app
-python3 -m openapi_server
-echo "[sh] API server exited."
+exec gunicorn \
+    --bind 0.0.0.0:8000 \
+    --workers 1 \
+    --threads 4 \
+    --timeout 120 \
+    --keep-alive 5 \
+    --preload \
+    --log-level info \
+    "openapi_server.__main__:application"

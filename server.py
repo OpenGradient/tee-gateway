@@ -16,7 +16,7 @@ import base64
 import asyncio
 import sys
 from typing import List, Dict, Optional, Any
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 import urllib.request
 from functools import lru_cache
 
@@ -39,6 +39,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_xai import ChatXAI
+
 
 # Check if TEE features are enabled
 TEE_ENABLED = os.getenv("TEE_ENABLED", "true").lower() != "false"
@@ -323,6 +324,14 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
     logger.info(f"Creating cached chat model - Provider: {provider}, Model: {model}")
     
     if provider in ["google", "gemini"]:
+        alias_map = {
+            "gemini-2.5-flash":         "gemini-2.5-flash-preview-05-20",
+            "gemini-2.5-flash-lite":    "gemini-2.5-flash-lite-preview-06-17",
+            "gemini-2.5-pro":           "gemini-2.5-pro-preview-06-05",
+            "gemini-3-pro-preview":     "gemini-3-pro-preview",
+            "gemini-3-flash-preview":   "gemini-3-flash-preview",
+        }
+        resolved_model = alias_map.get(model, model)
         thinking_budget = None
         if "2.5-flash" in model or "flash-lite" in model:
             thinking_budget = 0
@@ -334,7 +343,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
             raise ValueError("GOOGLE_API_KEY not found in environment")
             
         return ChatGoogleGenerativeAI(
-            model=model,
+            model=resolved_model,
             google_api_key=api_key,
             temperature=temperature,
             max_output_tokens=max_tokens,
@@ -343,7 +352,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         )
         
     elif provider == "openai":
-        model_temp = 1.0 if model in ["o4-mini", "o3"] else temperature
+        model_temp = 1.0 if model in ["o4-mini", "o3", "o4", "o4-5"] else temperature 
         
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -360,13 +369,17 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         )
         
     elif provider == "anthropic":
-        anthropic_model = model
-        if model == "claude-3.7-sonnet":
-            anthropic_model = "claude-3-7-sonnet-latest"
-        elif model == "claude-3.5-haiku":
-            anthropic_model = "claude-3-5-haiku-latest"
-        elif model == "claude-4.0-sonnet":
-            anthropic_model = "claude-sonnet-4-0"
+        alias_map = {
+            "claude-3.7-sonnet":    "claude-3-7-sonnet-latest",
+            "claude-3.5-haiku":     "claude-3-5-haiku-latest",
+            "claude-4.0-sonnet":    "claude-sonnet-4-0",
+            "claude-sonnet-4-5":    "claude-sonnet-4-5-20251001",
+            "claude-sonnet-4-6":    "claude-sonnet-4-6",
+            "claude-haiku-4-5":     "claude-haiku-4-5-20251001",
+            "claude-opus-4-5":      "claude-opus-4-5-20251101",
+            "claude-opus-4-6":      "claude-opus-4-6",
+        }
+        anthropic_model = alias_map.get(model, model)
         
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
@@ -383,17 +396,16 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         )
         
     elif provider == "x-ai":
-        xai_model = model
-        if model == "grok-3-mini-beta":
-            xai_model = "grok-3-mini"
-        elif model == "grok-3-beta":
-            xai_model = "grok-3-latest"
-        elif model == "grok-2-1212":
-            xai_model = "grok-2-latest"
-        elif model == "grok-4.1-fast":
-            xai_model = "grok-4-1-fast"
-        elif model == "grok-4-1-fast-non-reasoning":
-            xai_model = "grok-4-1-fast-non-reasoning"
+        alias_map = {
+            "grok-3-mini-beta":                 "grok-3-mini",
+            "grok-3-beta":                      "grok-3-latest",
+            "grok-2-1212":                      "grok-2-latest",
+            "grok-4.1-fast":                    "grok-4-1-fast",
+            "grok-4-fast":                      "grok-4-fast",
+            "grok-4":                           "grok-4",
+            "grok-4-1-fast-non-reasoning":      "grok-4-1-fast-non-reasoning",
+        }
+        xai_model = alias_map.get(model, model)
         
         api_key = os.getenv("XAI_API_KEY")
         if not api_key:
@@ -521,7 +533,7 @@ async def get_signing_key():
     try:
         attestation = AttestationResponse(
             public_key=tee_keys.get_public_key(),
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             enclave_info={
                 "platform": "aws-nitro",
                 "instance_type": "tee-enabled",
@@ -552,7 +564,7 @@ async def create_completion(request: CompletionRequest):
         messages = [HumanMessage(content=request.prompt)]
         response = await asyncio.to_thread(model.invoke, messages)
         
-        timestamp = datetime.now(UTC).isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         usage = extract_usage(response)
         
         response_data = {
@@ -638,7 +650,7 @@ async def create_chat_completion(request: ChatRequest):
         
         usage = extract_usage(response)
         
-        timestamp = datetime.now(UTC).isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         response_data = {
             "finish_reason": finish_reason,
             "message": message_dict,
@@ -818,28 +830,30 @@ async def create_chat_completion_stream(request: ChatRequest):
 
 @app.get("/v1/models")
 async def list_models():
-    """List available models"""
     return {
         "data": [
-            {"id": "gpt-4o", "provider": "openai"},
-            {"id": "gpt-4o-mini", "provider": "openai"},
-            {"id": "gpt-4-turbo", "provider": "openai"},
-            {"id": "o4-mini", "provider": "openai"},
-            {"id": "o3", "provider": "openai"},
-            {"id": "claude-3-5-sonnet-20240620", "provider": "anthropic"},
-            {"id": "claude-3-opus-20240229", "provider": "anthropic"},
-            {"id": "claude-3.7-sonnet", "provider": "anthropic"},
-            {"id": "claude-4.0-sonnet", "provider": "anthropic"},
-            {"id": "gemini-2.0-flash-exp", "provider": "google"},
-            {"id": "gemini-2.5-flash-preview", "provider": "google"},
-            {"id": "gemini-2.5-pro-preview", "provider": "google"},
-            {"id": "gemini-1.5-pro", "provider": "google"},
-            {"id": "gemini-2.5-flash-lite", "provider": "google"},
-            {"id": "grok-3-mini-beta", "provider": "x-ai"},
-            {"id": "grok-3-beta", "provider": "x-ai"},
-            {"id": "grok-2-1212", "provider": "x-ai"},
-            {"id": "grok-4.1-fast", "provider": "x-ai"},
-            {"id": "grok-4-1-fast-non-reasoning", "provider": "x-ai"},
+            # OpenAI
+            {"id": "openai/gpt-4.1-2025-04-14",    "provider": "openai"},
+            {"id": "openai/o4-mini",                "provider": "openai"},
+            {"id": "openai/gpt-5",                  "provider": "openai"},
+            {"id": "openai/gpt-5-mini",             "provider": "openai"},
+            # Anthropic
+            {"id": "anthropic/claude-sonnet-4-5",   "provider": "anthropic"},
+            {"id": "anthropic/claude-sonnet-4-6",   "provider": "anthropic"},
+            {"id": "anthropic/claude-haiku-4-5",    "provider": "anthropic"},
+            {"id": "anthropic/claude-opus-4-5",     "provider": "anthropic"},
+            {"id": "anthropic/claude-opus-4-6",     "provider": "anthropic"},
+            # Google
+            {"id": "google/gemini-2.5-flash",       "provider": "google"},
+            {"id": "google/gemini-2.5-pro",         "provider": "google"},
+            {"id": "google/gemini-2.5-flash-lite",  "provider": "google"},
+            {"id": "google/gemini-3-pro-preview",   "provider": "google"},
+            {"id": "google/gemini-3-flash-preview", "provider": "google"},
+            # xAI
+            {"id": "x-ai/grok-4",                           "provider": "x-ai"},
+            {"id": "x-ai/grok-4-fast",                      "provider": "x-ai"},
+            {"id": "x-ai/grok-4-1-fast",                    "provider": "x-ai"},
+            {"id": "x-ai/grok-4-1-fast-non-reasoning",      "provider": "x-ai"},
         ]
     }
 

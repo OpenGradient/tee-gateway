@@ -55,7 +55,7 @@ sudo curl --unix-socket /tmp/network.sock http:/unix/services/forwarder/all
 echo "[ec2] Starting enclave."
 enclave_id=$(nitro-cli run-enclave \
 	--cpu-count 2 \
-	--memory 4096 \
+	--memory 8192 \
 	--enclave-cid 4 \
 	--eif-path "$image_eif" | jq -r '.EnclaveID')
 
@@ -67,9 +67,9 @@ echo "$measurements" > measurements.txt
 
 echo "[ec2] Enclave is running!"
 echo "[ec2] Access endpoints:"
-echo "  - Health: http://localhost:443/health"
-echo "  - Attestation: http://localhost:443/attestation"
-echo "  - Chat: http://localhost:443/v1/chat/completions"
+echo "  - Health: https://localhost:443/health"
+echo "  - Attestation: https://localhost:443/signing-key"
+echo "  - Chat: https://localhost:443/v1/chat/completions"
 echo ""
 echo "[ec2] To view logs: nitro-cli console --enclave-id $enclave_id"
 echo "[ec2] To stop: nitro-cli terminate-enclave --enclave-id $enclave_id"

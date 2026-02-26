@@ -104,6 +104,13 @@ def verify_attestation_doc(attestation_string: str) -> None:
     doc_obj = cbor2.loads(doc)
     logging.debug("Loaded an attestation document")
 
+    # Expose timestamp
+    timestamp_ms = doc_obj['timestamp']
+    timestamp_s = timestamp_ms / 1000
+    logging.info("Attestation document timestamp (ms): %d", timestamp_ms)
+    logging.info("Attestation document timestamp (UTC): %s", 
+                __import__('datetime').datetime.utcfromtimestamp(timestamp_s).isoformat())
+
     # Get PCRs from attestation document
     document_pcrs_arr = doc_obj['pcrs']
 

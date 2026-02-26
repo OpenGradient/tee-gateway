@@ -1,20 +1,8 @@
 {
-"EnclaveName": "tee-llm-router-1.0.0-kaniko",
-"EnclaveID": "i-09e6a25b8dfd409e7-enc19b6bd7cb9930e4",
-"ProcessID": 1404395,
-"EnclaveCID": 4,
-"NumberOfCPUs": 2,
-"CPUIDs": [
-1,
-3
-],
-"MemoryMiB": 4096,
-"State": "RUNNING",
-"Flags": "NONE",
-"Measurements": {
-"HashAlgorithm": "Sha384 { ... }",
-"PCR0": "f4fd8f018d6cc6a8b50440c93fe32f4db62c9dd5833b2e1d979c5633338536ad47abe83b63ed76676fd6f91ab2f20b36",
-"PCR1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
-"PCR2": "0283fc73b569117b90ebe090157e6efa25120a1de183b2242149efaebd316b94bbbb154957a5121f27e68bef275474df"
-}
+  "Measurements": {
+    "HashAlgorithm": "Sha384 { ... }",
+    "PCR0": "b501a69a500e17df88364df4196a9eb7f2f2991925b33ee511a9319bf20df931d01e94aa93c9a0d128e2ade0f3145534",
+    "PCR1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+    "PCR2": "1760ea639120326aae35911d2be1bc7fc78efa80e829ef8074a05fceb436ac21bfed6ee804eb710b02941563844593d8"
+  }
 }

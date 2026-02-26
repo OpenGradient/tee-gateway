@@ -3,6 +3,9 @@
 TEE LLM Router Server
 Runs within a Nitro Enclave with remote attestation and request signing.
 Based on LangChain routing with async support and cryptographic verification.
+
+When TEE_ENABLED=false, runs as a plain LLM routing backend without
+nitriding registration or attestation.
 """
 
 import os
@@ -13,7 +16,7 @@ import base64
 import asyncio
 import sys
 from typing import List, Dict, Optional, Any
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 import urllib.request
 from functools import lru_cache
 
@@ -36,6 +39,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_xai import ChatXAI
+
+
+# Check if TEE features are enabled
+TEE_ENABLED = os.getenv("TEE_ENABLED", "true").lower() != "false"
 
 # HTTP Client Configuration
 ANTHROPIC_TIMEOUT = 120.0
@@ -64,8 +71,6 @@ openai_http_client = httpx.AsyncClient(
     follow_redirects=False,
 )
 
-# Note: Anthropic SDK manages its own HTTP client internally and doesn't accept custom clients
-
 xai_http_client = httpx.AsyncClient(
     base_url="https://api.x.ai/v1",
     headers={"Authorization": f"Bearer {os.getenv('XAI_API_KEY', '')}"},
@@ -82,18 +87,14 @@ class UptimeFormatter(logging.Formatter):
     """Custom formatter that includes uptime since server start"""
     
     def format(self, record):
-        # Calculate uptime in seconds
         uptime = time.time() - SERVER_START_TIME
-        
-        # Format uptime as HH:MM:SS
         hours = int(uptime // 3600)
         minutes = int((uptime % 3600) // 60)
         seconds = int(uptime % 60)
         record.uptime = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        
         return super().format(record)
 
-# Configure logging with timestamp and uptime
+# Configure logging
 log_handler = logging.StreamHandler(sys.stdout)
 log_handler.setFormatter(UptimeFormatter(
     fmt='%(asctime)s [+%(uptime)s] [%(levelname)s] %(name)s: %(message)s',
@@ -104,7 +105,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(log_handler)
 
-# Also configure root logger for other modules
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
 root_logger.handlers.clear()
@@ -123,11 +123,13 @@ rate_limiter = InMemoryRateLimiter(
 class TEEKeyManager:
     """Manages private/public key pair for TEE attestation and signing"""
     
-    def __init__(self):
+    def __init__(self, register_nitriding=True):
         self.private_key = None
         self.public_key = None
         self.public_key_pem = None
         self._initialize_keys()
+        if register_nitriding:
+            self.register_with_nitriding()
     
     def _initialize_keys(self):
         """Generate RSA key pair for signing inference results"""
@@ -139,7 +141,6 @@ class TEEKeyManager:
         )
         self.public_key = self.private_key.public_key()
         
-        # Serialize public key for attestation
         self.public_key_pem = self.public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
@@ -147,34 +148,26 @@ class TEEKeyManager:
         
         logger.info("TEE key pair generated successfully")
 
-        # Register with nitriding
-        self.register_with_nitriding()
-
     def register_with_nitriding(self):
         """Register public key hash with nitriding"""
         try:
-            # Get public key in DER format
             public_key_der = self.public_key.public_bytes(
                 encoding=serialization.Encoding.DER,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             )
             
-            # Compute SHA256 hash of the public key
             key_hash = hashlib.sha256(public_key_der).digest()
-            
-            # Base64 encode the hash (this is what nitriding expects!)
             key_hash_b64 = base64.b64encode(key_hash).decode('utf-8')
             
             logger.info(f"Public key DER length: {len(public_key_der)} bytes")
             logger.info(f"Public key SHA256 hash (hex): {key_hash.hex()}")
             logger.info(f"Public key SHA256 hash (base64): {key_hash_b64}")
             
-            # POST the BASE64-ENCODED HASH to nitriding
             nitriding_hash_url = "http://127.0.0.1:8080/enclave/hash"
             
             req = urllib.request.Request(
                 nitriding_hash_url,
-                data=key_hash_b64.encode('utf-8'),  # Send base64-encoded hash as UTF-8 string
+                data=key_hash_b64.encode('utf-8'),
                 method='POST'
             )
             
@@ -216,14 +209,17 @@ class TEEKeyManager:
         """Return public key in PEM format"""
         return self.public_key_pem
 
-# Initialize key manager
-tee_keys = TEEKeyManager()
+# Initialize key manager (skip nitriding registration when TEE_ENABLED=false)
+tee_keys = TEEKeyManager(register_nitriding=TEE_ENABLED)
 
 # Nitriding readiness signal
 nitriding_url = "http://127.0.0.1:8080/enclave/ready"
 
 def signal_ready():
     """Signal to nitriding that enclave is ready"""
+    if not TEE_ENABLED:
+        logger.info("TEE disabled - skipping nitriding ready signal")
+        return
     try:
         r = urllib.request.urlopen(nitriding_url)
         if r.getcode() != 200:
@@ -269,8 +265,8 @@ class CompletionResponse(BaseModel):
     completion: str
     model: str
     timestamp: str
-    signature: str  # TEE signature
-    request_hash: str  # Hash of request
+    signature: str
+    request_hash: str
     usage: Optional[Dict[str, int]] = None
     metadata: Optional[Dict[str, str]] = None
 
@@ -280,8 +276,8 @@ class ChatResponse(BaseModel):
     message: Dict[str, Any]
     model: str
     timestamp: str
-    signature: str  # TEE signature
-    request_hash: str  # Hash of request
+    signature: str
+    request_hash: str
     usage: Optional[Dict[str, int]] = None
     metadata: Optional[Dict[str, str]] = None
 
@@ -328,6 +324,14 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
     logger.info(f"Creating cached chat model - Provider: {provider}, Model: {model}")
     
     if provider in ["google", "gemini"]:
+        alias_map = {
+            "gemini-2.5-flash":         "gemini-2.5-flash-preview-05-20",
+            "gemini-2.5-flash-lite":    "gemini-2.5-flash-lite-preview-06-17",
+            "gemini-2.5-pro":           "gemini-2.5-pro-preview-06-05",
+            "gemini-3-pro-preview":     "gemini-3-pro-preview",
+            "gemini-3-flash-preview":   "gemini-3-flash-preview",
+        }
+        resolved_model = alias_map.get(model, model)
         thinking_budget = None
         if "2.5-flash" in model or "flash-lite" in model:
             thinking_budget = 0
@@ -339,7 +343,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
             raise ValueError("GOOGLE_API_KEY not found in environment")
             
         return ChatGoogleGenerativeAI(
-            model=model,
+            model=resolved_model,
             google_api_key=api_key,
             temperature=temperature,
             max_output_tokens=max_tokens,
@@ -348,7 +352,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         )
         
     elif provider == "openai":
-        model_temp = 1.0 if model in ["o4-mini", "o3"] else temperature
+        model_temp = 1.0 if model in ["o4-mini", "o3", "o4", "o4-5"] else temperature 
         
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -365,20 +369,22 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         )
         
     elif provider == "anthropic":
-        anthropic_model = model
-        if model == "claude-3.7-sonnet":
-            anthropic_model = "claude-3-7-sonnet-latest"
-        elif model == "claude-3.5-haiku":
-            anthropic_model = "claude-3-5-haiku-latest"
-        elif model == "claude-4.0-sonnet":
-            anthropic_model = "claude-sonnet-4-0"
+        alias_map = {
+            "claude-3.7-sonnet":    "claude-3-7-sonnet-latest",
+            "claude-3.5-haiku":     "claude-3-5-haiku-latest",
+            "claude-4.0-sonnet":    "claude-sonnet-4-0",
+            "claude-sonnet-4-5":    "claude-sonnet-4-5-20251001",
+            "claude-sonnet-4-6":    "claude-sonnet-4-6",
+            "claude-haiku-4-5":     "claude-haiku-4-5-20251001",
+            "claude-opus-4-5":      "claude-opus-4-5-20251101",
+            "claude-opus-4-6":      "claude-opus-4-6",
+        }
+        anthropic_model = alias_map.get(model, model)
         
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY not found in environment")
             
-        # Note: ChatAnthropic doesn't support http_async_client parameter
-        # The Anthropic SDK manages its own HTTP client internally
         return ChatAnthropic(
             model=anthropic_model,
             api_key=api_key,
@@ -390,17 +396,16 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         )
         
     elif provider == "x-ai":
-        xai_model = model
-        if model == "grok-3-mini-beta":
-            xai_model = "grok-3-mini"
-        elif model == "grok-3-beta":
-            xai_model = "grok-3-latest"
-        elif model == "grok-2-1212":
-            xai_model = "grok-2-latest"
-        elif model == "grok-4.1-fast":
-            xai_model = "grok-4-1-fast"
-        elif model == "grok-4-1-fast-non-reasoning":
-            xai_model = "grok-4-1-fast-non-reasoning"
+        alias_map = {
+            "grok-3-mini-beta":                 "grok-3-mini",
+            "grok-3-beta":                      "grok-3-latest",
+            "grok-2-1212":                      "grok-2-latest",
+            "grok-4.1-fast":                    "grok-4-1-fast",
+            "grok-4-fast":                      "grok-4-fast",
+            "grok-4":                           "grok-4",
+            "grok-4-1-fast-non-reasoning":      "grok-4-1-fast-non-reasoning",
+        }
+        xai_model = alias_map.get(model, model)
         
         api_key = os.getenv("XAI_API_KEY")
         if not api_key:
@@ -440,7 +445,6 @@ def convert_messages(messages: List[Message]) -> List[Any]:
             if msg.tool_calls:
                 logger.info(f"Processing assistant message with {len(msg.tool_calls)} tool calls")
                 
-                # Convert tool_calls from dict format to LangChain's expected format
                 langchain_tool_calls = []
                 for tc in msg.tool_calls:
                     logger.info(f"Tool call: id={tc.get('id')}, type={tc.get('type')}, function={tc.get('function', {}).get('name')}")
@@ -460,7 +464,6 @@ def convert_messages(messages: List[Message]) -> List[Any]:
                         "type": tc.get('type', 'function')
                     })
                 
-                # Create AIMessage with tool_calls as direct attribute
                 ai_msg = AIMessage(
                     content=content or "",
                     tool_calls=langchain_tool_calls
@@ -503,7 +506,6 @@ def extract_usage(response: AIMessage) -> Optional[Dict[str, int]]:
 async def health_check():
     """Health check endpoint"""
     process = psutil.Process()
-
     connections = process.connections()
     conn_states = {}
     for conn in connections:
@@ -513,7 +515,7 @@ async def health_check():
     return {
         "status": "healthy",
         "version": "1.0.0",
-        "tee_enabled": True,
+        "tee_enabled": TEE_ENABLED,
         "uptime_seconds": time.time() - process.create_time(),
         "memory_mb": process.memory_info().rss / 1024 / 1024,
         "threads": process.num_threads(),
@@ -525,23 +527,20 @@ async def health_check():
     }
 
 
-@app.get("/attestation")
-async def get_attestation():
+@app.get("/signing-key")
+async def get_signing_key():
     """Return TEE attestation document with public key"""
     try:
-        # In a real Nitro Enclave, you'd retrieve actual PCR measurements
-        # For now, we'll return a mock attestation structure
         attestation = AttestationResponse(
             public_key=tee_keys.get_public_key(),
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             enclave_info={
                 "platform": "aws-nitro",
                 "instance_type": "tee-enabled",
                 "version": "1.0.0"
             },
-            measurements=None  # Would contain PCR values in real deployment
+            measurements=None
         )
-        
         logger.info("Attestation document requested")
         return attestation
     except Exception as e:
@@ -553,25 +552,19 @@ async def get_attestation():
 async def create_completion(request: CompletionRequest):
     """Create a text completion with TEE signing"""
     try:
-        # Compute request hash
         request_dict = request.dict()
         request_hash = compute_request_hash(request_dict)
         
-        # Get cached model instance
         model = get_chat_model_cached(
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens or 4096,
         )
         
-        # Convert prompt to message
         messages = [HumanMessage(content=request.prompt)]
-        
-        # Invoke model
         response = await asyncio.to_thread(model.invoke, messages)
         
-        # Create response data for signing
-        timestamp = datetime.now(UTC).isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         usage = extract_usage(response)
         
         response_data = {
@@ -581,7 +574,6 @@ async def create_completion(request: CompletionRequest):
             "request_hash": request_hash,
         }
         
-        # Sign the response
         signature = tee_keys.sign_data(json.dumps(response_data, sort_keys=True))
         
         return CompletionResponse(
@@ -607,50 +599,40 @@ async def create_chat_completion(request: ChatRequest):
         logger.info(f"Chat request for model: {request.model}")
         logger.info(f"Number of messages: {len(request.messages)}")
         
-        # Log tool information
         if request.tools:
             logger.info(f"Tools provided: {len(request.tools)}")
             for tool in request.tools:
                 logger.info(f"  Tool: {tool.function.get('name', 'unnamed')}")
         
-        # Log messages with tool calls
         for i, msg in enumerate(request.messages):
             logger.info(f"Message {i}: role={msg.role}, has_tool_calls={bool(msg.tool_calls)}")
             if msg.tool_calls:
                 for tc in msg.tool_calls:
                     logger.info(f"  Tool call in message: {tc}")
         
-        # Compute request hash
         request_dict = request.dict()
         request_hash = compute_request_hash(request_dict)
         
-        # Get cached model instance
         model = get_chat_model_cached(
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens or 4096,
         )
         
-        # Bind tools if provided
         if request.tools:
             logger.info(f"Binding {len(request.tools)} tools")
             tools_list = [{"type": "function", "function": tool.function} 
                          for tool in request.tools]
             model = model.bind_tools(tools_list)
         
-        # Convert messages
         messages = convert_messages(request.messages)
-        
-        # Invoke model asynchronously
         response = await asyncio.to_thread(model.invoke, messages)
         
-        # Extract message content
         message_dict = {
             "role": "assistant",
             "content": response.content or "",
         }
         
-        # Check for tool calls
         finish_reason = "stop"
         if hasattr(response, "tool_calls") and response.tool_calls:
             finish_reason = "tool_calls"
@@ -666,11 +648,9 @@ async def create_chat_completion(request: ChatRequest):
                 for tc in response.tool_calls
             ]
         
-        # Extract usage
         usage = extract_usage(response)
         
-        # Create response data for signing
-        timestamp = datetime.now(UTC).isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         response_data = {
             "finish_reason": finish_reason,
             "message": message_dict,
@@ -679,7 +659,6 @@ async def create_chat_completion(request: ChatRequest):
             "request_hash": request_hash,
         }
         
-        # Sign the response
         signature = tee_keys.sign_data(json.dumps(response_data, sort_keys=True))
         
         return ChatResponse(
@@ -702,45 +681,31 @@ async def create_chat_completion(request: ChatRequest):
 async def create_chat_completion_stream(request: ChatRequest):
     """Create a streaming chat completion with tool calls and final token usage"""
     try:
-        # Get provider to determine buffering strategy
         provider = get_provider_from_model(request.model)
-
-        # Determine if we should buffer tool calls (for OpenAI/Anthropic)
         buffer_tool_calls = provider in ["openai", "anthropic"]
 
-        # Get cached model instance
         model = get_chat_model_cached(
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens or 4096,
         )
 
-        # Bind tools if provided
         if request.tools:
             tools_list = [{"type": "function", "function": tool.function}
                          for tool in request.tools]
             model = model.bind_tools(tools_list)
 
-        # Convert messages
         messages = convert_messages(request.messages)
 
         async def generate():
-            """Generate SSE stream with tool calls and token usage"""
             try:
-                # Track accumulated state
                 full_content = ""
                 final_usage = None
-                tool_calls_map = {}  # Track tool calls by index
+                buffered_tool_calls = {}
                 finish_reason = "stop"
 
-                # Buffer for complete tool calls (OpenAI/Anthropic only)
-                buffered_tool_calls = {}
-                tool_calls_complete = False
-
                 async for chunk in model.astream(messages):
-                    # Handle content delta - normalize to string
                     if chunk.content:
-                        # Convert content to string (handle both str and list)
                         if isinstance(chunk.content, str):
                             content_str = chunk.content
                         elif isinstance(chunk.content, list):
@@ -753,41 +718,29 @@ async def create_chat_completion_stream(request: ChatRequest):
 
                         if content_str:
                             full_content += content_str
-
                             data = {
                                 "choices": [{
-                                    "delta": {
-                                        "content": content_str,
-                                        "role": "assistant"
-                                    },
+                                    "delta": {"content": content_str, "role": "assistant"},
                                     "index": 0,
                                     "finish_reason": None
                                 }],
                                 "model": request.model
                             }
-
                             yield f"data: {json.dumps(data)}\n\n"
                             await asyncio.sleep(0)
 
-                    # Handle tool call deltas
                     if hasattr(chunk, 'tool_call_chunks') and chunk.tool_call_chunks:
                         finish_reason = "tool_calls"
-
                         for tc_chunk in chunk.tool_call_chunks:
                             tc_index = tc_chunk.get('index', 0)
 
-                            # Initialize or update buffered tool call
                             if tc_index not in buffered_tool_calls:
                                 buffered_tool_calls[tc_index] = {
                                     'id': tc_chunk.get('id', ''),
                                     'type': 'function',
-                                    'function': {
-                                        'name': tc_chunk.get('name', ''),
-                                        'arguments': ''
-                                    }
+                                    'function': {'name': tc_chunk.get('name', ''), 'arguments': ''}
                                 }
 
-                            # Update tool call state
                             if 'id' in tc_chunk and tc_chunk['id']:
                                 buffered_tool_calls[tc_index]['id'] = tc_chunk['id']
                             if 'name' in tc_chunk and tc_chunk['name']:
@@ -802,17 +755,8 @@ async def create_chat_completion_stream(request: ChatRequest):
                                     args_str = str(args_value)
                                 buffered_tool_calls[tc_index]['function']['arguments'] += args_str
 
-                            # If NOT buffering (Google/xAI), stream immediately
                             if not buffer_tool_calls:
-                                delta = {
-                                    "role": "assistant",
-                                    "tool_calls": [{
-                                        "index": tc_index,
-                                        "type": "function",
-                                        "function": {}
-                                    }]
-                                }
-
+                                delta = {"role": "assistant", "tool_calls": [{"index": tc_index, "type": "function", "function": {}}]}
                                 if tc_chunk.get('id'):
                                     delta["tool_calls"][0]["id"] = tc_chunk['id']
                                 if tc_chunk.get('name'):
@@ -826,26 +770,19 @@ async def create_chat_completion_stream(request: ChatRequest):
                                     else:
                                         delta["tool_calls"][0]["function"]["arguments"] = str(args_value)
 
-                                if not delta["tool_calls"][0]["function"]:
-                                    del delta["tool_calls"][0]["function"]
+                                    if not delta["tool_calls"][0]["function"]:
+                                        del delta["tool_calls"][0]["function"]
 
                                 data = {
-                                    "choices": [{
-                                        "delta": delta,
-                                        "index": 0,
-                                        "finish_reason": None
-                                    }],
+                                    "choices": [{"delta": delta, "index": 0, "finish_reason": None}],
                                     "model": request.model
                                 }
-
                                 yield f"data: {json.dumps(data)}\n\n"
                                 await asyncio.sleep(0)
 
-                    # Capture usage metadata
                     if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
                         final_usage = chunk.usage_metadata
 
-                # If we buffered tool calls (OpenAI/Anthropic), send them all at once now
                 if buffer_tool_calls and buffered_tool_calls:
                     for tc_index, tc in buffered_tool_calls.items():
                         delta = {
@@ -854,35 +791,17 @@ async def create_chat_completion_stream(request: ChatRequest):
                                 "index": tc_index,
                                 "id": tc['id'],
                                 "type": "function",
-                                "function": {
-                                    "name": tc['function']['name'],
-                                    "arguments": tc['function']['arguments']
-                                }
+                                "function": {"name": tc['function']['name'], "arguments": tc['function']['arguments']}
                             }]
                         }
-
-                        data = {
-                            "choices": [{
-                                "delta": delta,
-                                "index": 0,
-                                "finish_reason": None
-                            }],
-                            "model": request.model
-                        }
-
+                        data = {"choices": [{"delta": delta, "index": 0, "finish_reason": None}], "model": request.model}
                         yield f"data: {json.dumps(data)}\n\n"
                         await asyncio.sleep(0)
 
-                # Send final chunk with finish_reason and usage
                 final_data = {
-                    "choices": [{
-                        "delta": {},
-                        "index": 0,
-                        "finish_reason": finish_reason
-                    }],
+                    "choices": [{"delta": {}, "index": 0, "finish_reason": finish_reason}],
                     "model": request.model
                 }
-
                 if final_usage:
                     final_data["usage"] = {
                         "prompt_tokens": final_usage.get("input_tokens", 0),
@@ -901,10 +820,7 @@ async def create_chat_completion_stream(request: ChatRequest):
         return StreamingResponse(
             generate(),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            }
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
 
     except Exception as e:
@@ -914,62 +830,47 @@ async def create_chat_completion_stream(request: ChatRequest):
 
 @app.get("/v1/models")
 async def list_models():
-    """List available models"""
     return {
         "data": [
-            {"id": "gpt-4o", "provider": "openai"},
-            {"id": "gpt-4o-mini", "provider": "openai"},
-            {"id": "gpt-4-turbo", "provider": "openai"},
-            {"id": "o4-mini", "provider": "openai"},
-            {"id": "o3", "provider": "openai"},
-            {"id": "claude-3-5-sonnet-20240620", "provider": "anthropic"},
-            {"id": "claude-3-opus-20240229", "provider": "anthropic"},
-            {"id": "claude-3.7-sonnet", "provider": "anthropic"},
-            {"id": "claude-4.0-sonnet", "provider": "anthropic"},
-            {"id": "gemini-2.0-flash-exp", "provider": "google"},
-            {"id": "gemini-2.5-flash-preview", "provider": "google"},
-            {"id": "gemini-2.5-pro-preview", "provider": "google"},
-            {"id": "gemini-1.5-pro", "provider": "google"},
-            {"id": "gemini-2.5-flash-lite", "provider": "google"},
-            {"id": "grok-3-mini-beta", "provider": "x-ai"},
-            {"id": "grok-3-beta", "provider": "x-ai"},
-            {"id": "grok-2-1212", "provider": "x-ai"},
-            {"id": "grok-4.1-fast", "provider": "x-ai"},
-            {"id": "grok-4-1-fast-non-reasoning", "provider": "x-ai"},
+            # OpenAI
+            {"id": "openai/gpt-4.1-2025-04-14",    "provider": "openai"},
+            {"id": "openai/o4-mini",                "provider": "openai"},
+            {"id": "openai/gpt-5",                  "provider": "openai"},
+            {"id": "openai/gpt-5-mini",             "provider": "openai"},
+            # Anthropic
+            {"id": "anthropic/claude-sonnet-4-5",   "provider": "anthropic"},
+            {"id": "anthropic/claude-sonnet-4-6",   "provider": "anthropic"},
+            {"id": "anthropic/claude-haiku-4-5",    "provider": "anthropic"},
+            {"id": "anthropic/claude-opus-4-5",     "provider": "anthropic"},
+            {"id": "anthropic/claude-opus-4-6",     "provider": "anthropic"},
+            # Google
+            {"id": "google/gemini-2.5-flash",       "provider": "google"},
+            {"id": "google/gemini-2.5-pro",         "provider": "google"},
+            {"id": "google/gemini-2.5-flash-lite",  "provider": "google"},
+            {"id": "google/gemini-3-pro-preview",   "provider": "google"},
+            {"id": "google/gemini-3-flash-preview", "provider": "google"},
+            # xAI
+            {"id": "x-ai/grok-4",                           "provider": "x-ai"},
+            {"id": "x-ai/grok-4-fast",                      "provider": "x-ai"},
+            {"id": "x-ai/grok-4-1-fast",                    "provider": "x-ai"},
+            {"id": "x-ai/grok-4-1-fast-non-reasoning",      "provider": "x-ai"},
         ]
     }
 
 
 @app.get("/")
 async def root():
-    """Root endpoint with API information"""
     return {
-        "name": "TEE LLM Router",
+        "name": "TEE LLM Backend",
         "version": "1.0.0",
-        "tee_enabled": True,
-        "endpoints": {
-            "attestation": "/attestation",
-            "completion": "/v1/completions",
-            "chat": "/v1/chat/completions",
-            "chat_stream": "/v1/chat/completions/stream",
-            "models": "/v1/models",
-            "health": "/health"
-        },
-        "features": [
-            "Remote Attestation",
-            "Cryptographic Request Signing",
-            "Multi-provider LLM Routing",
-            "Async Processing",
-            "Shared HTTP Clients",
-            "LLM Wrapper Caching"
-        ]
+        "tee_enabled": TEE_ENABLED,
     }
 
 
 if __name__ == "__main__":
-    logger.info("Starting TEE LLM Router Server...")
+    logger.info(f"Starting TEE LLM Router Server (TEE_ENABLED={TEE_ENABLED})...")
     
-    # Signal readiness to nitriding
+    # Only signal readiness when TEE is enabled
     signal_ready()
     
     port = int(os.getenv("LLM_SERVER_PORT", "8000"))

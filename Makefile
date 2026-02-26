@@ -10,6 +10,8 @@ image_tag := $(prog):$(version)
 image_tar := $(prog)-$(version)-kaniko.tar
 image_eif := $(image_tar:%.tar=%.eif)
 
+SOURCE_DATE_EPOCH ?= 1700006400 
+
 ARCH ?= $(shell uname -m)
 ifeq ($(ARCH),aarch64)
 	override ARCH=arm64
@@ -31,8 +33,11 @@ all: run
 image: $(image_tar)
 
 $(image_tar): Dockerfile server.py start.sh requirements.txt
-	docker run \
+	find openapi_server -exec touch -t 202311150000 {} \;
+	touch -t 202311150000 start.sh server.py Dockerfile requirements.txt
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) docker run \
 		-v $(PWD):/workspace \
+		-e SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \
 		gcr.io/kaniko-project/executor:v1.9.2 \
 		--reproducible \
 		--no-push \
@@ -57,6 +62,14 @@ run: $(image_eif)
 .PHONY: clean
 clean:
 	rm -f $(image_tar) $(image_eif)
+
+.PHONY: health
+health:
+	curl -i -k https://localhost:443/health
+
+.PHONY: get-signing-key
+get-signing-key:
+	curl -sk https://localhost:443/signing-key | python3 -c "import json,sys; print(json.load(sys.stdin)['public_key'])"
 
 .PHONY: test-local
 test-local:

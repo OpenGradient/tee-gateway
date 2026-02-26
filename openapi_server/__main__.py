@@ -8,6 +8,9 @@ import sys
 import os
 import json
 from datetime import datetime, UTC
+import gc
+import time
+import psutil
 
 import connexion
 from flask import jsonify
@@ -22,6 +25,7 @@ from x402v2.mechanisms.evm.upto import UptoEvmServerScheme
 from x402v2.schemas import AssetAmount, Network
 from x402v2.server import x402ResourceServerSync
 from x402v2.session import SessionStore
+import x402v2.http.middleware.flask as x402_flask
 
 # Configure logging
 logging.basicConfig(
@@ -98,7 +102,34 @@ routes = {
 
 
 def health():
-    return {"status": "OK", "tee_enabled": True}, 200
+    process = psutil.Process()
+    system_memory = psutil.virtual_memory()
+
+    connections = process.connections()
+    conn_states = {}
+    for conn in connections:
+        state = conn.status if conn.status else "NONE"
+        conn_states[state] = conn_states.get(state, 0) + 1
+
+    return {
+        "status": "OK",
+        "version": "1.0.0",
+        "tee_enabled": True,
+        "uptime_seconds": time.time() - process.create_time(),
+        "memory_mb": process.memory_info().rss / 1024 / 1024,
+        "process_memory_mb": process.memory_info().rss / 1024 / 1024,
+        "process_memory_percent": process.memory_percent(),
+        "system_total_memory_mb": system_memory.total / 1024 / 1024,
+        "system_used_memory_mb": system_memory.used / 1024 / 1024,
+        "system_available_memory_mb": system_memory.available / 1024 / 1024,
+        "system_memory_percent": system_memory.percent,
+        "threads": process.num_threads(),
+        "open_files": len(process.open_files()),
+        "num_fds": process.num_fds(),
+        "connections": len(connections),
+        "connection_states": conn_states,
+        "gc_objects": len(gc.get_objects()),
+    }, 200
 
 
 def signing_key():
@@ -134,6 +165,23 @@ def create_app():
 
 # Create the WSGI application and attach x402v2 payment middleware
 application = create_app()
+
+# This patch ensures that non-payment 0-length requests can still bypass the middleware
+_original_read_body_bytes = x402_flask._read_body_bytes
+
+def _patched_read_body_bytes(environ):
+    try:
+        content_length = int(environ.get("CONTENT_LENGTH") or 0)
+    except (ValueError, TypeError):
+        content_length = 0
+    
+    if content_length <= 0:
+        return b""
+    
+    return _original_read_body_bytes(environ)
+
+x402_flask._read_body_bytes = _patched_read_body_bytes
+
 payment_middleware(
     application,
     routes=routes,
@@ -143,28 +191,6 @@ payment_middleware(
     session_idle_timeout=100,
 )
 logger.info("x402v2 payment middleware initialized")
-
-# --- DEBUG: wrap AFTER payment_middleware so we intercept first ---
-_payment_wsgi = application.wsgi_app
-
-def _debug_wsgi(environ, start_response):
-    method = environ.get("REQUEST_METHOD", "")
-    path = environ.get("PATH_INFO", "")
-    headers = {
-        k[5:].replace("_", "-"): v
-        for k, v in environ.items()
-        if k.startswith("HTTP_")
-    }
-    logger.info("=== REQUEST %s %s ===", method, path)
-    for name, value in sorted(headers.items()):
-        display = value if len(value) < 120 else value[:120] + "...[truncated]"
-        logger.info("  HEADER %s: %s", name, display)
-    logger.info("=== END HEADERS ===")
-    return _payment_wsgi(environ, start_response)
-
-application.wsgi_app = _debug_wsgi
-logger.info("Debug middleware enabled")
-# --- END DEBUG ---
 
 if __name__ == "__main__":
     port = int(os.getenv("API_SERVER_PORT", "8000"))

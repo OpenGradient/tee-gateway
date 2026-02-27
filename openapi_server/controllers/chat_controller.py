@@ -193,6 +193,8 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
             openai_response["tee_signature"] = tee_response["signature"]
         if "request_hash" in tee_response:
             openai_response["tee_request_hash"] = tee_response["request_hash"]
+        if "output_hash" in tee_response:
+            openai_response["tee_output_hash"] = tee_response["output_hash"]
         if "timestamp" in tee_response:
             openai_response["tee_timestamp"] = tee_response["timestamp"]
         

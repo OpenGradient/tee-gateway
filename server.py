@@ -798,9 +798,23 @@ async def create_chat_completion_stream(request: ChatRequest):
                         yield f"data: {json.dumps(data)}\n\n"
                         await asyncio.sleep(0)
 
+                # Sign the completed response for TEE attestation.
+                # The middleware extracts tee_signature from the *last* SSE event
+                # (the final chunk before [DONE]), so we embed it there.
+                timestamp = datetime.now(timezone.utc).isoformat()
+                response_data_to_sign = {
+                    "finish_reason": finish_reason,
+                    "model": request.model,
+                    "timestamp": timestamp,
+                    "full_content": full_content,
+                }
+                tee_signature = tee_keys.sign_data(json.dumps(response_data_to_sign, sort_keys=True))
+
                 final_data = {
                     "choices": [{"delta": {}, "index": 0, "finish_reason": finish_reason}],
-                    "model": request.model
+                    "model": request.model,
+                    "tee_signature": tee_signature,
+                    "tee_timestamp": timestamp,
                 }
                 if final_usage:
                     final_data["usage"] = {
@@ -808,7 +822,7 @@ async def create_chat_completion_stream(request: ChatRequest):
                         "completion_tokens": final_usage.get("output_tokens", 0),
                         "total_tokens": final_usage.get("total_tokens", 0)
                     }
-                    logger.info(f"Stream completed - Usage: {final_data['usage']}, Finish: {finish_reason}")
+                    logger.info(f"Stream completed - Usage: {final_data['usage']}, Finish: {finish_reason}, TEE signed with signature: {tee_signature}")
 
                 yield f"data: {json.dumps(final_data)}\n\n"
                 yield "data: [DONE]\n\n"

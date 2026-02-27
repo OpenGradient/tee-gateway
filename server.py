@@ -32,6 +32,7 @@ import httpx
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.backends import default_backend
+from eth_hash.auto import keccak
 
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from langchain_core.rate_limiters import InMemoryRateLimiter
@@ -192,11 +193,16 @@ class TEEKeyManager:
             logger.error(f"Unexpected error registering public key: {e}", exc_info=True)
             return False
 
-    def sign_data(self, data: str) -> str:
-        """Sign data with private key and return base64 signature"""
-        data_bytes = data.encode('utf-8')
+    def sign_data(self, data: bytes) -> str:
+        """Sign msg_hash bytes with RSA-PSS-SHA256, return base64 signature.
+
+        Expects pre-computed bytes (e.g. the keccak256 msg_hash).
+        Internally the RSA-PSS layer hashes again with SHA256 before signing,
+        matching the double-hash pattern the on-chain verifier uses:
+          keccak256(abi.encodePacked(inputHash, outputHash, timestamp))  → RSA-PSS-SHA256(msg_hash)
+        """
         signature = self.private_key.sign(
-            data_bytes,
+            data,
             padding.PSS(
                 mgf=padding.MGF1(hashes.SHA256()),
                 salt_length=padding.PSS.MAX_LENGTH
@@ -264,9 +270,10 @@ class ChatRequest(BaseModel):
 class CompletionResponse(BaseModel):
     completion: str
     model: str
-    timestamp: str
-    signature: str
-    request_hash: str
+    timestamp: int       # unix seconds (uint256) — matches on-chain timestamp
+    signature: str       # base64 RSA-PSS-SHA256(keccak256(inputHash‖outputHash‖timestamp))
+    request_hash: str    # hex keccak256(request_bytes) — inputHash for on-chain verification
+    output_hash: str     # hex keccak256(response_content) — outputHash for on-chain verification
     usage: Optional[Dict[str, int]] = None
     metadata: Optional[Dict[str, str]] = None
 
@@ -275,9 +282,10 @@ class ChatResponse(BaseModel):
     finish_reason: str
     message: Dict[str, Any]
     model: str
-    timestamp: str
-    signature: str
-    request_hash: str
+    timestamp: int       # unix seconds (uint256) — matches on-chain timestamp
+    signature: str       # base64 RSA-PSS-SHA256(keccak256(inputHash‖outputHash‖timestamp))
+    request_hash: str    # hex keccak256(request_bytes) — inputHash for on-chain verification
+    output_hash: str     # hex keccak256(response_content) — outputHash for on-chain verification
     usage: Optional[Dict[str, int]] = None
     metadata: Optional[Dict[str, str]] = None
 
@@ -291,10 +299,22 @@ class AttestationResponse(BaseModel):
 
 
 # Helper functions
-def compute_request_hash(request_data: Dict) -> str:
-    """Compute SHA256 hash of request data"""
-    request_json = json.dumps(request_data, sort_keys=True)
-    return hashlib.sha256(request_json.encode('utf-8')).hexdigest()
+def compute_tee_msg_hash(
+    request_bytes: bytes,
+    response_content: str,
+    timestamp: int,
+) -> tuple:
+    """Compute msg_hash matching the on-chain verifier:
+      keccak256(abi.encodePacked(inputHash, outputHash, timestamp))
+    where inputHash and outputHash are each keccak256 bytes32 values
+    and timestamp is uint256 (big-endian 32 bytes).
+
+    Returns (msg_hash_bytes, input_hash_hex, output_hash_hex).
+    """
+    input_hash  = keccak(request_bytes)                        # bytes32
+    output_hash = keccak(response_content.encode('utf-8'))     # bytes32
+    msg_hash    = keccak(input_hash + output_hash + timestamp.to_bytes(32, 'big'))
+    return msg_hash, input_hash.hex(), output_hash.hex()
 
 
 def get_provider_from_model(model: str) -> str:
@@ -325,9 +345,9 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
     
     if provider in ["google", "gemini"]:
         alias_map = {
-            "gemini-2.5-flash":         "gemini-2.5-flash-preview-05-20",
-            "gemini-2.5-flash-lite":    "gemini-2.5-flash-lite-preview-06-17",
-            "gemini-2.5-pro":           "gemini-2.5-pro-preview-06-05",
+            "gemini-2.5-flash":         "gemini-2.5-flash",
+            "gemini-2.5-flash-lite":    "gemini-2.5-flash-lite",
+            "gemini-2.5-pro":           "gemini-2.5-pro",
             "gemini-3-pro-preview":     "gemini-3-pro-preview",
             "gemini-3-flash-preview":   "gemini-3-flash-preview",
         }
@@ -373,7 +393,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
             "claude-3.7-sonnet":    "claude-3-7-sonnet-latest",
             "claude-3.5-haiku":     "claude-3-5-haiku-latest",
             "claude-4.0-sonnet":    "claude-sonnet-4-0",
-            "claude-sonnet-4-5":    "claude-sonnet-4-5-20251001",
+            "claude-sonnet-4-5":    "claude-sonnet-4-5",
             "claude-sonnet-4-6":    "claude-sonnet-4-6",
             "claude-haiku-4-5":     "claude-haiku-4-5-20251001",
             "claude-opus-4-5":      "claude-opus-4-5-20251101",
@@ -553,39 +573,37 @@ async def create_completion(request: CompletionRequest):
     """Create a text completion with TEE signing"""
     try:
         request_dict = request.dict()
-        request_hash = compute_request_hash(request_dict)
-        
+        request_bytes = json.dumps(request_dict, sort_keys=True).encode('utf-8')
+
         model = get_chat_model_cached(
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens or 4096,
         )
-        
+
         messages = [HumanMessage(content=request.prompt)]
         response = await asyncio.to_thread(model.invoke, messages)
-        
-        timestamp = datetime.now(timezone.utc).isoformat()
+
+        response_content = response.content or ""
+        timestamp = int(datetime.now(timezone.utc).timestamp())
         usage = extract_usage(response)
-        
-        response_data = {
-            "completion": response.content,
-            "model": request.model,
-            "timestamp": timestamp,
-            "request_hash": request_hash,
-        }
-        
-        signature = tee_keys.sign_data(json.dumps(response_data, sort_keys=True))
-        
+
+        msg_hash, input_hash_hex, output_hash_hex = compute_tee_msg_hash(
+            request_bytes, response_content, timestamp
+        )
+        signature = tee_keys.sign_data(msg_hash)
+
         return CompletionResponse(
-            completion=response.content,
+            completion=response_content,
             model=request.model,
             timestamp=timestamp,
             signature=signature,
-            request_hash=request_hash,
+            request_hash=input_hash_hex,
+            output_hash=output_hash_hex,
             usage=usage,
             metadata=None
         )
-        
+
     except Exception as e:
         logger.error(f"Completion error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -611,28 +629,28 @@ async def create_chat_completion(request: ChatRequest):
                     logger.info(f"  Tool call in message: {tc}")
         
         request_dict = request.dict()
-        request_hash = compute_request_hash(request_dict)
-        
+        request_bytes = json.dumps(request_dict, sort_keys=True).encode('utf-8')
+
         model = get_chat_model_cached(
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens or 4096,
         )
-        
+
         if request.tools:
             logger.info(f"Binding {len(request.tools)} tools")
-            tools_list = [{"type": "function", "function": tool.function} 
+            tools_list = [{"type": "function", "function": tool.function}
                          for tool in request.tools]
             model = model.bind_tools(tools_list)
-        
+
         messages = convert_messages(request.messages)
         response = await asyncio.to_thread(model.invoke, messages)
-        
+
         message_dict = {
             "role": "assistant",
             "content": response.content or "",
         }
-        
+
         finish_reason = "stop"
         if hasattr(response, "tool_calls") and response.tool_calls:
             finish_reason = "tool_calls"
@@ -647,27 +665,32 @@ async def create_chat_completion(request: ChatRequest):
                 }
                 for tc in response.tool_calls
             ]
-        
+
         usage = extract_usage(response)
-        
-        timestamp = datetime.now(timezone.utc).isoformat()
-        response_data = {
-            "finish_reason": finish_reason,
-            "message": message_dict,
-            "model": request.model,
-            "timestamp": timestamp,
-            "request_hash": request_hash,
-        }
-        
-        signature = tee_keys.sign_data(json.dumps(response_data, sort_keys=True))
-        
+
+        # Build the canonical output string to hash.
+        # When finish_reason == "tool_calls", message_dict["content"] is "" — the
+        # meaningful output lives in the tool_calls list. We serialize it so the
+        # signature actually covers which tools were called and with what arguments.
+        # For ordinary text turns we hash the content string directly.
+        if finish_reason == "tool_calls" and message_dict.get("tool_calls"):
+            response_content = json.dumps(message_dict["tool_calls"], sort_keys=True)
+        else:
+            response_content = message_dict["content"]
+        timestamp = int(datetime.now(timezone.utc).timestamp())
+        msg_hash, input_hash_hex, output_hash_hex = compute_tee_msg_hash(
+            request_bytes, response_content, timestamp
+        )
+        signature = tee_keys.sign_data(msg_hash)
+
         return ChatResponse(
             finish_reason=finish_reason,
             message=message_dict,
             model=request.model,
             timestamp=timestamp,
             signature=signature,
-            request_hash=request_hash,
+            request_hash=input_hash_hex,
+            output_hash=output_hash_hex,
             usage=usage,
             metadata=None
         )
@@ -683,6 +706,9 @@ async def create_chat_completion_stream(request: ChatRequest):
     try:
         provider = get_provider_from_model(request.model)
         buffer_tool_calls = provider in ["openai", "anthropic"]
+
+        # Capture request bytes before streaming so we can sign at the end
+        request_bytes = json.dumps(request.dict(), sort_keys=True).encode('utf-8')
 
         model = get_chat_model_cached(
             model=request.model,
@@ -798,9 +824,34 @@ async def create_chat_completion_stream(request: ChatRequest):
                         yield f"data: {json.dumps(data)}\n\n"
                         await asyncio.sleep(0)
 
+                # Sign the completed response for TEE attestation.
+                # The middleware extracts tee_signature from the *last* SSE event
+                # (the final chunk before [DONE]), so we embed it there.
+                #
+                # Matches the on-chain verifier pattern:
+                #   keccak256(abi.encodePacked(inputHash, outputHash, timestamp))
+                # where timestamp is uint256 unix seconds.
+                timestamp = int(datetime.now(timezone.utc).timestamp())
+                # For tool-call responses full_content is "" — hash the fully-buffered
+                # tool calls list instead so the signature covers the actual tool
+                # invocations. Sort by index key for a deterministic canonical form.
+                if finish_reason == "tool_calls" and buffered_tool_calls:
+                    tool_calls_list = [buffered_tool_calls[k] for k in sorted(buffered_tool_calls.keys())]
+                    output_content = json.dumps(tool_calls_list, sort_keys=True)
+                else:
+                    output_content = full_content
+                msg_hash, input_hash_hex, output_hash_hex = compute_tee_msg_hash(
+                    request_bytes, output_content, timestamp
+                )
+                tee_signature = tee_keys.sign_data(msg_hash)
+
                 final_data = {
                     "choices": [{"delta": {}, "index": 0, "finish_reason": finish_reason}],
-                    "model": request.model
+                    "model": request.model,
+                    "tee_signature": tee_signature,
+                    "tee_timestamp": timestamp,
+                    "tee_request_hash": input_hash_hex,
+                    "tee_output_hash": output_hash_hex,
                 }
                 if final_usage:
                     final_data["usage"] = {
@@ -808,7 +859,7 @@ async def create_chat_completion_stream(request: ChatRequest):
                         "completion_tokens": final_usage.get("output_tokens", 0),
                         "total_tokens": final_usage.get("total_tokens", 0)
                     }
-                    logger.info(f"Stream completed - Usage: {final_data['usage']}, Finish: {finish_reason}")
+                    logger.info(f"Stream completed - Usage: {final_data['usage']}, Finish: {finish_reason}, inputHash: {input_hash_hex[:16]}..., outputHash: {output_hash_hex[:16]}...")
 
                 yield f"data: {json.dumps(final_data)}\n\n"
                 yield "data: [DONE]\n\n"

@@ -15,6 +15,7 @@ from datetime import datetime, UTC
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.backends import default_backend
+from eth_hash.auto import keccak
 
 logger = logging.getLogger(__name__)
 
@@ -90,11 +91,15 @@ class TEEKeyManager:
             logger.warning(f"Could not register with nitriding (may not be in TEE): {e}")
             return False
 
-    def sign_data(self, data: str) -> str:
-        """Sign data with private key and return base64 signature"""
-        data_bytes = data.encode('utf-8')
+    def sign_data(self, data: bytes) -> str:
+        """Sign msg_hash bytes with RSA-PSS-SHA256, return base64 signature.
+
+        Expects pre-computed bytes (e.g. the keccak256 msg_hash from
+        compute_tee_msg_hash). RSA-PSS hashes the input again with SHA256
+        internally, matching the double-hash the on-chain verifier uses.
+        """
         signature = self.private_key.sign(
-            data_bytes,
+            data,
             padding.PSS(
                 mgf=padding.MGF1(hashes.SHA256()),
                 salt_length=padding.PSS.MAX_LENGTH
@@ -133,10 +138,22 @@ def signal_ready():
         logger.warning(f"Could not signal nitriding (may not be in TEE): {e}")
 
 
-def compute_request_hash(request_data: dict) -> str:
-    """Compute SHA256 hash of request data"""
-    request_json = json.dumps(request_data, sort_keys=True)
-    return hashlib.sha256(request_json.encode('utf-8')).hexdigest()
+def compute_tee_msg_hash(
+    request_bytes: bytes,
+    response_content: str,
+    timestamp: int,
+) -> tuple:
+    """Compute msg_hash matching the on-chain verifier:
+      keccak256(abi.encodePacked(inputHash, outputHash, timestamp))
+    where inputHash and outputHash are each keccak256 bytes32 values
+    and timestamp is uint256 (big-endian 32 bytes).
+
+    Returns (msg_hash_bytes, input_hash_hex, output_hash_hex).
+    """
+    input_hash  = keccak(request_bytes)
+    output_hash = keccak(response_content.encode('utf-8'))
+    msg_hash    = keccak(input_hash + output_hash + timestamp.to_bytes(32, 'big'))
+    return msg_hash, input_hash.hex(), output_hash.hex()
 
 
 # Singleton instance - initialized lazily or eagerly depending on environment

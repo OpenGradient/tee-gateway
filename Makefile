@@ -70,6 +70,10 @@ health:
 .PHONY: get-signing-key
 get-signing-key:
 	curl -sk https://localhost:443/signing-key | python3 -c "import json,sys; print(json.load(sys.stdin)['public_key'])"
+	
+.PHONY: get-tls-cert
+get-tls-cert:
+	openssl s_client -connect localhost:443 </dev/null 2>/dev/null | openssl x509 -text	
 
 .PHONY: test-local
 test-local:

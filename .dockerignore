@@ -5,6 +5,9 @@ measurements.txt
 __pycache__/
 *.py[cod]
 *.egg-info/
+**/__pycache__
+**/*.pyc
+**/*.pyo
 
 # Dev/test files
 venv/

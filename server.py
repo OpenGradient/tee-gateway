@@ -325,9 +325,9 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
     
     if provider in ["google", "gemini"]:
         alias_map = {
-            "gemini-2.5-flash":         "gemini-2.5-flash-preview-05-20",
-            "gemini-2.5-flash-lite":    "gemini-2.5-flash-lite-preview-06-17",
-            "gemini-2.5-pro":           "gemini-2.5-pro-preview-06-05",
+            "gemini-2.5-flash":         "gemini-2.5-flash",
+            "gemini-2.5-flash-lite":    "gemini-2.5-flash-lite",
+            "gemini-2.5-pro":           "gemini-2.5-pro",
             "gemini-3-pro-preview":     "gemini-3-pro-preview",
             "gemini-3-flash-preview":   "gemini-3-flash-preview",
         }
@@ -373,7 +373,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
             "claude-3.7-sonnet":    "claude-3-7-sonnet-latest",
             "claude-3.5-haiku":     "claude-3-5-haiku-latest",
             "claude-4.0-sonnet":    "claude-sonnet-4-0",
-            "claude-sonnet-4-5":    "claude-sonnet-4-5-20251001",
+            "claude-sonnet-4-5":    "claude-sonnet-4-5",
             "claude-sonnet-4-6":    "claude-sonnet-4-6",
             "claude-haiku-4-5":     "claude-haiku-4-5-20251001",
             "claude-opus-4-5":      "claude-opus-4-5-20251101",

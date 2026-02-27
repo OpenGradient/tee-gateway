@@ -646,9 +646,20 @@ async def create_chat_completion(request: ChatRequest):
         messages = convert_messages(request.messages)
         response = await asyncio.to_thread(model.invoke, messages)
 
+        # Gemini can return content as a list of parts, e.g. [{"type": "text", "text": "..."}].
+        # Normalize to a plain string so downstream hashing and JSON serialization are consistent
+        # across all providers. This mirrors the same normalization in the streaming path.
+        if isinstance(response.content, list):
+            content_str = ''.join(
+                item.get('text', '') if isinstance(item, dict) else str(item)
+                for item in response.content
+            )
+        else:
+            content_str = response.content or ""
+
         message_dict = {
             "role": "assistant",
-            "content": response.content or "",
+            "content": content_str,
         }
 
         finish_reason = "stop"

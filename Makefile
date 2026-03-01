@@ -32,9 +32,9 @@ all: run
 .PHONY: image
 image: $(image_tar)
 
-$(image_tar): Dockerfile server.py start.sh requirements.txt
+$(image_tar): Dockerfile src/server.py scripts/start.sh requirements.txt
 	find openapi_server -exec touch -t 202311150000 {} \;
-	touch -t 202311150000 start.sh server.py Dockerfile requirements.txt
+	touch -t 202311150000 scripts/start.sh src/server.py Dockerfile requirements.txt
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) docker run \
 		-v $(PWD):/workspace \
 		-e SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \
@@ -57,7 +57,7 @@ $(image_eif): $(image_tar)
 .PHONY: run
 run: $(image_eif)
 	nitro-cli terminate-enclave --all
-	./run-enclave.sh $(image_eif)
+	./scripts/run-enclave.sh $(image_eif)
 
 .PHONY: clean
 clean:
@@ -78,7 +78,7 @@ get-tls-cert:
 .PHONY: test-local
 test-local:
 	# Test locally without TEE (for development)
-	python3 server.py
+	python3 src/server.py
 
 test-completion:
 	curl -i -k -X POST $(HOST)/v1/completions \

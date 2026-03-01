@@ -6,11 +6,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TEE-llm-routing is a 3rd-party LLM routing node designed to run within AWS Nitro Enclave TEE (Trusted Execution Environment). It provides a secure, cryptographically verifiable interface to multiple LLM providers (OpenAI, Anthropic, Google Gemini, xAI Grok) with attestation and response signing capabilities.
 
+## Project Structure
+
+```
+├── src/                     # Application source code
+│   └── server.py            # Main LLM backend (FastAPI)
+├── tests/                   # Test files and dev config
+│   ├── test_server.py       # Unit tests
+│   ├── requirements.txt     # Test dependencies
+│   ├── dev-requirements.txt # Dev dependencies
+│   └── mypy.ini             # Type checking config
+├── scripts/                 # Shell scripts
+│   ├── start.sh             # Enclave startup script
+│   ├── run-enclave.sh       # Nitro Enclave launcher
+│   └── stresstest.sh        # Load testing
+├── examples/                # Verification examples
+│   ├── verify_attestation.py
+│   ├── verify_signature_example.py
+│   └── requirements.txt     # Verification dependencies
+├── openapi_server/          # OpenAI-compatible API (Flask/connexion)
+├── requirements.txt         # Server dependencies
+├── Dockerfile
+├── Makefile
+└── measurements.txt         # PCR measurements
+```
+
 ## Common Commands
 
 ```bash
 # Run server locally for development (without TEE)
-make test-local              # Runs: python3 server.py
+make test-local              # Runs: python3 src/server.py
 
 # Build enclave image
 make image                   # Build Docker image as TAR using Kaniko
@@ -47,7 +72,7 @@ Server configuration:
 2. Incoming requests are routed to appropriate LLM provider via LangChain
 3. All responses are signed with RSA-PSS + SHA256, including request hash and timestamp
 
-### Key Components in server.py
+### Key Components in src/server.py
 
 - **TEEKeyManager**: RSA key generation, registration with nitriding, response signing
 - **Provider routing**: `get_provider_from_model()` infers provider from model name, `get_chat_model()` creates LangChain model instance
@@ -79,9 +104,9 @@ Model name prefixes determine routing:
 
 ## Verification Examples
 
-- `verify_attestation.py` - Validates AWS Nitro attestation documents
-- `verify_signature_example.py` - Demonstrates request hash and signature verification
+- `examples/verify_attestation.py` - Validates AWS Nitro attestation documents
+- `examples/verify_signature_example.py` - Demonstrates request hash and signature verification
 
 ## Deployment
 
-Uses multi-stage Docker build with nitriding daemon from `brave/nitriding-daemon`. Enclave launched via `run-enclave.sh` with gvproxy network bridge, allocating 2 CPUs and 4GB memory.
+Uses multi-stage Docker build with nitriding daemon from `brave/nitriding-daemon`. Enclave launched via `scripts/run-enclave.sh` with gvproxy network bridge, allocating 2 CPUs and 4GB memory.

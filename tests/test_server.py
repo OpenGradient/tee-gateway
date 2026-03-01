@@ -9,9 +9,13 @@ import asyncio
 import json
 import os
 import sys
+from pathlib import Path
 from typing import List, Dict, Any
 from unittest.mock import patch, MagicMock, AsyncMock
 from dotenv import load_dotenv
+
+# Add src/ to path so we can import server
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 # Load API keys from .env file
 load_dotenv()

@@ -12,10 +12,8 @@ __pycache__/
 # Dev/test files
 venv/
 .git/
-verify/
-test_*.py
-*_test.py
-verify_*.py
+tests/
+examples/
 *.log
 
 # Docs

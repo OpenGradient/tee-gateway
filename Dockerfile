@@ -9,8 +9,8 @@ ARG TARGETARCH
 RUN ARCH=${TARGETARCH} make -C nitriding-daemon/ nitriding
 
 # Copy application files into builder for permission setting
-COPY start.sh /bin/
-COPY server.py /bin/
+COPY scripts/start.sh /bin/
+COPY src/server.py /bin/
 RUN chown root:root /bin/start.sh /bin/server.py
 RUN chmod 0755 /bin/start.sh /bin/server.py
 

@@ -154,8 +154,12 @@ def set_provider_keys():
 
         if resp.status_code == 200:
             _keys_initialized = True
-            logger.info("Provider API keys successfully injected via /v1/keys")
-            return jsonify(resp.json()), 200
+            result = resp.json()
+            logger.info(
+                "Provider API keys successfully injected via /v1/keys — providers: %s",
+                result.get("providers_initialized", []),
+            )
+            return jsonify(result), 200
 
         # Propagate backend errors (e.g. 409 if backend was somehow already set)
         return jsonify(resp.json()), resp.status_code

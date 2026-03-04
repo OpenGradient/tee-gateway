@@ -17,11 +17,8 @@ RUN chmod 0755 /bin/start.sh /bin/server.py
 # ---------- Final image ----------
 FROM python:3.12-slim-bullseye
 
-# Environment keys for LLMs
-ENV OPENAI_API_KEY=
-ENV GOOGLE_API_KEY=
-ENV ANTHROPIC_API_KEY=
-ENV XAI_API_KEY=
+# API keys are NOT set here — they are injected at runtime via POST /v1/keys
+# after the enclave starts, keeping PCR measurements stable across deployments.
 
 # Install necessary tools
 RUN echo 'Dir::Log "/dev/null";' > /etc/apt/apt.conf.d/00no-log \

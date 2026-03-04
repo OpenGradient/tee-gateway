@@ -15,7 +15,6 @@ import hashlib
 import base64
 import asyncio
 import sys
-import threading
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timezone
 import urllib.request
@@ -84,7 +83,7 @@ xai_http_client = httpx.AsyncClient(
 
 # One-time key injection guard
 _keys_initialized: bool = False
-_keys_lock = threading.Lock()
+_keys_lock = asyncio.Lock()  # async-safe; compatible with await inside the critical section
 
 # Store server start time for uptime calculation
 SERVER_START_TIME = time.time()
@@ -590,7 +589,13 @@ async def set_provider_keys(request: ProviderKeysRequest):
     """
     global _keys_initialized, openai_http_client, xai_http_client
 
-    with _keys_lock:
+    # Capture stale clients outside the lock so aclose() can be awaited
+    # after releasing it (awaiting inside a sync threading.Lock would be
+    # unsafe; using asyncio.Lock keeps everything coroutine-friendly).
+    old_openai: httpx.AsyncClient | None = None
+    old_xai: httpx.AsyncClient | None = None
+
+    async with _keys_lock:
         if _keys_initialized:
             raise HTTPException(
                 status_code=409,
@@ -606,12 +611,13 @@ async def set_provider_keys(request: ProviderKeysRequest):
         if request.xai_api_key:
             os.environ["XAI_API_KEY"] = request.xai_api_key
 
-        # Recreate the shared HTTP clients so the new Authorization headers
-        # are picked up (the original clients were built at import time with
-        # empty keys from the Dockerfile).
+        # Stash old clients for cleanup after the lock is released.
         old_openai = openai_http_client
         old_xai = xai_http_client
 
+        # Recreate the shared HTTP clients so the new Authorization headers
+        # are picked up (the originals were built at import time with empty
+        # keys because the Dockerfile no longer sets them).
         openai_http_client = httpx.AsyncClient(
             base_url="https://api.openai.com/v1",
             headers={"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}"},
@@ -629,13 +635,17 @@ async def set_provider_keys(request: ProviderKeysRequest):
             follow_redirects=False,
         )
 
-        # Close stale clients and invalidate the model cache so next request
-        # creates fresh LangChain models with the correct credentials.
-        await old_openai.aclose()
-        await old_xai.aclose()
+        # Invalidate the model cache so the next request creates fresh
+        # LangChain instances that read the newly set env-var keys.
         get_chat_model_cached.cache_clear()
 
         _keys_initialized = True
+
+    # Close stale clients outside the lock — no awaiting while holding it.
+    if old_openai:
+        await old_openai.aclose()
+    if old_xai:
+        await old_xai.aclose()
 
     providers_set = [
         p for p, v in {
@@ -653,7 +663,7 @@ async def set_provider_keys(request: ProviderKeysRequest):
 async def create_completion(request: CompletionRequest):
     """Create a text completion with TEE signing"""
     try:
-        request_dict = request.dict()
+        request_dict = request.model_dump()
         request_bytes = json.dumps(request_dict, sort_keys=True).encode('utf-8')
 
         model = get_chat_model_cached(
@@ -709,7 +719,7 @@ async def create_chat_completion(request: ChatRequest):
                 for tc in msg.tool_calls:
                     logger.info(f"  Tool call in message: {tc}")
         
-        request_dict = request.dict()
+        request_dict = request.model_dump()
         request_bytes = json.dumps(request_dict, sort_keys=True).encode('utf-8')
 
         model = get_chat_model_cached(
@@ -800,7 +810,7 @@ async def create_chat_completion_stream(request: ChatRequest):
         buffer_tool_calls = provider in ["openai", "anthropic"]
 
         # Capture request bytes before streaming so we can sign at the end
-        request_bytes = json.dumps(request.dict(), sort_keys=True).encode('utf-8')
+        request_bytes = json.dumps(request.model_dump(), sort_keys=True).encode('utf-8')
 
         model = get_chat_model_cached(
             model=request.model,

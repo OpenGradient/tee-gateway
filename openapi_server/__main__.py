@@ -126,23 +126,38 @@ def set_provider_keys():
         if not body:
             return jsonify({"error": "JSON body required"}), 400
 
-        # Forward to the FastAPI backend which sets os.environ and rebuilds clients
-        try:
-            resp = _requests.post(
-                _BACKEND_KEYS_URL,
-                json=body,
-                timeout=10,
-            )
-        except Exception as exc:
-            logger.error("Failed to forward /v1/keys to backend: %s", exc)
-            return jsonify({"error": "Backend unreachable", "details": str(exc)}), 502
+        # Forward to the FastAPI backend (server.py on :8001).
+        # Retry a few times in case server.py is still finishing its startup
+        # when this call arrives (start.sh has a sleep between the two processes,
+        # but the Flask health check can pass before the backend is fully ready).
+        _MAX_ATTEMPTS = 5
+        _RETRY_DELAY_S = 2
+        resp = None
+        last_exc = None
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                resp = _requests.post(_BACKEND_KEYS_URL, json=body, timeout=10)
+                last_exc = None
+                break
+            except _requests.exceptions.ConnectionError as exc:
+                last_exc = exc
+                if attempt < _MAX_ATTEMPTS:
+                    logger.warning(
+                        "/v1/keys backend not ready (attempt %d/%d), retrying in %ds...",
+                        attempt, _MAX_ATTEMPTS, _RETRY_DELAY_S,
+                    )
+                    time.sleep(_RETRY_DELAY_S)
+
+        if last_exc is not None:
+            logger.error("Failed to forward /v1/keys to backend after %d attempts: %s", _MAX_ATTEMPTS, last_exc)
+            return jsonify({"error": "Backend unreachable", "details": str(last_exc)}), 502
 
         if resp.status_code == 200:
             _keys_initialized = True
             logger.info("Provider API keys successfully injected via /v1/keys")
             return jsonify(resp.json()), 200
 
-        # Propagate backend errors (e.g. 409 if backend somehow already set)
+        # Propagate backend errors (e.g. 409 if backend was somehow already set)
         return jsonify(resp.json()), resp.status_code
 
 

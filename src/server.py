@@ -611,6 +611,20 @@ async def set_provider_keys(request: ProviderKeysRequest):
         if request.xai_api_key:
             os.environ["XAI_API_KEY"] = request.xai_api_key
 
+        # Log presence and a short prefix of each key so we can confirm
+        # injection without leaking the full secret.
+        def _key_status(env_var: str) -> str:
+            val = os.environ.get(env_var, "")
+            if not val:
+                return "NOT SET"
+            return f"set ({val[:6]}...{val[-4:]})"
+
+        logger.info("ENV check after injection:")
+        logger.info("  OPENAI_API_KEY    : %s", _key_status("OPENAI_API_KEY"))
+        logger.info("  GOOGLE_API_KEY    : %s", _key_status("GOOGLE_API_KEY"))
+        logger.info("  ANTHROPIC_API_KEY : %s", _key_status("ANTHROPIC_API_KEY"))
+        logger.info("  XAI_API_KEY       : %s", _key_status("XAI_API_KEY"))
+
         # Stash old clients for cleanup after the lock is released.
         old_openai = openai_http_client
         old_xai = xai_http_client

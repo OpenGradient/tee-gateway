@@ -27,10 +27,10 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 
 | Provider | Models |
 |----------|--------|
-| OpenAI | gpt-4o, gpt-4o-mini, gpt-4-turbo, o3, o4-mini |
-| Anthropic | claude-3.5-haiku, claude-3.7-sonnet, claude-4.0-sonnet |
-| Google | gemini-1.5-pro, gemini-2.0-flash, gemini-2.5-flash, gemini-2.5-pro |
-| xAI | grok-2, grok-3, grok-4.1-fast |
+| OpenAI | gpt-4.1, gpt-5, gpt-5-mini, o4-mini |
+| Anthropic | claude-sonnet-4-5, claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-5, claude-opus-4-6 |
+| Google | gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview |
+| xAI | grok-4, grok-4-fast, grok-4-1-fast, grok-4-1-fast-non-reasoning |
 
 ## Quick Start
 
@@ -48,7 +48,7 @@ export XAI_API_KEY=...
 
 # Run server
 make test-local
-# or: python3 server.py
+# or: python3 src/server.py
 ```
 
 ### Test Endpoints
@@ -163,7 +163,7 @@ Get the attestation document and verify it against AWS Nitro root certificate:
 curl https://your-enclave:443/enclave/attestation?nonce=your-nonce
 ```
 
-See `verify_attestation.py` for full verification including:
+See `examples/verify_attestation.py` for full verification including:
 - PCR measurement validation
 - Certificate chain verification
 - Nonce verification
@@ -199,7 +199,7 @@ public_key.verify(
 )
 ```
 
-See `verify_signature_example.py` for a complete example.
+See `examples/verify_signature_example.py` for a complete example.
 
 ### 3. Verify Request Hash
 
@@ -223,7 +223,7 @@ assert computed_hash == response["request_hash"]
 ┌─────────────────────────────────────────────────────────────┐
 │                     Nitro Enclave                           │
 │  ┌─────────────────┐    ┌─────────────────────────────────┐ │
-│  │    nitriding    │    │          server.py              │ │
+│  │    nitriding    │    │        src/server.py            │ │
 │  │    (TLS/443)    │───▶│    TEEKeyManager (RSA keys)     │ │
 │  │                 │    │    LangChain routing            │ │
 │  │  /enclave/*     │    │    Response signing             │ │

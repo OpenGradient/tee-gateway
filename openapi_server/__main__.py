@@ -26,6 +26,7 @@ from x402v2.schemas import AssetAmount, Network
 from x402v2.server import x402ResourceServerSync
 from x402v2.session import SessionStore
 import x402v2.http.middleware.flask as x402_flask
+from .util import BASE_OPG_ADDRESS, USDC_ADDRESS, dynamic_session_cost_calculator
 
 # Configure logging
 logging.basicConfig(
@@ -42,8 +43,6 @@ logger = logging.getLogger(__name__)
 EVM_NETWORK: Network = "eip155:10740"
 BASE_TESTNET_NETWORK: Network = "eip155:84532"
 EVM_PAYMENT_ADDRESS = "0x40eFb45552EDfB2502D90A657a8ab41F03ec460d"
-USDC_ADDRESS = "0x094E464A23B90A71a0894D5D1e5D470FfDD074e1"
-BASE_OPG_ADDRESS = "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
 FACILITATOR_URL = os.getenv("FACILITATOR_URL", "https://facilitator.memchat.io")
 
 facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=FACILITATOR_URL))
@@ -187,8 +186,9 @@ payment_middleware(
     routes=routes,
     server=server,
     session_store=store,
-    cost_per_request=100000000000000,
+    cost_per_request=100000000000000,  # static precheck/fallback estimate
     session_idle_timeout=100,
+    session_cost_calculator=dynamic_session_cost_calculator,
 )
 logger.info("x402v2 payment middleware initialized")
 

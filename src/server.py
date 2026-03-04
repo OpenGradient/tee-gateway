@@ -15,6 +15,7 @@ import hashlib
 import base64
 import asyncio
 import sys
+import threading
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timezone
 import urllib.request
@@ -80,6 +81,10 @@ xai_http_client = httpx.AsyncClient(
     http2=True,
     follow_redirects=False,
 )
+
+# One-time key injection guard
+_keys_initialized: bool = False
+_keys_lock = threading.Lock()
 
 # Store server start time for uptime calculation
 SERVER_START_TIME = time.time()
@@ -296,6 +301,14 @@ class AttestationResponse(BaseModel):
     timestamp: str
     enclave_info: Dict[str, Any]
     measurements: Optional[Dict] = None
+
+
+class ProviderKeysRequest(BaseModel):
+    """One-time API key injection request"""
+    openai_api_key: Optional[str] = None
+    google_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    xai_api_key: Optional[str] = None
 
 
 # Helper functions
@@ -566,6 +579,74 @@ async def get_signing_key():
     except Exception as e:
         logger.error(f"Attestation error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v1/keys")
+async def set_provider_keys(request: ProviderKeysRequest):
+    """
+    One-time endpoint to inject LLM provider API keys into the enclave.
+    After the first successful call this endpoint returns 409 for all
+    subsequent requests, ensuring keys cannot be overwritten at runtime.
+    """
+    global _keys_initialized, openai_http_client, xai_http_client
+
+    with _keys_lock:
+        if _keys_initialized:
+            raise HTTPException(
+                status_code=409,
+                detail="Provider keys have already been initialized and cannot be changed",
+            )
+
+        if request.openai_api_key:
+            os.environ["OPENAI_API_KEY"] = request.openai_api_key
+        if request.google_api_key:
+            os.environ["GOOGLE_API_KEY"] = request.google_api_key
+        if request.anthropic_api_key:
+            os.environ["ANTHROPIC_API_KEY"] = request.anthropic_api_key
+        if request.xai_api_key:
+            os.environ["XAI_API_KEY"] = request.xai_api_key
+
+        # Recreate the shared HTTP clients so the new Authorization headers
+        # are picked up (the original clients were built at import time with
+        # empty keys from the Dockerfile).
+        old_openai = openai_http_client
+        old_xai = xai_http_client
+
+        openai_http_client = httpx.AsyncClient(
+            base_url="https://api.openai.com/v1",
+            headers={"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}"},
+            timeout=TIMEOUT,
+            limits=LIMITS,
+            http2=True,
+            follow_redirects=False,
+        )
+        xai_http_client = httpx.AsyncClient(
+            base_url="https://api.x.ai/v1",
+            headers={"Authorization": f"Bearer {os.environ.get('XAI_API_KEY', '')}"},
+            timeout=TIMEOUT,
+            limits=LIMITS,
+            http2=True,
+            follow_redirects=False,
+        )
+
+        # Close stale clients and invalidate the model cache so next request
+        # creates fresh LangChain models with the correct credentials.
+        await old_openai.aclose()
+        await old_xai.aclose()
+        get_chat_model_cached.cache_clear()
+
+        _keys_initialized = True
+
+    providers_set = [
+        p for p, v in {
+            "openai": request.openai_api_key,
+            "google": request.google_api_key,
+            "anthropic": request.anthropic_api_key,
+            "xai": request.xai_api_key,
+        }.items() if v
+    ]
+    logger.info("Provider API keys initialized for: %s", ", ".join(providers_set))
+    return {"status": "ok", "providers_initialized": providers_set}
 
 
 @app.post("/v1/completions", response_model=CompletionResponse)

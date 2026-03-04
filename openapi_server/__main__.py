@@ -12,8 +12,11 @@ import gc
 import time
 import psutil
 
+import threading
+
 import connexion
-from flask import jsonify
+import requests as _requests
+from flask import jsonify, request
 from openapi_server import encoder
 from openapi_server.tee_manager import initialize_tee, get_tee_keys
 
@@ -100,6 +103,49 @@ routes = {
 }
 
 
+# ---------------------------------------------------------------------------
+# One-time provider key injection
+# ---------------------------------------------------------------------------
+_keys_initialized: bool = False
+_keys_lock = threading.Lock()
+_BACKEND_KEYS_URL = "http://127.0.0.1:8001/v1/keys"
+
+
+def set_provider_keys():
+    """
+    POST /v1/keys — inject LLM provider API keys into the enclave.
+    Can only be called once; subsequent calls return HTTP 409.
+    """
+    global _keys_initialized
+
+    with _keys_lock:
+        if _keys_initialized:
+            return jsonify({"error": "Provider keys have already been initialized"}), 409
+
+        body = request.get_json(silent=True)
+        if not body:
+            return jsonify({"error": "JSON body required"}), 400
+
+        # Forward to the FastAPI backend which sets os.environ and rebuilds clients
+        try:
+            resp = _requests.post(
+                _BACKEND_KEYS_URL,
+                json=body,
+                timeout=10,
+            )
+        except Exception as exc:
+            logger.error("Failed to forward /v1/keys to backend: %s", exc)
+            return jsonify({"error": "Backend unreachable", "details": str(exc)}), 502
+
+        if resp.status_code == 200:
+            _keys_initialized = True
+            logger.info("Provider API keys successfully injected via /v1/keys")
+            return jsonify(resp.json()), 200
+
+        # Propagate backend errors (e.g. 409 if backend somehow already set)
+        return jsonify(resp.json()), resp.status_code
+
+
 def health():
     process = psutil.Process()
     system_memory = psutil.virtual_memory()
@@ -151,6 +197,7 @@ def create_app():
 
     app.app.add_url_rule("/health", "health", health, methods=["GET"])
     app.app.add_url_rule("/signing-key", "signing-key", signing_key, methods=["GET"])
+    app.app.add_url_rule("/v1/keys", "set-provider-keys", set_provider_keys, methods=["POST"])
 
     # Initialize TEE here so it runs under both Gunicorn and direct execution
     try:

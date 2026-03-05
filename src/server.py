@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 import urllib.request
 from functools import lru_cache
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -115,7 +117,24 @@ root_logger.setLevel(logging.INFO)
 root_logger.handlers.clear()
 root_logger.addHandler(log_handler)
 
-app = FastAPI(title="TEE LLM Router", version="1.0.0")
+from heartbeat import create_heartbeat_service
+
+_heartbeat_service = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage startup and shutdown of background services."""
+    global _heartbeat_service
+    _heartbeat_service = create_heartbeat_service(tee_keys)
+    if _heartbeat_service:
+        _heartbeat_service.start()
+    yield
+    if _heartbeat_service:
+        await _heartbeat_service.stop()
+
+
+app = FastAPI(title="TEE LLM Router", version="1.0.0", lifespan=lifespan)
 
 # Global rate limiter (100 requests per minute)
 rate_limiter = InMemoryRateLimiter(
@@ -1032,6 +1051,14 @@ async def root():
         "version": "1.0.0",
         "tee_enabled": TEE_ENABLED,
     }
+
+
+@app.get("/heartbeat/status")
+async def heartbeat_status():
+    """Return the current heartbeat service status."""
+    if _heartbeat_service is None:
+        return {"enabled": False}
+    return {"enabled": True, **_heartbeat_service.status()}
 
 
 if __name__ == "__main__":

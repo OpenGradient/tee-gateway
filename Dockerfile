@@ -11,8 +11,9 @@ RUN ARCH=${TARGETARCH} make -C nitriding-daemon/ nitriding
 # Copy application files into builder for permission setting
 COPY scripts/start.sh /bin/
 COPY src/server.py /bin/
-RUN chown root:root /bin/start.sh /bin/server.py
-RUN chmod 0755 /bin/start.sh /bin/server.py
+COPY src/heartbeat.py /bin/
+RUN chown root:root /bin/start.sh /bin/server.py /bin/heartbeat.py
+RUN chmod 0755 /bin/start.sh /bin/server.py /bin/heartbeat.py
 
 # ---------- Final image ----------
 FROM python:3.12-slim-bullseye
@@ -43,6 +44,7 @@ RUN echo 'Dir::Log "/dev/null";' > /etc/apt/apt.conf.d/00no-log \
 COPY --from=builder /nitriding-daemon/nitriding /bin/nitriding
 COPY --from=builder /bin/start.sh /bin/start.sh
 COPY --from=builder /bin/server.py /bin/server.py
+COPY --from=builder /bin/heartbeat.py /bin/heartbeat.py
 
 # Install Python dependencies
 COPY requirements.txt /app/requirements.txt

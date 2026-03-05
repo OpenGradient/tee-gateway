@@ -32,9 +32,9 @@ all: run
 .PHONY: image
 image: $(image_tar)
 
-$(image_tar): Dockerfile src/server.py scripts/start.sh requirements.txt
+$(image_tar): Dockerfile src/server.py src/heartbeat.py scripts/start.sh requirements.txt
 	find openapi_server -exec touch -t 202311150000 {} \;
-	touch -t 202311150000 scripts/start.sh src/server.py Dockerfile requirements.txt
+	touch -t 202311150000 scripts/start.sh src/server.py src/heartbeat.py Dockerfile requirements.txt
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) docker run \
 		-v $(PWD):/workspace \
 		-e SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \
@@ -62,6 +62,10 @@ run: $(image_eif)
 .PHONY: clean
 clean:
 	rm -f $(image_tar) $(image_eif)
+
+.PHONY: test-heartbeat-status
+test-heartbeat-status:
+	curl -i -k $(HOST)/heartbeat/status
 
 .PHONY: health
 health:

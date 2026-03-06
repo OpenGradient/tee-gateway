@@ -7,18 +7,16 @@ import logging
 import sys
 import os
 import json
-from datetime import datetime, UTC
 import gc
 import time
+import threading
 import psutil
 
-import threading
-
 import connexion
-import requests as _requests
 from flask import jsonify, request
 from openapi_server import encoder
 from openapi_server.tee_manager import initialize_tee, get_tee_keys
+from openapi_server.llm_backend import reinitialize_http_clients
 
 from x402v2.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
 from x402v2.http.middleware.flask import payment_middleware
@@ -108,7 +106,6 @@ routes = {
 # ---------------------------------------------------------------------------
 _keys_initialized: bool = False
 _keys_lock = threading.Lock()
-_BACKEND_KEYS_URL = "http://127.0.0.1:8001/v1/keys"
 
 
 def set_provider_keys():
@@ -126,43 +123,44 @@ def set_provider_keys():
         if not body:
             return jsonify({"error": "JSON body required"}), 400
 
-        # Forward to the FastAPI backend (server.py on :8001).
-        # Retry a few times in case server.py is still finishing its startup
-        # when this call arrives (start.sh has a sleep between the two processes,
-        # but the Flask health check can pass before the backend is fully ready).
-        _MAX_ATTEMPTS = 5
-        _RETRY_DELAY_S = 2
-        resp = None
-        last_exc = None
-        for attempt in range(1, _MAX_ATTEMPTS + 1):
-            try:
-                resp = _requests.post(_BACKEND_KEYS_URL, json=body, timeout=10)
-                last_exc = None
-                break
-            except _requests.exceptions.ConnectionError as exc:
-                last_exc = exc
-                if attempt < _MAX_ATTEMPTS:
-                    logger.warning(
-                        "/v1/keys backend not ready (attempt %d/%d), retrying in %ds...",
-                        attempt, _MAX_ATTEMPTS, _RETRY_DELAY_S,
-                    )
-                    time.sleep(_RETRY_DELAY_S)
+        # Inject keys directly into the environment
+        if body.get('openai_api_key'):
+            os.environ["OPENAI_API_KEY"] = body['openai_api_key']
+        if body.get('google_api_key'):
+            os.environ["GOOGLE_API_KEY"] = body['google_api_key']
+        if body.get('anthropic_api_key'):
+            os.environ["ANTHROPIC_API_KEY"] = body['anthropic_api_key']
+        if body.get('xai_api_key'):
+            os.environ["XAI_API_KEY"] = body['xai_api_key']
 
-        if last_exc is not None:
-            logger.error("Failed to forward /v1/keys to backend after %d attempts: %s", _MAX_ATTEMPTS, last_exc)
-            return jsonify({"error": "Backend unreachable", "details": str(last_exc)}), 502
+        def _key_status(env_var: str) -> str:
+            val = os.environ.get(env_var, "")
+            if not val:
+                return "NOT SET"
+            return f"set ({val[:6]}...{val[-4:]})"
 
-        if resp.status_code == 200:
-            _keys_initialized = True
-            result = resp.json()
-            logger.info(
-                "Provider API keys successfully injected via /v1/keys — providers: %s",
-                result.get("providers_initialized", []),
-            )
-            return jsonify(result), 200
+        logger.info("ENV check after injection:")
+        logger.info("  OPENAI_API_KEY    : %s", _key_status("OPENAI_API_KEY"))
+        logger.info("  GOOGLE_API_KEY    : %s", _key_status("GOOGLE_API_KEY"))
+        logger.info("  ANTHROPIC_API_KEY : %s", _key_status("ANTHROPIC_API_KEY"))
+        logger.info("  XAI_API_KEY       : %s", _key_status("XAI_API_KEY"))
 
-        # Propagate backend errors (e.g. 409 if backend was somehow already set)
-        return jsonify(resp.json()), resp.status_code
+        # Rebuild HTTP clients with the new Authorization headers and clear
+        # the model cache so subsequent requests use fresh instances.
+        reinitialize_http_clients()
+
+        _keys_initialized = True
+
+    providers_set = [
+        p for p, k in {
+            "openai": body.get('openai_api_key'),
+            "google": body.get('google_api_key'),
+            "anthropic": body.get('anthropic_api_key'),
+            "xai": body.get('xai_api_key'),
+        }.items() if k
+    ]
+    logger.info("Provider API keys initialized for: %s", ", ".join(providers_set))
+    return jsonify({"status": "ok", "providers_initialized": providers_set}), 200
 
 
 def health():
@@ -197,14 +195,13 @@ def health():
 
 
 def signing_key():
-    """Return TEE attestation document with public key."""
+    """Return TEE attestation document with public key and tee_id."""
     try:
         tee_keys = get_tee_keys()
         return jsonify(tee_keys.get_attestation_document())
     except Exception as e:
         logger.error(f"Attestation error: {e}")
         return {"error": str(e)}, 500
-
 
 
 def create_app():
@@ -218,7 +215,9 @@ def create_app():
     app.app.add_url_rule("/signing-key", "signing-key", signing_key, methods=["GET"])
     app.app.add_url_rule("/v1/keys", "set-provider-keys", set_provider_keys, methods=["POST"])
 
-    # Initialize TEE here so it runs under both Gunicorn and direct execution
+    # Initialize TEE here so it runs under both Gunicorn and direct execution.
+    # This is the single TEEKeyManager instance — the same key both registers
+    # with nitriding and signs all LLM responses.
     try:
         initialize_tee()
         logger.info("TEE initialized successfully")
@@ -239,10 +238,10 @@ def _patched_read_body_bytes(environ):
         content_length = int(environ.get("CONTENT_LENGTH") or 0)
     except (ValueError, TypeError):
         content_length = 0
-    
+
     if content_length <= 0:
         return b""
-    
+
     return _original_read_body_bytes(environ)
 
 x402_flask._read_body_bytes = _patched_read_body_bytes
@@ -262,6 +261,4 @@ if __name__ == "__main__":
     port = int(os.getenv("API_SERVER_PORT", "8000"))
     host = os.getenv("API_SERVER_HOST", "0.0.0.0")
     logger.info(f"Starting OpenAI-compatible API server on {host}:{port}")
-    logger.info(f"Server ready on {host}:{port}")
     application.run(host=host, port=port)
-

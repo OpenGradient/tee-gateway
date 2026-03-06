@@ -15,7 +15,7 @@ Enabled via environment variables:
     HEARTBEAT_RPC_URL          — JSON-RPC endpoint
     HEARTBEAT_CONTRACT_ADDRESS — TEERegistry contract address
     HEARTBEAT_PRIVATE_KEY      — Wallet private key for sending txs (0x-prefixed)
-    HEARTBEAT_INTERVAL         — Seconds between pings (default 300)
+    TEE_HEARTBEAT_INTERVAL     — Seconds between pings (default 900 = 15 min)
 
 Also requires the TEEKeyManager (tee_keys) from server.py for RSA signing.
 """
@@ -47,16 +47,9 @@ REGISTRY_ABI = [
         "stateMutability": "nonpayable",
         "type": "function",
     },
-    {
-        "inputs": [{"name": "teeId", "type": "bytes32"}],
-        "name": "isAlive",
-        "outputs": [{"name": "", "type": "bool"}],
-        "stateMutability": "view",
-        "type": "function",
-    },
 ]
 
-DEFAULT_INTERVAL = 300  # 5 minutes
+TEE_HEARTBEAT_INTERVAL = int(os.getenv("TEE_HEARTBEAT_INTERVAL", "900"))
 MAX_RETRIES = 3
 RETRY_DELAY = 10  # seconds
 
@@ -70,7 +63,7 @@ class HeartbeatService:
         contract_address: str,
         private_key: str,
         tee_keys,
-        interval: int = DEFAULT_INTERVAL,
+        interval: int = TEE_HEARTBEAT_INTERVAL,
     ):
         self.interval = interval
         self._task: Optional[asyncio.Task] = None
@@ -232,11 +225,10 @@ def create_heartbeat_service(tee_keys) -> Optional["HeartbeatService"]:
         )
         return None
 
-    interval = int(os.getenv("HEARTBEAT_INTERVAL", str(DEFAULT_INTERVAL)))
     return HeartbeatService(
         rpc_url=rpc_url,
         contract_address=contract_address,
         private_key=private_key,
         tee_keys=tee_keys,
-        interval=interval,
+        interval=TEE_HEARTBEAT_INTERVAL,
     )

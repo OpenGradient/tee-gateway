@@ -8,11 +8,10 @@ RUN git clone https://github.com/brave/nitriding-daemon.git
 ARG TARGETARCH
 RUN ARCH=${TARGETARCH} make -C nitriding-daemon/ nitriding
 
-# Copy application files into builder for permission setting
+# Copy startup script into builder for permission setting
 COPY scripts/start.sh /bin/
-COPY src/server.py /bin/
-RUN chown root:root /bin/start.sh /bin/server.py
-RUN chmod 0755 /bin/start.sh /bin/server.py
+RUN chown root:root /bin/start.sh
+RUN chmod 0755 /bin/start.sh
 
 # ---------- Final image ----------
 FROM python:3.12-slim-bullseye
@@ -39,10 +38,9 @@ RUN echo 'Dir::Log "/dev/null";' > /etc/apt/apt.conf.d/00no-log \
     && find /usr/lib/python3.9 -name "*.pyc" -delete \
     && find /usr/lib/python3.9 -name "__pycache__" -type d -delete
 
-# Copy nitriding and scripts from builder
+# Copy nitriding and startup script from builder
 COPY --from=builder /nitriding-daemon/nitriding /bin/nitriding
 COPY --from=builder /bin/start.sh /bin/start.sh
-COPY --from=builder /bin/server.py /bin/server.py
 
 # Install Python dependencies
 COPY requirements.txt /app/requirements.txt
@@ -56,9 +54,9 @@ COPY openapi_server /app/openapi_server
 WORKDIR /app
 
 # Expose ports:
-#   443  - nitriding (external TLS)
-#   8080 - Flask/connexion app (internal, proxied by nitriding)
-#   8000 - server.py LLM backend (internal only, temporary)
+#   443  - nitriding (external TLS, proxied from EC2 host)
+#   8080 - nitriding internal API (/enclave/ready, /enclave/hash)
+#   8000 - Flask/connexion app (internal, proxied by nitriding to 443)
 EXPOSE 443
 EXPOSE 8080
 EXPOSE 8000

@@ -7,18 +7,10 @@ echo "[sh] Started nitriding."
 
 sleep 1
 
-# Start server.py as internal LLM backend on port 8001 (no TEE management)
-echo "[sh] Starting LLM backend on port 8001..."
-TEE_ENABLED=false LLM_SERVER_PORT=8001 python3 /bin/server.py &
-echo "[sh] LLM backend started."
-
-sleep 2
-
-# Start the Flask/connexion OpenAI-compatible API on port 8000
-# This is the front-facing server that nitriding proxies to.
-# TEE key management and nitriding readiness signaling happen here.
+# Start the Flask/connexion OpenAI-compatible API on port 8000.
+# TEE key management (key generation, nitriding registration, response signing)
+# and nitriding readiness signaling all happen inside this process.
 echo "[sh] Starting OpenAI-compatible API server on port 8000..."
 cd /app
 python3 -m openapi_server
 echo "[sh] API server exited."
-

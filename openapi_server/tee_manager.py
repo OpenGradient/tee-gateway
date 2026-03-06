@@ -1,7 +1,7 @@
 """
 TEE Key Manager
 Handles RSA key pair generation, nitriding registration, and request/response signing.
-Extracted from server.py for use in the Flask/connexion middleware.
+Single source of truth for the enclave's signing key — used by all controllers.
 """
 
 import os
@@ -23,18 +23,24 @@ NITRIDING_BASE_URL = "http://127.0.0.1:8080"
 
 
 class TEEKeyManager:
-    """Manages private/public key pair for TEE attestation and signing"""
+    """Manages private/public key pair for TEE attestation and signing.
+
+    A single instance of this class is created at startup and shared across
+    all controllers. It registers its public key with nitriding so that the
+    attestation document and the signing key are always the same key pair.
+    """
 
     def __init__(self, register=True):
         self.private_key = None
         self.public_key = None
         self.public_key_pem = None
+        self.tee_id = None
         self._generate_keys()
         if register:
             self.register_with_nitriding()
 
     def _generate_keys(self):
-        """Generate RSA key pair for signing inference results"""
+        """Generate RSA key pair and derive the tee_id."""
         logger.info("Generating TEE RSA key pair...")
         self.private_key = rsa.generate_private_key(
             public_exponent=65537,
@@ -48,10 +54,16 @@ class TEEKeyManager:
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         ).decode('utf-8')
 
+        # tee_id = keccak256(abi.encodePacked(signingKey))
+        # signingKey is the PEM-encoded public key (the value exposed via /signing-key).
+        # abi.encodePacked on bytes is a no-op, so this is keccak256 of the raw PEM bytes.
+        self.tee_id = keccak(self.public_key_pem.encode('utf-8')).hex()
+
         logger.info("TEE key pair generated successfully")
+        logger.info(f"tee_id: 0x{self.tee_id}")
 
     def register_with_nitriding(self):
-        """Register public key hash with nitriding"""
+        """Register public key hash with nitriding."""
         try:
             public_key_der = self.public_key.public_bytes(
                 encoding=serialization.Encoding.DER,
@@ -97,25 +109,33 @@ class TEEKeyManager:
         Expects pre-computed bytes (e.g. the keccak256 msg_hash from
         compute_tee_msg_hash). RSA-PSS hashes the input again with SHA256
         internally, matching the double-hash the on-chain verifier uses.
+
+        Salt length is fixed at 32 bytes (SHA256 digest size) to match the
+        on-chain verifier's expectations.
         """
         signature = self.private_key.sign(
             data,
             padding.PSS(
                 mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
+                salt_length=hashes.SHA256().digest_size  # 32 bytes
             ),
             hashes.SHA256()
         )
         return base64.b64encode(signature).decode('utf-8')
 
     def get_public_key(self) -> str:
-        """Return public key in PEM format"""
+        """Return public key in PEM format."""
         return self.public_key_pem
 
+    def get_tee_id(self) -> str:
+        """Return the tee_id: keccak256(abi.encodePacked(public_key_pem))."""
+        return self.tee_id
+
     def get_attestation_document(self) -> dict:
-        """Return TEE attestation document"""
+        """Return TEE attestation document."""
         return {
             "public_key": self.public_key_pem,
+            "tee_id": f"0x{self.tee_id}",
             "timestamp": datetime.now(UTC).isoformat(),
             "enclave_info": {
                 "platform": "aws-nitro",
@@ -127,7 +147,7 @@ class TEEKeyManager:
 
 
 def signal_ready():
-    """Signal to nitriding that enclave is ready to accept traffic"""
+    """Signal to nitriding that enclave is ready to accept traffic."""
     try:
         url = f"{NITRIDING_BASE_URL}/enclave/ready"
         r = urllib.request.urlopen(url)
@@ -156,12 +176,12 @@ def compute_tee_msg_hash(
     return msg_hash, input_hash.hex(), output_hash.hex()
 
 
-# Singleton instance - initialized lazily or eagerly depending on environment
+# Singleton instance — initialized lazily or eagerly depending on environment
 _tee_keys: TEEKeyManager | None = None
 
 
 def get_tee_keys() -> TEEKeyManager:
-    """Get or create the singleton TEE key manager"""
+    """Get or create the singleton TEE key manager."""
     global _tee_keys
     if _tee_keys is None:
         _tee_keys = TEEKeyManager(register=True)
@@ -176,5 +196,6 @@ def initialize_tee():
     logger.info("Initializing TEE...")
     keys = get_tee_keys()
     signal_ready()
-    logger.info(f"TEE initialized. Public key (first 80 chars): {keys.get_public_key()[:80]}...")
+    logger.info(f"TEE initialized. tee_id: 0x{keys.get_tee_id()}")
+    logger.info(f"Public key (first 80 chars): {keys.get_public_key()[:80]}...")
     return keys

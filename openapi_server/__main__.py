@@ -177,7 +177,7 @@ def set_provider_keys():
         if not body:
             return jsonify({"error": "JSON body required"}), 400
 
-        # Inject keys directly into the environment
+        # Inject LLM provider keys into the environment
         if body.get('openai_api_key'):
             os.environ["OPENAI_API_KEY"] = body['openai_api_key']
         if body.get('google_api_key'):
@@ -187,6 +187,16 @@ def set_provider_keys():
         if body.get('xai_api_key'):
             os.environ["XAI_API_KEY"] = body['xai_api_key']
 
+        # Inject heartbeat configuration into the environment
+        if body.get('heartbeat_rpc_url'):
+            os.environ["HEARTBEAT_RPC_URL"] = body['heartbeat_rpc_url']
+        if body.get('heartbeat_contract_address'):
+            os.environ["HEARTBEAT_CONTRACT_ADDRESS"] = body['heartbeat_contract_address']
+        if body.get('heartbeat_private_key'):
+            os.environ["HEARTBEAT_PRIVATE_KEY"] = body['heartbeat_private_key']
+        if body.get('tee_heartbeat_interval'):
+            os.environ["TEE_HEARTBEAT_INTERVAL"] = str(body['tee_heartbeat_interval'])
+
         def _key_status(env_var: str) -> str:
             val = os.environ.get(env_var, "")
             if not val:
@@ -194,14 +204,24 @@ def set_provider_keys():
             return f"set ({val[:6]}...{val[-4:]})"
 
         logger.info("ENV check after injection:")
-        logger.info("  OPENAI_API_KEY    : %s", _key_status("OPENAI_API_KEY"))
-        logger.info("  GOOGLE_API_KEY    : %s", _key_status("GOOGLE_API_KEY"))
-        logger.info("  ANTHROPIC_API_KEY : %s", _key_status("ANTHROPIC_API_KEY"))
-        logger.info("  XAI_API_KEY       : %s", _key_status("XAI_API_KEY"))
+        logger.info("  OPENAI_API_KEY              : %s", _key_status("OPENAI_API_KEY"))
+        logger.info("  GOOGLE_API_KEY              : %s", _key_status("GOOGLE_API_KEY"))
+        logger.info("  ANTHROPIC_API_KEY           : %s", _key_status("ANTHROPIC_API_KEY"))
+        logger.info("  XAI_API_KEY                 : %s", _key_status("XAI_API_KEY"))
+        logger.info("  HEARTBEAT_RPC_URL           : %s", _key_status("HEARTBEAT_RPC_URL"))
+        logger.info("  HEARTBEAT_CONTRACT_ADDRESS  : %s", _key_status("HEARTBEAT_CONTRACT_ADDRESS"))
+        logger.info("  HEARTBEAT_PRIVATE_KEY       : %s", _key_status("HEARTBEAT_PRIVATE_KEY"))
+        logger.info("  TEE_HEARTBEAT_INTERVAL      : %s", os.environ.get("TEE_HEARTBEAT_INTERVAL", "900 (default)"))
 
         # Rebuild HTTP clients with the new Authorization headers and clear
         # the model cache so subsequent requests use fresh instances.
         reinitialize_http_clients()
+
+        # Start heartbeat service now that env vars are available
+        try:
+            _init_heartbeat()
+        except Exception as e:
+            logger.warning(f"Heartbeat initialization failed: {e}")
 
         _keys_initialized = True
 
@@ -213,8 +233,17 @@ def set_provider_keys():
             "xai": body.get('xai_api_key'),
         }.items() if k
     ]
+    heartbeat_configured = all([
+        body.get('heartbeat_rpc_url'),
+        body.get('heartbeat_contract_address'),
+        body.get('heartbeat_private_key'),
+    ])
     logger.info("Provider API keys initialized for: %s", ", ".join(providers_set))
-    return jsonify({"status": "ok", "providers_initialized": providers_set}), 200
+    return jsonify({
+        "status": "ok",
+        "providers_initialized": providers_set,
+        "heartbeat_enabled": heartbeat_configured,
+    }), 200
 
 
 def health():
@@ -288,10 +317,6 @@ def create_app():
 
     # Start blockchain heartbeat service (if configured via env vars).
     # Runs in a background asyncio loop on a daemon thread.
-    try:
-        _init_heartbeat()
-    except Exception as e:
-        logger.warning(f"Heartbeat initialization failed: {e}")
 
     return app.app
 

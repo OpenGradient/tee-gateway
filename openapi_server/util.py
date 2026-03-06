@@ -157,32 +157,8 @@ def _deserialize_dict(data, boxed_type):
 
 USDC_ADDRESS = "0x094E464A23B90A71a0894D5D1e5D470FfDD074e1"
 BASE_OPG_ADDRESS = "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
-MODEL_RATE_CARD_USD: dict[str, dict[str, Decimal]] = {
-    "gpt-4.1-2025-04-14": {"input": Decimal("0.000002"), "output": Decimal("0.000008")},
-    "o4-mini": {"input": Decimal("0.0000011"), "output": Decimal("0.0000044")},
-    "gpt-5": {"input": Decimal("0.00000125"), "output": Decimal("0.00001")},
-    "gpt-5-mini": {"input": Decimal("0.00000025"), "output": Decimal("0.000002")},
-    "gpt-5.2": {"input": Decimal("0.00000175"), "output": Decimal("0.000014")},
 
-
-    "claude-sonnet-4-5": {"input": Decimal("0.000003"), "output": Decimal("0.000015")},
-    "claude-sonnet-4-6": {"input": Decimal("0.000003"), "output": Decimal("0.000015")},
-    "claude-haiku-4-5": {"input": Decimal("0.000001"), "output": Decimal("0.000005")},
-    "claude-opus-4-5": {"input": Decimal("0.000005"), "output": Decimal("0.000025")},
-    "claude-opus-4-6": {"input": Decimal("0.000005"), "output": Decimal("0.000025")},
-
-
-    "gemini-2.5-flash": {"input": Decimal("0.0000003"), "output": Decimal("0.0000025")},
-    "gemini-2.5-pro": {"input": Decimal("0.00000125"), "output": Decimal("0.00001")},
-    "gemini-2.5-flash-lite": {"input": Decimal("0.0000001"), "output": Decimal("0.0000004")},
-    "gemini-3-pro-preview": {"input": Decimal("0.000002"), "output": Decimal("0.000012")},
-    "gemini-3-flash-preview": {"input": Decimal("0.0000005"), "output": Decimal("0.000003")},
-
-    "grok-4": {"input": Decimal("0.000003"), "output": Decimal("0.000015")},
-    "grok-4-fast": {"input": Decimal("0.0000002"), "output": Decimal("0.0000005")},
-    "grok-4-1-fast": {"input": Decimal("0.0000002"), "output": Decimal("0.0000005")},
-    "grok-4-1-fast-non-reasoning": {"input": Decimal("0.0000002"), "output": Decimal("0.0000005")},
-}
+from openapi_server.model_registry import MODEL_RATE_CARD_USD, get_model_config  # noqa: E402
 
 ASSET_DECIMALS_BY_ADDRESS = {
     USDC_ADDRESS.lower(): 6,
@@ -294,38 +270,37 @@ def _extract_asset_decimals_from_requirements(payment_requirements: Any) -> int:
 
 
 def dynamic_session_cost_calculator(context: dict[str, Any]) -> int:
-    """Compute UPTO per-request cost in token smallest units from actual usage."""
-    default_cost = int(context.get("default_cost") or 0.0000001)
+    """Compute UPTO per-request cost in token smallest units from actual usage.
+
+    Raises ValueError if the model is not in the registry (no silent fallback).
+    """
     request_json = context.get("request_json")
     response_json = context.get("response_json")
 
     if not isinstance(request_json, dict) or not isinstance(response_json, dict):
-        return default_cost
+        raise ValueError("dynamic_session_cost_calculator requires both request_json and response_json")
 
     model = _extract_model_from_context(request_json, response_json)
     if not model:
-        return default_cost
+        raise ValueError("Could not extract model name from request/response")
 
-    rate = MODEL_RATE_CARD_USD.get(model)
-    if not rate:
-        logger.debug("No rate card for model=%s; using default_cost=%d", model, default_cost)
-        return default_cost
+    # get_model_config raises ValueError for unknown models — no fallback
+    cfg = get_model_config(model)
 
     usage_tokens = _extract_usage_tokens(response_json)
     if not usage_tokens:
-        logger.debug("No usage tokens in response for model=%s; using default_cost=%d", model, default_cost)
-        return default_cost
+        logger.warning("No usage tokens in response for model=%s; charging zero", model)
+        return 0
 
     input_tokens, output_tokens = usage_tokens
 
-    input_rate = _to_decimal(rate.get("input")) or Decimal("0")
-    output_rate = _to_decimal(rate.get("output")) or Decimal("0")
+    input_rate = cfg.input_price_usd
+    output_rate = cfg.output_price_usd
 
     total_usd = (Decimal(input_tokens) * input_rate) + (Decimal(output_tokens) * output_rate)
     token_price_usd = get_token_a_price_usd()
     if token_price_usd <= 0:
-        logger.warning("Token A price is non-positive; using default_cost=%d", default_cost)
-        return default_cost
+        raise ValueError(f"Token A price is non-positive: {token_price_usd}")
 
     token_amount = total_usd / token_price_usd
     decimals = _extract_asset_decimals_from_requirements(context.get("payment_requirements"))

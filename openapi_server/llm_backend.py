@@ -21,6 +21,8 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_xai import ChatXAI
 
+from openapi_server.model_registry import get_model_config, ModelConfig
+
 logger = logging.getLogger(__name__)
 
 # HTTP Client Configuration
@@ -101,18 +103,9 @@ def reinitialize_http_clients():
 
 
 def get_provider_from_model(model: str) -> str:
-    """Infer provider from model name."""
-    model_lower = model.lower()
-    if "gpt" in model_lower or model.startswith("openai/") or model_lower.startswith("o3") or model_lower.startswith("o4"):
-        return "openai"
-    elif "claude" in model_lower or model.startswith("anthropic/"):
-        return "anthropic"
-    elif "gemini" in model_lower or model.startswith("google/") or "google" in model_lower:
-        return "google"
-    elif "grok" in model_lower or model.startswith("x-ai/"):
-        return "x-ai"
-    else:
-        return "openai"
+    """Infer provider from model name. Raises ValueError if model is unknown."""
+    cfg = get_model_config(model)
+    return cfg.provider
 
 
 @lru_cache(maxsize=32)
@@ -122,48 +115,36 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
     Models are cached by (model, temperature, max_tokens) tuple.
     Call reinitialize_http_clients() to clear this cache after key injection.
     """
-    provider = get_provider_from_model(model)
-    logger.info(f"Creating cached chat model - Provider: {provider}, Model: {model}")
+    cfg = get_model_config(model)
+    provider = cfg.provider
+    api_name = cfg.api_name
+    effective_temp = cfg.force_temperature if cfg.force_temperature is not None else temperature
 
-    if provider in ["google", "gemini"]:
-        alias_map = {
-            "gemini-2.5-flash":         "gemini-2.5-flash",
-            "gemini-2.5-flash-lite":    "gemini-2.5-flash-lite",
-            "gemini-2.5-pro":           "gemini-2.5-pro",
-            "gemini-3-pro-preview":     "gemini-3-pro-preview",
-            "gemini-3-flash-preview":   "gemini-3-flash-preview",
-        }
-        resolved_model = alias_map.get(model, model)
-        thinking_budget = None
-        if "2.5-flash" in model or "flash-lite" in model:
-            thinking_budget = 0
-        elif "2.5-pro" in model:
-            thinking_budget = 128
+    logger.info(f"Creating cached chat model - Provider: {provider}, Model: {api_name}")
 
+    if provider == "google":
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise ValueError("GOOGLE_API_KEY not found in environment")
 
         return ChatGoogleGenerativeAI(
-            model=resolved_model,
+            model=api_name,
             google_api_key=api_key,
-            temperature=temperature,
+            temperature=effective_temp,
             max_output_tokens=max_tokens,
-            thinking_budget=thinking_budget,
-            include_thoughts=False if thinking_budget is not None else None,
+            thinking_budget=cfg.thinking_budget,
+            include_thoughts=False if cfg.thinking_budget is not None else None,
         )
 
     elif provider == "openai":
-        model_temp = 1.0 if model in ["o4-mini", "o3", "o4", "o4-5"] else temperature
-
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in environment")
 
         return ChatOpenAI(
-            model=model,
+            model=api_name,
             api_key=api_key,
-            temperature=model_temp,
+            temperature=effective_temp,
             max_tokens=max_tokens,
             http_client=openai_http_client,
             streaming=True,
@@ -171,26 +152,14 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         )
 
     elif provider == "anthropic":
-        alias_map = {
-            "claude-3.7-sonnet":    "claude-3-7-sonnet-latest",
-            "claude-3.5-haiku":     "claude-3-5-haiku-latest",
-            "claude-4.0-sonnet":    "claude-sonnet-4-0",
-            "claude-sonnet-4-5":    "claude-sonnet-4-5",
-            "claude-sonnet-4-6":    "claude-sonnet-4-6",
-            "claude-haiku-4-5":     "claude-haiku-4-5-20251001",
-            "claude-opus-4-5":      "claude-opus-4-5-20251101",
-            "claude-opus-4-6":      "claude-opus-4-6",
-        }
-        anthropic_model = alias_map.get(model, model)
-
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY not found in environment")
 
         return ChatAnthropic(
-            model=anthropic_model,
+            model=api_name,
             api_key=api_key,
-            temperature=temperature,
+            temperature=effective_temp,
             max_tokens=max_tokens,
             timeout=ANTHROPIC_TIMEOUT,
             streaming=True,
@@ -198,25 +167,14 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         )
 
     elif provider == "x-ai":
-        alias_map = {
-            "grok-3-mini-beta":             "grok-3-mini",
-            "grok-3-beta":                  "grok-3-latest",
-            "grok-2-1212":                  "grok-2-latest",
-            "grok-4.1-fast":               "grok-4-1-fast",
-            "grok-4-fast":                  "grok-4-fast",
-            "grok-4":                       "grok-4",
-            "grok-4-1-fast-non-reasoning":  "grok-4-1-fast-non-reasoning",
-        }
-        xai_model = alias_map.get(model, model)
-
         api_key = os.getenv("XAI_API_KEY")
         if not api_key:
             raise ValueError("XAI_API_KEY not found in environment")
 
         return ChatXAI(
-            model=xai_model,
+            model=api_name,
             api_key=api_key,
-            temperature=temperature,
+            temperature=effective_temp,
             max_tokens=max_tokens,
             http_client=xai_http_client,
             streaming=True,

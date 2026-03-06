@@ -49,7 +49,7 @@ REGISTRY_ABI = [
     },
 ]
 
-TEE_HEARTBEAT_INTERVAL = int(os.getenv("TEE_HEARTBEAT_INTERVAL", "900"))
+DEFAULT_HEARTBEAT_INTERVAL = 900  # 15 minutes
 MAX_RETRIES = 3
 RETRY_DELAY = 10  # seconds
 
@@ -63,7 +63,7 @@ class HeartbeatService:
         contract_address: str,
         private_key: str,
         tee_keys,
-        interval: int = TEE_HEARTBEAT_INTERVAL,
+        interval: int = DEFAULT_HEARTBEAT_INTERVAL,
     ):
         self.interval = interval
         self._task: Optional[asyncio.Task] = None
@@ -213,10 +213,15 @@ class HeartbeatService:
 
 
 def create_heartbeat_service(tee_keys) -> Optional["HeartbeatService"]:
-    """Create a HeartbeatService from env vars + TEE keys, or None if not configured."""
+    """Create a HeartbeatService from env vars + TEE keys, or None if not configured.
+
+    Env vars are read at call time (not import time) because they are
+    injected into the enclave at runtime via POST /v1/keys.
+    """
     rpc_url = os.getenv("HEARTBEAT_RPC_URL")
     contract_address = os.getenv("HEARTBEAT_CONTRACT_ADDRESS")
     private_key = os.getenv("HEARTBEAT_PRIVATE_KEY")
+    interval = int(os.getenv("TEE_HEARTBEAT_INTERVAL", str(DEFAULT_HEARTBEAT_INTERVAL)))
 
     if not all([rpc_url, contract_address, private_key]):
         logger.info(
@@ -230,5 +235,5 @@ def create_heartbeat_service(tee_keys) -> Optional["HeartbeatService"]:
         contract_address=contract_address,
         private_key=private_key,
         tee_keys=tee_keys,
-        interval=TEE_HEARTBEAT_INTERVAL,
+        interval=interval,
     )

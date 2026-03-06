@@ -73,8 +73,12 @@ health:
 
 .PHONY: get-signing-key
 get-signing-key:
-	curl -sk https://localhost:443/signing-key | python3 -c "import json,sys; print(json.load(sys.stdin)['public_key'])"
-	
+	@curl -sk https://localhost:443/signing-key | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['public_key']); print('tee_id:', d.get('tee_id','MISSING'))"
+
+.PHONY: verify-tee-id
+verify-tee-id:
+	@curl -sk https://localhost:443/signing-key | python3 -c "import json,sys,base64; from eth_hash.auto import keccak; d=json.load(sys.stdin); pem=d['public_key']; der=base64.b64decode(''.join(pem.strip().splitlines()[1:-1])); computed='0x'+keccak(der).hex(); reported=d.get('tee_id','MISSING'); print('reported tee_id:',reported); print('computed tee_id:',computed); print('VALID' if reported==computed else 'MISMATCH')"
+
 .PHONY: get-tls-cert
 get-tls-cert:
 	openssl s_client -connect localhost:443 </dev/null 2>/dev/null | openssl x509 -text	
@@ -82,7 +86,7 @@ get-tls-cert:
 .PHONY: test-local
 test-local:
 	# Test locally without TEE (for development)
-	python3 src/server.py
+	python3 -m openapi_server
 
 test-completion:
 	curl -i -k -X POST $(HOST)/v1/completions \

@@ -70,7 +70,20 @@ health:
 .PHONY: get-signing-key
 get-signing-key:
 	curl -sk https://localhost:443/signing-key | python3 -c "import json,sys; print(json.load(sys.stdin)['public_key'])"
-	
+
+.PHONY: verify-tee-id
+verify-tee-id:
+	curl -sk https://localhost:443/signing-key | python3 -c "\
+import json, sys; \
+from eth_hash.auto import keccak; \
+d = json.load(sys.stdin); \
+pem = d['public_key']; \
+computed = '0x' + keccak(pem.encode('utf-8')).hex(); \
+reported = d.get('tee_id', 'MISSING'); \
+print('reported tee_id:', reported); \
+print('computed tee_id:', computed); \
+print('VALID' if reported == computed else 'MISMATCH')"
+
 .PHONY: get-tls-cert
 get-tls-cert:
 	openssl s_client -connect localhost:443 </dev/null 2>/dev/null | openssl x509 -text	

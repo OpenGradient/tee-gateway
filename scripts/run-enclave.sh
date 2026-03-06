@@ -57,6 +57,7 @@ enclave_id=$(nitro-cli run-enclave \
 	--cpu-count 2 \
 	--memory 8192 \
 	--enclave-cid 4 \
+	--debug-mode \
 	--eif-path "$image_eif" | jq -r '.EnclaveID')
 
 echo "[ec2] Enclave ID: $enclave_id"

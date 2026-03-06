@@ -1,16 +1,19 @@
 """
-Blockchain heartbeat service with TEE RSA-PSS signature verification.
+Blockchain heartbeat service for the TEERegistry contract.
 
-Periodically sends a signed heartbeat to an on-chain contract, proving
-that the TEE node is alive. The contract verifies the signature via the
-verifyRSAPSS precompile (0x0900) on OpenGradient.
+Periodically calls TEERegistry.heartbeat(teeId, timestamp, signature) to
+prove this TEE node is alive. The registry verifies the RSA-PSS signature
+via the precompile (0x0900) using the public key stored at registration.
+
+The TEE must already be registered via registerTEEWithAttestation() before
+the heartbeat loop starts.
 
 Signed message:  keccak256(abi.encodePacked(teeId, timestamp))
 TEE ID:          keccak256(publicKeyDER)
 
 Enabled via environment variables:
     HEARTBEAT_RPC_URL          — JSON-RPC endpoint
-    HEARTBEAT_CONTRACT_ADDRESS — Deployed Heartbeat contract
+    HEARTBEAT_CONTRACT_ADDRESS — TEERegistry contract address
     HEARTBEAT_PRIVATE_KEY      — Wallet private key for sending txs (0x-prefixed)
     HEARTBEAT_INTERVAL         — Seconds between pings (default 300)
 
@@ -31,13 +34,12 @@ from web3.middleware import ExtraDataToPOAMiddleware
 
 logger = logging.getLogger("heartbeat")
 
-# ABI for the heartbeat(bytes32,uint256,bytes,bytes) contract function
-HEARTBEAT_ABI = [
+# Minimal ABI — only the registry functions we call
+REGISTRY_ABI = [
     {
         "inputs": [
             {"name": "teeId", "type": "bytes32"},
             {"name": "timestamp", "type": "uint256"},
-            {"name": "publicKey", "type": "bytes"},
             {"name": "signature", "type": "bytes"},
         ],
         "name": "heartbeat",
@@ -47,12 +49,8 @@ HEARTBEAT_ABI = [
     },
     {
         "inputs": [{"name": "teeId", "type": "bytes32"}],
-        "name": "getNodeInfo",
-        "outputs": [
-            {"name": "publicKey", "type": "bytes"},
-            {"name": "lastHeartbeat", "type": "uint256"},
-            {"name": "count", "type": "uint256"},
-        ],
+        "name": "isAlive",
+        "outputs": [{"name": "", "type": "bool"}],
         "stateMutability": "view",
         "type": "function",
     },
@@ -64,7 +62,7 @@ RETRY_DELAY = 10  # seconds
 
 
 class HeartbeatService:
-    """Sends TEE-signed heartbeat transactions verified on-chain via RSA-PSS precompile."""
+    """Sends TEE-signed heartbeats to the TEERegistry contract."""
 
     def __init__(
         self,
@@ -93,7 +91,7 @@ class HeartbeatService:
         self.contract_address = Web3.to_checksum_address(contract_address)
         self.contract = self.w3.eth.contract(
             address=self.contract_address,
-            abi=HEARTBEAT_ABI,
+            abi=REGISTRY_ABI,
         )
 
         # Status tracking
@@ -109,7 +107,6 @@ class HeartbeatService:
         Returns raw signature bytes (not base64).
         Uses the same RSA-PSS-SHA256 path as tee_keys.sign_data().
         """
-        # Mirrors Solidity: keccak256(abi.encodePacked(teeId, timestamp))
         msg_hash = keccak(self.tee_id + timestamp.to_bytes(32, "big"))
         sig_b64 = self.tee_keys.sign_data(msg_hash)
         return base64.b64decode(sig_b64)
@@ -129,13 +126,12 @@ class HeartbeatService:
                 tx = self.contract.functions.heartbeat(
                     self.tee_id,
                     timestamp,
-                    self.public_key_der,
                     signature,
                 ).build_transaction(
                     {
                         "from": self.account.address,
                         "nonce": nonce,
-                        "gas": 500_000,
+                        "gas": 300_000,
                         "gasPrice": gas_price,
                     }
                 )
@@ -174,7 +170,7 @@ class HeartbeatService:
     async def _run_loop(self):
         """Main heartbeat loop. Runs until cancelled."""
         logger.info(
-            "Heartbeat started (teeId=%s contract=%s interval=%ds wallet=%s)",
+            "Heartbeat started (teeId=%s registry=%s interval=%ds wallet=%s)",
             self.tee_id.hex(),
             self.contract_address,
             self.interval,
@@ -213,7 +209,7 @@ class HeartbeatService:
         return {
             "running": self._running,
             "tee_id": "0x" + self.tee_id.hex(),
-            "contract": self.contract_address,
+            "registry": self.contract_address,
             "wallet": self.account.address,
             "interval_seconds": self.interval,
             "total_sent": self.total_sent,

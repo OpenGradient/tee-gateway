@@ -10,6 +10,8 @@ import json
 import gc
 import time
 import threading
+import asyncio
+import atexit
 import psutil
 
 import connexion
@@ -17,6 +19,7 @@ from flask import jsonify, request
 from openapi_server import encoder
 from openapi_server.tee_manager import initialize_tee, get_tee_keys
 from openapi_server.llm_backend import reinitialize_http_clients
+from openapi_server.heartbeat import create_heartbeat_service
 
 from x402v2.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
 from x402v2.http.middleware.flask import payment_middleware
@@ -39,6 +42,57 @@ logging.basicConfig(
 )
 logging.getLogger("x402.middleware").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat background service (asyncio loop in a daemon thread)
+# ---------------------------------------------------------------------------
+_heartbeat_service = None
+_heartbeat_loop = None
+
+
+def _start_heartbeat_loop(loop: asyncio.AbstractEventLoop):
+    """Run an asyncio event loop in a background thread."""
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+
+def _init_heartbeat():
+    """Create and start the heartbeat service if env vars are configured."""
+    global _heartbeat_service, _heartbeat_loop
+
+    tee_keys = get_tee_keys()
+    _heartbeat_service = create_heartbeat_service(tee_keys)
+    if _heartbeat_service is None:
+        return
+
+    _heartbeat_loop = asyncio.new_event_loop()
+    t = threading.Thread(target=_start_heartbeat_loop, args=(_heartbeat_loop,), daemon=True)
+    t.start()
+
+    asyncio.run_coroutine_threadsafe(_async_start_heartbeat(), _heartbeat_loop)
+    logger.info("Heartbeat service scheduled on background event loop")
+
+
+async def _async_start_heartbeat():
+    """Start the heartbeat task inside the background event loop."""
+    _heartbeat_service.start()
+
+
+def _shutdown_heartbeat():
+    """Stop the heartbeat service and background loop on process exit."""
+    global _heartbeat_service, _heartbeat_loop
+    if _heartbeat_service and _heartbeat_loop and _heartbeat_loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(_heartbeat_service.stop(), _heartbeat_loop)
+        try:
+            future.result(timeout=10)
+        except Exception:
+            pass
+        _heartbeat_loop.call_soon_threadsafe(_heartbeat_loop.stop)
+    logger.info("Heartbeat shutdown complete")
+
+
+atexit.register(_shutdown_heartbeat)
 
 
 EVM_NETWORK: Network = "eip155:10740"
@@ -204,6 +258,13 @@ def signing_key():
         return {"error": str(e)}, 500
 
 
+def heartbeat_status():
+    """GET /heartbeat/status — return heartbeat service status."""
+    if _heartbeat_service is None:
+        return jsonify({"enabled": False}), 200
+    return jsonify({"enabled": True, **_heartbeat_service.status()}), 200
+
+
 def create_app():
     app = connexion.App(__name__, specification_dir="./openapi/")
     app.app.json_encoder = encoder.JSONEncoder
@@ -214,6 +275,7 @@ def create_app():
     app.app.add_url_rule("/health", "health", health, methods=["GET"])
     app.app.add_url_rule("/signing-key", "signing-key", signing_key, methods=["GET"])
     app.app.add_url_rule("/v1/keys", "set-provider-keys", set_provider_keys, methods=["POST"])
+    app.app.add_url_rule("/heartbeat/status", "heartbeat-status", heartbeat_status, methods=["GET"])
 
     # Initialize TEE here so it runs under both Gunicorn and direct execution.
     # This is the single TEEKeyManager instance — the same key both registers
@@ -223,6 +285,13 @@ def create_app():
         logger.info("TEE initialized successfully")
     except Exception as e:
         logger.warning(f"TEE initialization failed (may not be in enclave): {e}")
+
+    # Start blockchain heartbeat service (if configured via env vars).
+    # Runs in a background asyncio loop on a daemon thread.
+    try:
+        _init_heartbeat()
+    except Exception as e:
+        logger.warning(f"Heartbeat initialization failed: {e}")
 
     return app.app
 

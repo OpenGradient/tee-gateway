@@ -10,10 +10,8 @@ RUN ARCH=${TARGETARCH} make -C nitriding-daemon/ nitriding
 
 # Copy startup script into builder for permission setting
 COPY scripts/start.sh /bin/
-COPY src/server.py /bin/
-COPY src/heartbeat.py /bin/
-RUN chown root:root /bin/start.sh /bin/server.py /bin/heartbeat.py
-RUN chmod 0755 /bin/start.sh /bin/server.py /bin/heartbeat.py
+RUN chown root:root /bin/start.sh
+RUN chmod 0755 /bin/start.sh
 
 # ---------- Final image ----------
 FROM python:3.12-slim-bullseye

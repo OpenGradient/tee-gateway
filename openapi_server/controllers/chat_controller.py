@@ -136,8 +136,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
             "tee_id": f"0x{tee_keys.get_tee_id()}",
         }
 
-        # DEBUG #
-        logger.info(f"Response Final\n\tTEE Signature: {signature}\n\tTEE request hash: {input_hash_hex}\n\tTEE output hash: {output_hash_hex}\n\tTEE timestamp: {timestamp}\n\tTEE ID: 0x{tee_keys.get_tee_id()}")
+        logger.debug(f"Response Final\n\tTEE Signature: {signature}\n\tTEE request hash: {input_hash_hex}\n\tTEE output hash: {output_hash_hex}\n\tTEE timestamp: {timestamp}\n\tTEE ID: 0x{tee_keys.get_tee_id()}")
 
         if usage:
             openai_response["usage"] = usage
@@ -315,8 +314,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     "tee_id": f"0x{tee_keys.get_tee_id()}",
                 }
 
-                # DEBUG
-                logger.info(f"Response Final\n\tTEE Signature: {tee_signature}\n\tTEE request hash: {input_hash_hex}\n\tTEE output hash: {output_hash_hex}\n\tTEE timestamp: {timestamp}\n\tTEE ID: 0x{tee_keys.get_tee_id()}")
+                logger.debug(f"Response Final\n\tTEE Signature: {tee_signature}\n\tTEE request hash: {input_hash_hex}\n\tTEE output hash: {output_hash_hex}\n\tTEE timestamp: {timestamp}\n\tTEE ID: 0x{tee_keys.get_tee_id()}")
 
                 if final_usage:
                     final_data["usage"] = {

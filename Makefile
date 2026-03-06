@@ -69,26 +69,11 @@ health:
 
 .PHONY: get-signing-key
 get-signing-key:
-	curl -sk https://localhost:443/signing-key | python3 -c "\
-import json,sys; \
-d = json.load(sys.stdin); \
-print(d['public_key']); \
-print('tee_id:', d.get('tee_id', 'MISSING'))"
+	@curl -sk https://localhost:443/signing-key | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['public_key']); print('tee_id:', d.get('tee_id','MISSING'))"
 
 .PHONY: verify-tee-id
 verify-tee-id:
-	curl -sk https://localhost:443/signing-key | python3 -c "\
-import json, sys, base64; \
-from eth_hash.auto import keccak; \
-d = json.load(sys.stdin); \
-pem = d['public_key']; \
-b64_body = ''.join(pem.strip().splitlines()[1:-1]); \
-der = base64.b64decode(b64_body); \
-computed = '0x' + keccak(der).hex(); \
-reported = d.get('tee_id', 'MISSING'); \
-print('reported tee_id:', reported); \
-print('computed tee_id:', computed); \
-print('VALID' if reported == computed else 'MISMATCH')"
+	@curl -sk https://localhost:443/signing-key | python3 -c "import json,sys,base64; from eth_hash.auto import keccak; d=json.load(sys.stdin); pem=d['public_key']; der=base64.b64decode(''.join(pem.strip().splitlines()[1:-1])); computed='0x'+keccak(der).hex(); reported=d.get('tee_id','MISSING'); print('reported tee_id:',reported); print('computed tee_id:',computed); print('VALID' if reported==computed else 'MISMATCH')"
 
 .PHONY: get-tls-cert
 get-tls-cert:

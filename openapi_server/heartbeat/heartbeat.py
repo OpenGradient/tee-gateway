@@ -124,7 +124,7 @@ class HeartbeatService:
                     {
                         "from": self.account.address,
                         "nonce": nonce,
-                        "gas": 300_000,
+                        "gas": 500_000,
                         "gasPrice": gas_price,
                     }
                 )

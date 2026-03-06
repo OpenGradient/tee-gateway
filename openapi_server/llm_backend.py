@@ -21,7 +21,7 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_xai import ChatXAI
 
-from openapi_server.model_registry import get_model_config, ModelConfig
+from openapi_server.model_registry import get_model_config
 
 logger = logging.getLogger(__name__)
 

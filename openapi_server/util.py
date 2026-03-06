@@ -158,7 +158,7 @@ def _deserialize_dict(data, boxed_type):
 USDC_ADDRESS = "0x094E464A23B90A71a0894D5D1e5D470FfDD074e1"
 BASE_OPG_ADDRESS = "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
 
-from openapi_server.model_registry import MODEL_RATE_CARD_USD, get_model_config  # noqa: E402
+from openapi_server.model_registry import get_model_config  # noqa: E402
 
 ASSET_DECIMALS_BY_ADDRESS = {
     USDC_ADDRESS.lower(): 6,

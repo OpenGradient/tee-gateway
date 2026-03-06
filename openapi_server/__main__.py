@@ -57,6 +57,13 @@ def _start_heartbeat_loop(loop: asyncio.AbstractEventLoop):
     loop.run_forever()
 
 
+def _heartbeat_startup_done(future):
+    """Callback for the heartbeat startup Future"""
+    exc = future.exception()
+    if exc is not None:
+        logger.error("Heartbeat startup failed: %s", exc, exc_info=exc)
+
+
 def _init_heartbeat():
     """Create and start the heartbeat service if env vars are configured."""
     global _heartbeat_service, _heartbeat_loop
@@ -70,7 +77,8 @@ def _init_heartbeat():
     t = threading.Thread(target=_start_heartbeat_loop, args=(_heartbeat_loop,), daemon=True)
     t.start()
 
-    asyncio.run_coroutine_threadsafe(_async_start_heartbeat(), _heartbeat_loop)
+    future = asyncio.run_coroutine_threadsafe(_async_start_heartbeat(), _heartbeat_loop)
+    future.add_done_callback(_heartbeat_startup_done)
     logger.info("Heartbeat service scheduled on background event loop")
 
 
@@ -315,8 +323,6 @@ def create_app():
     except Exception as e:
         logger.warning(f"TEE initialization failed (may not be in enclave): {e}")
 
-    # Start blockchain heartbeat service (if configured via env vars).
-    # Runs in a background asyncio loop on a daemon thread.
 
     return app.app
 

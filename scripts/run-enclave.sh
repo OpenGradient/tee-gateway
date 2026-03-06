@@ -96,21 +96,27 @@ if [ -f "$ENV_FILE" ]; then
         HEARTBEAT_PRIVATE_KEY="$(grep -E '^HEARTBEAT_PRIVATE_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         TEE_HEARTBEAT_INTERVAL="$(grep -E '^TEE_HEARTBEAT_INTERVAL=' "$ENV_FILE" | cut -d'=' -f2-)"
 
-        # Build the JSON payload — include heartbeat fields only if set
-        JSON_PAYLOAD="{\"openai_api_key\":\"${OPENAI_API_KEY}\",\"google_api_key\":\"${GOOGLE_API_KEY}\",\"anthropic_api_key\":\"${ANTHROPIC_API_KEY}\",\"xai_api_key\":\"${XAI_API_KEY}\""
-        if [ -n "$HEARTBEAT_RPC_URL" ]; then
-            JSON_PAYLOAD="${JSON_PAYLOAD},\"heartbeat_rpc_url\":\"${HEARTBEAT_RPC_URL}\""
-        fi
-        if [ -n "$HEARTBEAT_CONTRACT_ADDRESS" ]; then
-            JSON_PAYLOAD="${JSON_PAYLOAD},\"heartbeat_contract_address\":\"${HEARTBEAT_CONTRACT_ADDRESS}\""
-        fi
-        if [ -n "$HEARTBEAT_PRIVATE_KEY" ]; then
-            JSON_PAYLOAD="${JSON_PAYLOAD},\"heartbeat_private_key\":\"${HEARTBEAT_PRIVATE_KEY}\""
-        fi
-        if [ -n "$TEE_HEARTBEAT_INTERVAL" ]; then
-            JSON_PAYLOAD="${JSON_PAYLOAD},\"tee_heartbeat_interval\":\"${TEE_HEARTBEAT_INTERVAL}\""
-        fi
-        JSON_PAYLOAD="${JSON_PAYLOAD}}"
+        # Build the JSON payload using jq for safe escaping
+        JSON_PAYLOAD=$(jq -n \
+            --arg openai "$OPENAI_API_KEY" \
+            --arg google "$GOOGLE_API_KEY" \
+            --arg anthropic "$ANTHROPIC_API_KEY" \
+            --arg xai "$XAI_API_KEY" \
+            --arg hb_rpc "$HEARTBEAT_RPC_URL" \
+            --arg hb_contract "$HEARTBEAT_CONTRACT_ADDRESS" \
+            --arg hb_key "$HEARTBEAT_PRIVATE_KEY" \
+            --arg hb_interval "$TEE_HEARTBEAT_INTERVAL" \
+            '{
+                openai_api_key: $openai,
+                google_api_key: $google,
+                anthropic_api_key: $anthropic,
+                xai_api_key: $xai
+            }
+            + if $hb_rpc != "" then {heartbeat_rpc_url: $hb_rpc} else {} end
+            + if $hb_contract != "" then {heartbeat_contract_address: $hb_contract} else {} end
+            + if $hb_key != "" then {heartbeat_private_key: $hb_key} else {} end
+            + if $hb_interval != "" then {tee_heartbeat_interval: $hb_interval} else {} end
+            ')
 
         echo "[ec2] Injecting API keys and configuration into enclave..."
         http_status=$(curl -s -o /dev/null -w "%{http_code}" \

@@ -112,7 +112,7 @@ class HeartbeatService:
                 signature = self._sign_heartbeat(timestamp)
 
                 nonce = await asyncio.to_thread(
-                    self.w3.eth.get_transaction_count, self.account.address
+                    self.w3.eth.get_transaction_count, self.account.address, "pending"
                 )
                 gas_price = await asyncio.to_thread(lambda: self.w3.eth.gas_price)
 
@@ -221,7 +221,6 @@ def create_heartbeat_service(tee_keys) -> Optional["HeartbeatService"]:
     rpc_url = os.getenv("HEARTBEAT_RPC_URL")
     contract_address = os.getenv("HEARTBEAT_CONTRACT_ADDRESS")
     private_key = os.getenv("HEARTBEAT_PRIVATE_KEY")
-    interval = int(os.getenv("TEE_HEARTBEAT_INTERVAL", str(DEFAULT_HEARTBEAT_INTERVAL)))
 
     if not all([rpc_url, contract_address, private_key]):
         logger.info(
@@ -229,6 +228,17 @@ def create_heartbeat_service(tee_keys) -> Optional["HeartbeatService"]:
             "HEARTBEAT_CONTRACT_ADDRESS, HEARTBEAT_PRIVATE_KEY to enable)"
         )
         return None
+
+    # Parse interval only after confirming heartbeat is enabled
+    try:
+        interval = int(os.getenv("TEE_HEARTBEAT_INTERVAL", str(DEFAULT_HEARTBEAT_INTERVAL)))
+    except (ValueError, TypeError):
+        logger.warning(
+            "Invalid TEE_HEARTBEAT_INTERVAL=%r, falling back to default %ds",
+            os.getenv("TEE_HEARTBEAT_INTERVAL"),
+            DEFAULT_HEARTBEAT_INTERVAL,
+        )
+        interval = DEFAULT_HEARTBEAT_INTERVAL
 
     return HeartbeatService(
         rpc_url=rpc_url,

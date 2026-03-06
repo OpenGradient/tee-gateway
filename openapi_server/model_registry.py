@@ -187,13 +187,6 @@ class SupportedModel(Enum):
 
 
 # Canonical lookup: user-facing model name → SupportedModel
-_BY_NAME: dict[str, SupportedModel] = {}
-for _m in SupportedModel:
-    # Register the enum member name lowered (not usually used) is skipped;
-    # we register by the user-facing name which we derive below.
-    pass
-
-# User-facing name → enum member.
 # The "user-facing name" is what callers pass in the `model` field of requests.
 _MODEL_LOOKUP: dict[str, SupportedModel] = {
     # OpenAI

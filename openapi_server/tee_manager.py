@@ -55,9 +55,15 @@ class TEEKeyManager:
         ).decode('utf-8')
 
         # tee_id = keccak256(abi.encodePacked(signingKey))
-        # signingKey is the PEM-encoded public key (the value exposed via /signing-key).
-        # abi.encodePacked on bytes is a no-op, so this is keccak256 of the raw PEM bytes.
-        self.tee_id = keccak(self.public_key_pem.encode('utf-8')).hex()
+        # signingKey is the DER-encoded public key (canonical binary form, no
+        # encoding ambiguity). DER bytes are exactly the base64 body of the PEM
+        # decoded, so external verifiers can strip the PEM headers, base64-decode
+        # the body, and keccak256-hash the resulting bytes.
+        public_key_der = self.public_key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        self.tee_id = keccak(public_key_der).hex()
 
         logger.info("TEE key pair generated successfully")
         logger.info(f"tee_id: 0x{self.tee_id}")
@@ -128,7 +134,7 @@ class TEEKeyManager:
         return self.public_key_pem
 
     def get_tee_id(self) -> str:
-        """Return the tee_id: keccak256(abi.encodePacked(public_key_pem))."""
+        """Return the tee_id: keccak256(abi.encodePacked(public_key_der))."""
         return self.tee_id
 
     def get_attestation_document(self) -> dict:

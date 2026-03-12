@@ -46,9 +46,9 @@ export ANTHROPIC_API_KEY=sk-ant-...
 export GOOGLE_API_KEY=...
 export XAI_API_KEY=...
 
-# Run server
+# Run server (starts the Flask/connexion app on port 8000)
 make test-local
-# or: python3 src/server.py
+# or: python3 -m openapi_server
 ```
 
 ### Test Endpoints
@@ -58,18 +58,19 @@ make test-local
 curl -X POST http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4o-mini",
+    "model": "gpt-4.1",
     "messages": [{"role": "user", "content": "Hello!"}],
     "temperature": 0.7
   }'
 
 # Streaming
-curl -X POST http://127.0.0.1:8000/v1/chat/completions/stream \
+curl -X POST http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -N \
   -d '{
-    "model": "gemini-2.5-flash-lite",
-    "messages": [{"role": "user", "content": "Write a haiku"}]
+    "model": "gemini-2.5-flash",
+    "messages": [{"role": "user", "content": "Write a haiku"}],
+    "stream": true
   }'
 
 # Text completion
@@ -95,7 +96,7 @@ make run
 
 The enclave runs with:
 - 2 CPUs
-- 4GB memory
+- 8GB memory
 - Port 443 (HTTPS via nitriding)
 - Port 8000 (internal server)
 
@@ -136,22 +137,34 @@ After launching, PCR measurements are saved to `measurements.txt`. Share these w
 
 ```json
 {
-  "message": {
-    "role": "assistant",
-    "content": "Hello! How can I help?"
-  },
-  "model": "gpt-4o-mini",
-  "finish_reason": "stop",
+  "id": "chatcmpl-...",
+  "object": "chat.completion",
+  "created": 1747000000,
+  "model": "gpt-4.1",
+  "choices": [{
+    "index": 0,
+    "message": {"role": "assistant", "content": "Hello! How can I help?"},
+    "finish_reason": "stop"
+  }],
   "usage": {
     "prompt_tokens": 10,
     "completion_tokens": 8,
     "total_tokens": 18
   },
-  "timestamp": "2025-01-15T10:30:00+00:00",
-  "request_hash": "3cd5e62557ea16dc77aef5c2c66188d1...",
-  "signature": "PLyCgScL1Jr6OSb7wazEbor4yhBYJpau..."
+  "tee_signature": "PLyCgScL1Jr6OSb7wazEbor4yhBYJpau...",
+  "tee_request_hash": "3cd5e62557ea16dc77aef5c2c66188d1...",
+  "tee_output_hash":  "a7f3d91c4b08e2f50c3a6d8e...",
+  "tee_timestamp": 1747000000,
+  "tee_id": "0x4a2b..."
 }
 ```
+
+The `tee_*` fields provide cryptographic proof of the response:
+- **`tee_request_hash`** — keccak256 of the canonicalized request JSON (proves input wasn't modified)
+- **`tee_output_hash`** — keccak256 of the response content (proves output wasn't modified)
+- **`tee_signature`** — RSA-PSS-SHA256 signature over `keccak256(requestHash || outputHash || timestamp)`
+- **`tee_timestamp`** — Unix timestamp when the response was signed (proves freshness)
+- **`tee_id`** — keccak256 of the enclave's DER-encoded public key (stable identifier for this enclave instance)
 
 ## Verification
 
@@ -174,28 +187,30 @@ See `examples/verify_attestation.py` for full verification including:
 After getting a response, verify the signature using the attested public key:
 
 ```python
+import base64, json
+from eth_hash.auto import keccak
 from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives import hashes
-import json
+from cryptography.hazmat.primitives import hashes, serialization
 
-# Reconstruct signed data (must match server exactly)
-signed_data = {
-    "finish_reason": response["finish_reason"],
-    "message": response["message"],
-    "model": response["model"],
-    "request_hash": response["request_hash"],
-    "timestamp": response["timestamp"]
-}
+# Load attested public key (from /signing-key endpoint)
+public_key = serialization.load_pem_public_key(public_key_pem.encode())
 
-# Verify signature
+# Reconstruct the msg_hash the server signed:
+#   keccak256(abi.encodePacked(inputHash, outputHash, timestamp))
+request_hash  = bytes.fromhex(response["tee_request_hash"])
+output_hash   = bytes.fromhex(response["tee_output_hash"])
+timestamp_bytes = response["tee_timestamp"].to_bytes(32, "big")
+msg_hash = keccak(request_hash + output_hash + timestamp_bytes)
+
+# Verify RSA-PSS-SHA256 signature (salt_length=32 matches server)
 public_key.verify(
-    base64.b64decode(response["signature"]),
-    json.dumps(signed_data, sort_keys=True).encode('utf-8'),
+    base64.b64decode(response["tee_signature"]),
+    msg_hash,
     padding.PSS(
         mgf=padding.MGF1(hashes.SHA256()),
-        salt_length=padding.PSS.MAX_LENGTH
+        salt_length=32,
     ),
-    hashes.SHA256()
+    hashes.SHA256(),
 )
 ```
 
@@ -203,18 +218,22 @@ See `examples/verify_signature_example.py` for a complete example.
 
 ### 3. Verify Request Hash
 
-The `request_hash` proves your original request wasn't modified:
+The `tee_request_hash` proves your original request wasn't modified:
 
 ```python
-import hashlib
+from eth_hash.auto import keccak
 import json
 
-original_request = {"model": "...", "messages": [...], ...}
-computed_hash = hashlib.sha256(
-    json.dumps(original_request, sort_keys=True).encode()
-).hexdigest()
+# Canonical request (same fields the server serializes, sorted keys)
+original_request = {
+    "model": "gpt-4.1",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "temperature": 0.7,
+}
+request_bytes = json.dumps(original_request, sort_keys=True).encode()
+computed_hash = keccak(request_bytes).hex()
 
-assert computed_hash == response["request_hash"]
+assert computed_hash == response["tee_request_hash"]
 ```
 
 ## Architecture
@@ -223,7 +242,7 @@ assert computed_hash == response["request_hash"]
 ┌─────────────────────────────────────────────────────────────┐
 │                     Nitro Enclave                           │
 │  ┌─────────────────┐    ┌─────────────────────────────────┐ │
-│  │    nitriding    │    │        src/server.py            │ │
+│  │    nitriding    │    │       openapi_server/           │ │
 │  │    (TLS/443)    │───▶│    TEEKeyManager (RSA keys)     │ │
 │  │                 │    │    LangChain routing            │ │
 │  │  /enclave/*     │    │    Response signing             │ │
@@ -250,12 +269,16 @@ assert computed_hash == response["request_hash"]
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_SERVER_PORT` | 8000 | Internal server port |
-| `LLM_SERVER_HOST` | 127.0.0.1 | Server bind address |
+| `API_SERVER_PORT` | 8000 | Internal server port |
+| `API_SERVER_HOST` | 0.0.0.0 | Server bind address |
 | `OPENAI_API_KEY` | - | OpenAI API key |
 | `ANTHROPIC_API_KEY` | - | Anthropic API key |
 | `GOOGLE_API_KEY` | - | Google AI API key |
 | `XAI_API_KEY` | - | xAI API key |
+| `EVM_PAYMENT_ADDRESS` | - | Wallet address to receive x402 payments |
+| `FACILITATOR_URL` | see `__main__.py` | x402 payment facilitator endpoint |
+
+API keys can also be injected at runtime via `POST /v1/keys` (preferred for TEE deployments to avoid baking secrets into the image).
 
 ## License
 

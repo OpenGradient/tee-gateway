@@ -179,7 +179,7 @@ def compute_tee_msg_hash(
     input_hash  = keccak(request_bytes)
     output_hash = keccak(response_content.encode('utf-8'))
     msg_hash    = keccak(input_hash + output_hash + timestamp.to_bytes(32, 'big'))
-    logger.debug(f"Computee TEE Message Hash:\n\tInput hash: {input_hash.hex()} \n\tOutput hash: {output_hash.hex()}\n\tmsg_hash: {msg_hash}\n\ttimestamp: {timestamp} hashed timestamp:{timestamp.to_bytes(32, 'big')}")
+    logger.debug(f"Compute TEE Message Hash:\n\tInput hash: {input_hash.hex()} \n\tOutput hash: {output_hash.hex()}\n\tmsg_hash: {msg_hash}\n\ttimestamp: {timestamp} hashed timestamp:{timestamp.to_bytes(32, 'big')}")
     return msg_hash, input_hash.hex(), output_hash.hex()
 
 

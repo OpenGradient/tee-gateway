@@ -147,7 +147,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
 
     except Exception as e:
         logger.error(f"Chat completion error: {str(e)}", exc_info=True)
-        return {"error": "Request processing failed", "details": str(e)}, 500
+        return {"error": "Request processing failed"}, 500
 
 
 def _create_streaming_response(chat_request: CreateChatCompletionRequest):
@@ -333,7 +333,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
 
             except Exception as e:
                 logger.error(f"Streaming error: {str(e)}", exc_info=True)
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                yield f"data: {json.dumps({'error': 'Stream processing failed'})}\n\n"
 
         return Response(
             generate(),
@@ -346,7 +346,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
 
     except Exception as e:
         logger.error(f"Stream setup error: {str(e)}", exc_info=True)
-        return {"error": "Stream setup failed", "details": str(e)}, 500
+        return {"error": "Stream setup failed"}, 500
 
 
 # ---------------------------------------------------------------------------

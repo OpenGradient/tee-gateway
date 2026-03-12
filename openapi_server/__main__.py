@@ -27,7 +27,17 @@ from x402v2.schemas import AssetAmount, Network
 from x402v2.server import x402ResourceServerSync
 from x402v2.session import SessionStore
 import x402v2.http.middleware.flask as x402_flask
-from .util import BASE_OPG_ADDRESS, USDC_ADDRESS, dynamic_session_cost_calculator
+from .util import dynamic_session_cost_calculator
+from .definitions import (
+    EVM_NETWORK,
+    BASE_TESTNET_NETWORK,
+    EVM_PAYMENT_ADDRESS,
+    USDC_ADDRESS,
+    BASE_OPG_ADDRESS,
+    CHAT_COMPLETIONS_USDC_AMOUNT,
+    CHAT_COMPLETIONS_OPG_AMOUNT,
+    COMPLETIONS_USDC_AMOUNT,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -41,9 +51,6 @@ logging.getLogger("x402.middleware").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-EVM_NETWORK: Network = "eip155:10740"
-BASE_TESTNET_NETWORK: Network = "eip155:84532"
-EVM_PAYMENT_ADDRESS = "0x40eFb45552EDfB2502D90A657a8ab41F03ec460d"
 FACILITATOR_URL = os.getenv("FACILITATOR_URL", "https://facilitator.memchat.io")
 
 facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=FACILITATOR_URL))
@@ -62,7 +69,7 @@ routes = {
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
-                    amount="100000",  # $0.01 USDC
+                    amount=CHAT_COMPLETIONS_USDC_AMOUNT,
                     asset=USDC_ADDRESS,
                     extra={"name": "OUSDC", "version": "2", "assetTransferMethod": "permit2"},
                 ),
@@ -72,7 +79,7 @@ routes = {
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
-                    amount="50000000000000000",  # 0.05 OPG
+                    amount=CHAT_COMPLETIONS_OPG_AMOUNT,
                     asset=BASE_OPG_ADDRESS,
                     extra={"name": "OPG", "version": "2", "assetTransferMethod": "permit2"},
                 ),
@@ -88,7 +95,7 @@ routes = {
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
-                    amount="10000",  # $0.01 USDC
+                    amount=COMPLETIONS_USDC_AMOUNT,
                     asset=USDC_ADDRESS,
                     extra={"name": "USDC", "version": "2"},
                 ),

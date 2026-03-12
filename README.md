@@ -102,7 +102,9 @@ The enclave runs with:
 
 ### PCR Measurements
 
-After launching, PCR measurements are saved to `measurements.txt`. Share these with clients so they can verify attestation documents match the expected enclave code.
+PCR (Platform Configuration Register) measurements uniquely fingerprint the enclave image — they change whenever the code or build environment changes. They are automatically written to `measurements.txt` by `scripts/run-enclave.sh` when the enclave starts.
+
+The `measurements.txt` checked into this repository reflects the OpenGradient-operated deployment. **If you build and run your own enclave image, your PCR values will differ.** After running `make run`, your `measurements.txt` will be updated with your enclave's measurements. Share this file with your clients so they can verify attestation documents match your specific build.
 
 ## API Reference
 

@@ -196,12 +196,14 @@ def set_provider_keys():
             os.environ["XAI_API_KEY"] = body['xai_api_key']
 
         # Inject heartbeat configuration into the environment
+        # Note: wallet private key is generated inside the TEE (by TEEKeyManager),
+        # so only RPC URL and contract address need to be injected externally.
         if body.get('heartbeat_rpc_url'):
             os.environ["HEARTBEAT_RPC_URL"] = body['heartbeat_rpc_url']
         if body.get('heartbeat_contract_address'):
             os.environ["HEARTBEAT_CONTRACT_ADDRESS"] = body['heartbeat_contract_address']
-        if body.get('heartbeat_private_key'):
-            os.environ["HEARTBEAT_PRIVATE_KEY"] = body['heartbeat_private_key']
+        if body.get('heartbeat_facilitator_url'):
+            os.environ["HEARTBEAT_FACILITATOR_URL"] = body['heartbeat_facilitator_url']
         if body.get('tee_heartbeat_interval'):
             os.environ["TEE_HEARTBEAT_INTERVAL"] = str(body['tee_heartbeat_interval'])
 
@@ -218,8 +220,9 @@ def set_provider_keys():
         logger.info("  XAI_API_KEY                 : %s", _key_status("XAI_API_KEY"))
         logger.info("  HEARTBEAT_RPC_URL           : %s", _key_status("HEARTBEAT_RPC_URL"))
         logger.info("  HEARTBEAT_CONTRACT_ADDRESS  : %s", _key_status("HEARTBEAT_CONTRACT_ADDRESS"))
-        logger.info("  HEARTBEAT_PRIVATE_KEY       : %s", _key_status("HEARTBEAT_PRIVATE_KEY"))
+        logger.info("  HEARTBEAT_FACILITATOR_URL   : %s", _key_status("HEARTBEAT_FACILITATOR_URL"))
         logger.info("  TEE_HEARTBEAT_INTERVAL      : %s", os.environ.get("TEE_HEARTBEAT_INTERVAL", "900 (default)"))
+        logger.info("  HEARTBEAT_WALLET (TEE-gen)  : %s", get_tee_keys().get_wallet_address())
 
         # Rebuild HTTP clients with the new Authorization headers and clear
         # the model cache so subsequent requests use fresh instances.
@@ -242,9 +245,8 @@ def set_provider_keys():
         }.items() if k
     ]
     heartbeat_configured = all([
-        body.get('heartbeat_rpc_url'),
-        body.get('heartbeat_contract_address'),
-        body.get('heartbeat_private_key'),
+        os.environ.get("HEARTBEAT_CONTRACT_ADDRESS"),
+        os.environ.get("HEARTBEAT_FACILITATOR_URL") or os.environ.get("FACILITATOR_URL"),
     ])
     logger.info("Provider API keys initialized for: %s", ", ".join(providers_set))
     return jsonify({

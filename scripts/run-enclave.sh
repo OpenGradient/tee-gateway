@@ -90,13 +90,15 @@ if [ -f "$ENV_FILE" ]; then
         ANTHROPIC_API_KEY="$(grep -E '^ANTHROPIC_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         XAI_API_KEY="$(grep -E '^XAI_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
 
-        # Heartbeat configuration (optional — service starts only if all three are set)
+        # Heartbeat configuration (optional — wallet key is generated inside the TEE)
         HEARTBEAT_RPC_URL="$(grep -E '^HEARTBEAT_RPC_URL=' "$ENV_FILE" | cut -d'=' -f2-)"
         HEARTBEAT_CONTRACT_ADDRESS="$(grep -E '^HEARTBEAT_CONTRACT_ADDRESS=' "$ENV_FILE" | cut -d'=' -f2-)"
-        HEARTBEAT_PRIVATE_KEY="$(grep -E '^HEARTBEAT_PRIVATE_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
+        HEARTBEAT_FACILITATOR_URL="$(grep -E '^HEARTBEAT_FACILITATOR_URL=' "$ENV_FILE" | cut -d'=' -f2-)"
+        HEARTBEAT_FACILITATOR_API_KEY="$(grep -E '^HEARTBEAT_FACILITATOR_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         TEE_HEARTBEAT_INTERVAL="$(grep -E '^TEE_HEARTBEAT_INTERVAL=' "$ENV_FILE" | cut -d'=' -f2-)"
 
         # Build the JSON payload using jq for safe escaping
+        # Note: wallet private key is generated inside the TEE, not injected
         JSON_PAYLOAD=$(jq -n \
             --arg openai "$OPENAI_API_KEY" \
             --arg google "$GOOGLE_API_KEY" \
@@ -104,7 +106,8 @@ if [ -f "$ENV_FILE" ]; then
             --arg xai "$XAI_API_KEY" \
             --arg hb_rpc "$HEARTBEAT_RPC_URL" \
             --arg hb_contract "$HEARTBEAT_CONTRACT_ADDRESS" \
-            --arg hb_key "$HEARTBEAT_PRIVATE_KEY" \
+            --arg hb_facilitator "$HEARTBEAT_FACILITATOR_URL" \
+            --arg hb_api_key "$HEARTBEAT_FACILITATOR_API_KEY" \
             --arg hb_interval "$TEE_HEARTBEAT_INTERVAL" \
             '{
                 openai_api_key: $openai,
@@ -114,7 +117,8 @@ if [ -f "$ENV_FILE" ]; then
             }
             + if $hb_rpc != "" then {heartbeat_rpc_url: $hb_rpc} else {} end
             + if $hb_contract != "" then {heartbeat_contract_address: $hb_contract} else {} end
-            + if $hb_key != "" then {heartbeat_private_key: $hb_key} else {} end
+            + if $hb_facilitator != "" then {heartbeat_facilitator_url: $hb_facilitator} else {} end
+            + if $hb_api_key != "" then {heartbeat_facilitator_api_key: $hb_api_key} else {} end
             + if $hb_interval != "" then {tee_heartbeat_interval: $hb_interval} else {} end
             ')
 
@@ -127,8 +131,8 @@ if [ -f "$ENV_FILE" ]; then
 
         if [ "$http_status" = "200" ]; then
             echo "[ec2] API keys injected successfully."
-            if [ -n "$HEARTBEAT_RPC_URL" ] && [ -n "$HEARTBEAT_CONTRACT_ADDRESS" ] && [ -n "$HEARTBEAT_PRIVATE_KEY" ]; then
-                echo "[ec2] Heartbeat service configured (contract: ${HEARTBEAT_CONTRACT_ADDRESS})"
+            if [ -n "$HEARTBEAT_CONTRACT_ADDRESS" ] && [ -n "$HEARTBEAT_FACILITATOR_URL" ]; then
+                echo "[ec2] Heartbeat service configured via facilitator relay (contract: ${HEARTBEAT_CONTRACT_ADDRESS})"
             else
                 echo "[ec2] Heartbeat service not configured (missing env vars)."
             fi
@@ -138,7 +142,7 @@ if [ -f "$ENV_FILE" ]; then
 
         # Clear key variables from this shell immediately after use
         unset OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY XAI_API_KEY
-        unset HEARTBEAT_RPC_URL HEARTBEAT_CONTRACT_ADDRESS HEARTBEAT_PRIVATE_KEY TEE_HEARTBEAT_INTERVAL
+        unset HEARTBEAT_RPC_URL HEARTBEAT_CONTRACT_ADDRESS HEARTBEAT_FACILITATOR_URL HEARTBEAT_FACILITATOR_API_KEY TEE_HEARTBEAT_INTERVAL
     fi
 else
     echo "[ec2] No .env file found at $ENV_FILE"

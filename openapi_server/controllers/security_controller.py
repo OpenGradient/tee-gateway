@@ -3,13 +3,17 @@ from typing import List
 
 def info_from_ApiKeyAuth(token):
     """
-    Check and retrieve authentication information from custom bearer token.
-    Returned value will be passed in 'token_info' parameter of your operation function, if there is one.
-    'sub' or 'uid' will be set in 'user' parameter of your operation function, if there is one.
+    OpenAPI security handler for ApiKeyAuth — intentional passthrough.
 
-    :param token Token provided by Authorization header
+    This gateway uses x402v2 payment middleware as its access control mechanism.
+    Callers pay per request via EVM micropayments; there are no user accounts or
+    bearer tokens to validate. The ApiKeyAuth declaration is retained in the
+    OpenAPI spec for schema compliance, but authentication is effectively handled
+    by the payment layer, not by this function.
+
+    :param token: Token provided by Authorization header (ignored)
     :type token: str
-    :return: Decoded token information or None if token is invalid
-    :rtype: dict | None
+    :return: Minimal token_info dict required by connexion
+    :rtype: dict
     """
     return {'uid': 'user_id'}

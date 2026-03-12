@@ -141,10 +141,7 @@ def set_provider_keys():
             os.environ["XAI_API_KEY"] = body['xai_api_key']
 
         def _key_status(env_var: str) -> str:
-            val = os.environ.get(env_var, "")
-            if not val:
-                return "NOT SET"
-            return f"set ({val[:6]}...{val[-4:]})"
+            return "set" if os.environ.get(env_var) else "NOT SET"
 
         logger.info("ENV check after injection:")
         logger.info("  OPENAI_API_KEY    : %s", _key_status("OPENAI_API_KEY"))

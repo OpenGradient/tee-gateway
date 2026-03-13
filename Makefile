@@ -29,14 +29,19 @@ XAI_MODEL ?= grok-3-mini-beta
 # ---------------------------------------------------------------------------
 # Debug bypass for testing from the enclave host without x402 payment.
 #
+# Requires TWO env vars on the server side — both must be set or the bypass
+# is completely inactive regardless of any headers sent by the client:
+#   DEBUG_MODE=1            — enables debug mode (never set in production)
+#   DEBUG_BYPASS_KEY=<key>  — secret key clients must present
+#
 # Usage:
-#   1. Start the server with DEBUG_BYPASS_KEY set:
-#        DEBUG_BYPASS_KEY=mysecret make test-local
-#        or on a running enclave, set it before launching run-enclave.sh
+#   1. Start the server with both vars set:
+#        DEBUG_MODE=1 DEBUG_BYPASS_KEY=mysecret make test-local
+#        or export them before running run-enclave.sh
 #
 #   2. Pass the same key to any make test target:
-#        make test-chat DEBUG_KEY=mysecret HOST=http://127.0.0.1:8000
-#        make test-chat-all-models DEBUG_KEY=mysecret HOST=http://127.0.0.1:8000
+#        make test-chat HOST=http://127.0.0.1:8000 DEBUG_KEY=mysecret
+#        make test-chat-all-models HOST=http://127.0.0.1:8000 DEBUG_KEY=mysecret
 #
 # When DEBUG_KEY is empty (the default) no bypass header is sent and the
 # normal x402 payment flow applies.
@@ -425,8 +430,9 @@ help:
 	@echo "  XAI_MODEL                        - xAI model (default: grok-3-mini-beta)"
 	@echo ""
 	@echo "Testing from the enclave host (bypass x402 payment):"
-	@echo "  1. Launch the enclave with DEBUG_BYPASS_KEY set:"
-	@echo "       DEBUG_BYPASS_KEY=mysecret make run"
+	@echo "  1. Launch the server with both debug vars set:"
+	@echo "       DEBUG_MODE=1 DEBUG_BYPASS_KEY=mysecret make test-local"
 	@echo "  2. Run any test target with the matching key and direct host:"
 	@echo "       make test-chat-all-models HOST=http://127.0.0.1:8000 DEBUG_KEY=mysecret"
+	@echo "  Note: DEBUG_MODE=1 must be set server-side or the bypass is never active."
 	@echo "  Note: port 8000 is loopback-only and not reachable from the internet."

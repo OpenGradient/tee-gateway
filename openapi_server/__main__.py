@@ -235,11 +235,11 @@ def create_app():
 # WSGI application + x402v2 payment middleware
 # ---------------------------------------------------------------------------
 
-# DEBUG_BYPASS_KEY — when set, requests carrying the matching X-Debug-Key
-# header bypass payment entirely. Port 8000 is already bound to 127.0.0.1
-# (EC2 host only), so this bypass is unreachable from the internet.
-# Never set this in production enclave deployments.
-_DEBUG_BYPASS_KEY = os.getenv("DEBUG_BYPASS_KEY", "")
+# Debug payment bypass — only active when DEBUG_MODE=1 is explicitly set.
+# In production, DEBUG_MODE is never set, so DEBUG_BYPASS_KEY is never
+# read and the bypass layer is never installed, regardless of environment.
+_DEBUG_MODE = os.getenv("DEBUG_MODE", "").strip() == "1"
+_DEBUG_BYPASS_KEY = os.getenv("DEBUG_BYPASS_KEY", "") if _DEBUG_MODE else ""
 
 # Create the WSGI application
 application = create_app()

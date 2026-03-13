@@ -238,6 +238,10 @@ def create_app():
 # Create the WSGI application
 application = create_app()
 
+# Save the bare Flask WSGI callable *before* the payment middleware wraps it.
+# Used below by the loopback bypass so 127.0.0.1 requests skip the payment gate.
+_bare_flask_wsgi = application.wsgi_app
+
 # This patch ensures that non-payment 0-length requests can still bypass the middleware
 _original_read_body_bytes = x402_flask._read_body_bytes
 
@@ -264,6 +268,27 @@ payment_middleware(
     session_cost_calculator=dynamic_session_cost_calculator,
 )
 logger.info("x402v2 payment middleware initialized")
+
+# ---------------------------------------------------------------------------
+# Loopback bypass: 127.0.0.1 requests skip the x402 payment gate.
+#
+# Port 8000 is kernel-bound to 127.0.0.1 on the EC2 host, so only the Nitro
+# Enclave parent instance can reach this path. External clients always connect
+# via nitriding on port 443 → gvproxy vsock, which arrives at the enclave with
+# a non-loopback REMOTE_ADDR and therefore goes through the payment gate.
+#
+# This allows the enclave operator to run `make test-chat HOST=http://127.0.0.1:8000`
+# from the EC2 host without requiring x402 payment headers.
+# ---------------------------------------------------------------------------
+_payment_gated_wsgi = application.wsgi_app
+
+def _loopback_bypass_wsgi(environ, start_response):
+    if environ.get("REMOTE_ADDR") == "127.0.0.1":
+        return _bare_flask_wsgi(environ, start_response)
+    return _payment_gated_wsgi(environ, start_response)
+
+application.wsgi_app = _loopback_bypass_wsgi
+logger.info("Loopback bypass active: requests from 127.0.0.1 skip x402 payment gate")
 
 if __name__ == "__main__":
     port = int(os.getenv("API_SERVER_PORT", "8000"))

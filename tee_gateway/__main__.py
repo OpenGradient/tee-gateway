@@ -254,22 +254,6 @@ def _patched_read_body_bytes(environ):
 
 x402_flask._read_body_bytes = _patched_read_body_bytes
 
-# ---------------------------------------------------------------------------
-# Loopback bypass: 127.0.0.1 requests skip the x402 payment gate.
-#
-# payment_middleware registers Flask before_request / after_request hooks on
-# the app. We snapshot the hook lists before calling it, then after, we wrap
-# each newly-added hook so that requests from 127.0.0.1 short-circuit past
-# the payment check.
-#
-# Port 8000 is kernel-bound to 127.0.0.1 on the EC2 host, so only the Nitro
-# Enclave parent instance can reach this bypass path. External clients always
-# connect via nitriding on port 443 → gvproxy vsock, which arrives with a
-# non-loopback REMOTE_ADDR and therefore goes through the full payment gate.
-# ---------------------------------------------------------------------------
-_n_before = len(application.before_request_funcs.get(None, []))
-_n_after  = len(application.after_request_funcs.get(None, []))
-
 payment_middleware(
     application,
     routes=routes,
@@ -280,32 +264,6 @@ payment_middleware(
     session_cost_calculator=dynamic_session_cost_calculator,
 )
 logger.info("x402v2 payment middleware initialized")
-
-# Wrap each before_request hook added by payment_middleware.
-# Returning None from a before_request hook tells Flask to continue to the view.
-_before_hooks = application.before_request_funcs.get(None, [])
-for _i in range(_n_before, len(_before_hooks)):
-    def _make_before_bypass(orig):
-        def _bypassed():
-            if request.remote_addr == "127.0.0.1":
-                return None  # skip payment check; proceed to view function
-            return orig()
-        return _bypassed
-    _before_hooks[_i] = _make_before_bypass(_before_hooks[_i])
-
-# Wrap each after_request hook added by payment_middleware.
-# Returning the unmodified response skips any payment session bookkeeping.
-_after_hooks = application.after_request_funcs.get(None, [])
-for _i in range(_n_after, len(_after_hooks)):
-    def _make_after_bypass(orig):
-        def _bypassed(response):
-            if request.remote_addr == "127.0.0.1":
-                return response  # skip payment session update for loopback
-            return orig(response)
-        return _bypassed
-    _after_hooks[_i] = _make_after_bypass(_after_hooks[_i])
-
-logger.info("Loopback bypass active: requests from 127.0.0.1 skip x402 payment gate")
 
 if __name__ == "__main__":
     port = int(os.getenv("API_SERVER_PORT", "8000"))

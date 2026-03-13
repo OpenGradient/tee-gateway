@@ -278,8 +278,6 @@ To operate your own gateway:
 
 Clients use an x402-compatible client (e.g., the [x402 SDK](https://github.com/opengradient/x402)) to authorize payments and include them in request headers.
 
-> **Note:** The x402 payment gate is automatically bypassed for requests originating from `127.0.0.1`. Port 8000 is kernel-bound to loopback on the EC2 host, so only the enclave parent instance can use this path — external clients always connect via nitriding on port 443 and go through the full payment gate. Use `HOST=http://127.0.0.1:8000` with any `make test-*` target for payment-free operator testing from the EC2 host.
-
 ## Configuration
 
 | Variable | Default | Description |

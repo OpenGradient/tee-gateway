@@ -235,18 +235,8 @@ def create_app():
 # WSGI application + x402v2 payment middleware
 # ---------------------------------------------------------------------------
 
-# Debug payment bypass — only active when DEBUG_MODE=1 is explicitly set.
-# In production, DEBUG_MODE is never set, so DEBUG_BYPASS_KEY is never
-# read and the bypass layer is never installed, regardless of environment.
-_DEBUG_MODE = os.getenv("DEBUG_MODE", "").strip() == "1"
-_DEBUG_BYPASS_KEY = os.getenv("DEBUG_BYPASS_KEY", "") if _DEBUG_MODE else ""
-
 # Create the WSGI application
 application = create_app()
-
-# Save the raw Flask WSGI handler before payment_middleware wraps it.
-# We need this reference so the debug bypass can call Flask directly.
-_bare_wsgi = application.wsgi_app
 
 # This patch ensures that non-payment 0-length requests can still bypass the middleware
 _original_read_body_bytes = x402_flask._read_body_bytes
@@ -274,24 +264,6 @@ payment_middleware(
     session_cost_calculator=dynamic_session_cost_calculator,
 )
 logger.info("x402v2 payment middleware initialized")
-
-if _DEBUG_BYPASS_KEY:
-    # Slot a thin bypass layer between Flask and x402: requests with the
-    # correct X-Debug-Key header skip payment and go straight to Flask.
-    _x402_wsgi = application.wsgi_app
-
-    def _make_bypass_wsgi(bare, x402, key):
-        def _bypass(environ, start_response):
-            if environ.get("HTTP_X_DEBUG_KEY") == key:
-                return bare(environ, start_response)
-            return x402(environ, start_response)
-        return _bypass
-
-    application.wsgi_app = _make_bypass_wsgi(_bare_wsgi, _x402_wsgi, _DEBUG_BYPASS_KEY)
-    logger.warning(
-        "DEBUG_BYPASS_KEY is set — payment bypass enabled. "
-        "Ensure port 8000 is not publicly reachable."
-    )
 
 if __name__ == "__main__":
     port = int(os.getenv("API_SERVER_PORT", "8000"))

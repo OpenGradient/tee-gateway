@@ -33,7 +33,7 @@ all: run
 image: $(image_tar)
 
 $(image_tar): Dockerfile scripts/start.sh requirements.txt
-	find openapi_server -exec touch -t 202311150000 {} \;
+	find tee_gateway -exec touch -t 202311150000 {} \;
 	touch -t 202311150000 scripts/start.sh Dockerfile requirements.txt
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) docker run \
 		-v $(PWD):/workspace \
@@ -81,8 +81,9 @@ get-tls-cert:
 
 .PHONY: test-local
 test-local:
-	# Test locally without TEE (for development)
-	python3 -m openapi_server
+	# Run server locally without TEE (for development)
+	# API keys must be set via environment variables before running.
+	python3 -m tee_gateway
 
 test-completion:
 	curl -i -k -X POST $(HOST)/v1/completions \
@@ -382,7 +383,8 @@ help:
 	@echo "  GOOGLE_MODEL                     - Google model (default: gemini-2.5-flash-lite)"
 	@echo "  XAI_MODEL                        - xAI model (default: grok-3-mini-beta)"
 	@echo ""
-	@echo "Testing from the enclave host (loopback only, no payment required):"
+	@echo "Testing from the enclave host (loopback, bypasses TLS):"
 	@echo "  make test-chat HOST=http://127.0.0.1:8000"
 	@echo "  make test-chat-all-models HOST=http://127.0.0.1:8000"
-	@echo "  Note: port 8000 is bound to 127.0.0.1 only and not reachable from the internet."
+	@echo "  Note: port 8000 is bound to 127.0.0.1 only (not reachable from the internet)."
+	@echo "  x402 payment middleware still applies on port 8000."

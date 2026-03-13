@@ -1,7 +1,7 @@
 import datetime
 
 import typing
-from openapi_server import typing_utils
+from tee_gateway import typing_utils
 import logging
 import os
 import sys
@@ -155,13 +155,13 @@ def _deserialize_dict(data, boxed_type):
     return {k: _deserialize(v, boxed_type)
             for k, v in data.items() }
 
-from openapi_server.definitions import (  # noqa: E402
+from tee_gateway.definitions import (  # noqa: E402
     USDC_ADDRESS,
     BASE_OPG_ADDRESS,
     ASSET_DECIMALS_BY_ADDRESS,
     DEFAULT_ASSET_DECIMALS,
 )
-from openapi_server.model_registry import get_model_config  # noqa: E402
+from tee_gateway.model_registry import get_model_config  # noqa: E402
 TOKEN_A_PRICE_CACHE_TTL_SECONDS = 60
 
 _token_price_cache: dict[str, Any] = {

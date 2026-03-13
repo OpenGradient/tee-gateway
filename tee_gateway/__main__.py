@@ -14,9 +14,9 @@ import psutil
 
 import connexion
 from flask import jsonify, request
-from openapi_server import encoder
-from openapi_server.tee_manager import initialize_tee, get_tee_keys
-from openapi_server.llm_backend import reinitialize_http_clients
+from tee_gateway import encoder
+from tee_gateway.tee_manager import initialize_tee, get_tee_keys
+from tee_gateway.llm_backend import reinitialize_http_clients
 
 from x402v2.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
 from x402v2.http.middleware.flask import payment_middleware

@@ -48,7 +48,7 @@ export XAI_API_KEY=...
 
 # Run server (starts the Flask/connexion app on port 8000)
 make test-local
-# or: python3 -m openapi_server
+# or: python3 -m tee_gateway
 ```
 
 ### Test Endpoints
@@ -124,7 +124,7 @@ The `measurements.txt` checked into this repository reflects the OpenGradient-op
 
 ```json
 {
-  "model": "gpt-4o-mini",
+  "model": "gpt-4.1",
   "messages": [
     {"role": "system", "content": "You are helpful."},
     {"role": "user", "content": "Hello!"}
@@ -244,7 +244,7 @@ assert computed_hash == response["tee_request_hash"]
 ┌─────────────────────────────────────────────────────────────┐
 │                     Nitro Enclave                           │
 │  ┌─────────────────┐    ┌─────────────────────────────────┐ │
-│  │    nitriding    │    │       openapi_server/           │ │
+│  │    nitriding    │    │         tee_gateway/            │ │
 │  │    (TLS/443)    │───▶│    TEEKeyManager (RSA keys)     │ │
 │  │                 │    │    LangChain routing            │ │
 │  │  /enclave/*     │    │    Response signing             │ │
@@ -267,6 +267,19 @@ assert computed_hash == response["tee_request_hash"]
 4. Response signed with private key (includes request hash + timestamp)
 5. Clients verify attestation → get public key → verify signatures
 
+## Payment Model (x402)
+
+This gateway uses [x402v2](https://github.com/opengradient/x402) micropayments for access control. Clients pay per request using on-chain EVM transactions (USDC or OPG on supported networks).
+
+To operate your own gateway:
+1. Set `EVM_PAYMENT_ADDRESS` to your wallet address in `.env`
+2. Set `FACILITATOR_URL` to point to your facilitator service (or use the default)
+3. Configure payment amounts in `tee_gateway/definitions.py` (`CHAT_COMPLETIONS_USDC_AMOUNT`, etc.)
+
+Clients use an x402-compatible client (e.g., the [x402 SDK](https://github.com/opengradient/x402)) to authorize payments and include them in request headers.
+
+> **Note:** When running locally with `make test-local`, the x402 middleware is still active. Use the `HOST=http://127.0.0.1:8000` variants from the EC2 host to test — see `make help` for details.
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -278,7 +291,7 @@ assert computed_hash == response["tee_request_hash"]
 | `GOOGLE_API_KEY` | - | Google AI API key |
 | `XAI_API_KEY` | - | xAI API key |
 | `EVM_PAYMENT_ADDRESS` | - | Wallet address to receive x402 payments |
-| `FACILITATOR_URL` | see `__main__.py` | x402 payment facilitator endpoint |
+| `FACILITATOR_URL` | see `tee_gateway/__main__.py` | x402 payment facilitator endpoint |
 
 API keys can also be injected at runtime via `POST /v1/keys` (preferred for TEE deployments to avoid baking secrets into the image).
 

@@ -6,9 +6,9 @@ import logging
 import connexion
 from flask import Response
 
-from openapi_server.models.create_chat_completion_request import CreateChatCompletionRequest
-from openapi_server.models.create_chat_completion_response import CreateChatCompletionResponse
-from openapi_server.models import (
+from tee_gateway.models.create_chat_completion_request import CreateChatCompletionRequest
+from tee_gateway.models.create_chat_completion_response import CreateChatCompletionResponse
+from tee_gateway.models import (
     ChatCompletionRequestUserMessage,
     ChatCompletionRequestSystemMessage,
     ChatCompletionRequestAssistantMessage,
@@ -16,8 +16,8 @@ from openapi_server.models import (
     ChatCompletionRequestFunctionMessage,
 )
 
-from openapi_server.tee_manager import get_tee_keys, compute_tee_msg_hash
-from openapi_server.llm_backend import (
+from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
+from tee_gateway.llm_backend import (
     get_provider_from_model,
     get_chat_model_cached,
     convert_messages,

@@ -1,6 +1,6 @@
 from connexion.apps.flask_app import FlaskJSONEncoder
 
-from openapi_server.models.base_model import Model
+from tee_gateway.models.base_model import Model
 
 
 class JSONEncoder(FlaskJSONEncoder):

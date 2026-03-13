@@ -10,7 +10,7 @@ image_tag := $(prog):$(version)
 image_tar := $(prog)-$(version)-kaniko.tar
 image_eif := $(image_tar:%.tar=%.eif)
 
-SOURCE_DATE_EPOCH ?= 1700006400 
+SOURCE_DATE_EPOCH ?= 1700006400
 
 ARCH ?= $(shell uname -m)
 ifeq ($(ARCH),aarch64)
@@ -21,10 +21,28 @@ ifeq ($(ARCH),x86_64)
 endif
 
 # Test models for each provider
-OPENAI_MODEL ?= gpt-4o
+OPENAI_MODEL ?= gpt-4.1
 ANTHROPIC_MODEL ?= claude-3.7-sonnet
 GOOGLE_MODEL ?= gemini-2.5-flash-lite
 XAI_MODEL ?= grok-3-mini-beta
+
+# ---------------------------------------------------------------------------
+# Debug bypass for testing from the enclave host without x402 payment.
+#
+# Usage:
+#   1. Start the server with DEBUG_BYPASS_KEY set:
+#        DEBUG_BYPASS_KEY=mysecret make test-local
+#        or on a running enclave, set it before launching run-enclave.sh
+#
+#   2. Pass the same key to any make test target:
+#        make test-chat DEBUG_KEY=mysecret HOST=http://127.0.0.1:8000
+#        make test-chat-all-models DEBUG_KEY=mysecret HOST=http://127.0.0.1:8000
+#
+# When DEBUG_KEY is empty (the default) no bypass header is sent and the
+# normal x402 payment flow applies.
+# ---------------------------------------------------------------------------
+DEBUG_KEY ?=
+DEBUG_KEY_HEADER = $(if $(DEBUG_KEY),-H "X-Debug-Key: $(DEBUG_KEY)")
 
 .PHONY: all
 all: run
@@ -87,19 +105,21 @@ test-local:
 test-completion:
 	curl -i -k -X POST $(HOST)/v1/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d '{"model": "$(MODEL)", "prompt": $(PROMPT), "temperature": $(TEMPERATURE)}'
 
 test-chat:
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d '{"model": "$(MODEL)", "messages": [{"role": "user", "content": $(PROMPT)}], "temperature": $(TEMPERATURE)}'
 
 test-stream:
-	curl -i -X POST $(HOST)/v1/chat/completions/stream \
+	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-N \
-		--insecure \
-		-d '{"model": "$(MODEL)","messages": [{"role": "user","content": $(PROMPT)}],"temperature": $(TEMPERATURE),"max_tokens": $(MAX_TOKENS)}'
+		-d '{"model": "$(MODEL)","messages": [{"role": "user","content": $(PROMPT)}],"temperature": $(TEMPERATURE),"max_tokens": $(MAX_TOKENS),"stream": true}'
 
 # Test chat completions for all providers
 .PHONY: test-chat-all-models
@@ -112,6 +132,7 @@ test-chat-openai:
 	@echo "==========================================\n"
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d '{"model": "$(OPENAI_MODEL)", "messages": [{"role": "user", "content": $(PROMPT)}], "temperature": $(TEMPERATURE), "max_tokens": $(MAX_TOKENS)}'
 
 .PHONY: test-chat-anthropic
@@ -121,6 +142,7 @@ test-chat-anthropic:
 	@echo "==========================================\n"
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d '{"model": "$(ANTHROPIC_MODEL)", "messages": [{"role": "user", "content": $(PROMPT)}], "temperature": $(TEMPERATURE), "max_tokens": $(MAX_TOKENS)}'
 
 .PHONY: test-chat-google
@@ -130,6 +152,7 @@ test-chat-google:
 	@echo "==========================================\n"
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d '{"model": "$(GOOGLE_MODEL)", "messages": [{"role": "user", "content": $(PROMPT)}], "temperature": $(TEMPERATURE), "max_tokens": $(MAX_TOKENS)}'
 
 .PHONY: test-chat-xai
@@ -139,6 +162,7 @@ test-chat-xai:
 	@echo "==========================================\n"
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d '{"model": "$(XAI_MODEL)", "messages": [{"role": "user", "content": $(PROMPT)}], "temperature": $(TEMPERATURE), "max_tokens": $(MAX_TOKENS)}'
 
 # Test streaming for all providers
@@ -150,44 +174,44 @@ test-stream-openai:
 	@echo "\n=========================================="
 	@echo "Testing OpenAI Stream: $(OPENAI_MODEL)"
 	@echo "==========================================\n"
-	curl -i -X POST $(HOST)/v1/chat/completions/stream \
+	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-N \
-		--insecure \
-		-d '{"model": "$(OPENAI_MODEL)","messages": [{"role": "user","content": $(PROMPT)}],"temperature": $(TEMPERATURE),"max_tokens": $(MAX_TOKENS)}'
+		-d '{"model": "$(OPENAI_MODEL)","messages": [{"role": "user","content": $(PROMPT)}],"temperature": $(TEMPERATURE),"max_tokens": $(MAX_TOKENS),"stream": true}'
 
 .PHONY: test-stream-anthropic
 test-stream-anthropic:
 	@echo "\n=========================================="
 	@echo "Testing Anthropic Stream: $(ANTHROPIC_MODEL)"
 	@echo "==========================================\n"
-	curl -i -X POST $(HOST)/v1/chat/completions/stream \
+	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-N \
-		--insecure \
-		-d '{"model": "$(ANTHROPIC_MODEL)","messages": [{"role": "user","content": $(PROMPT)}],"temperature": $(TEMPERATURE),"max_tokens": $(MAX_TOKENS)}'
+		-d '{"model": "$(ANTHROPIC_MODEL)","messages": [{"role": "user","content": $(PROMPT)}],"temperature": $(TEMPERATURE),"max_tokens": $(MAX_TOKENS),"stream": true}'
 
 .PHONY: test-stream-google
 test-stream-google:
 	@echo "\n=========================================="
 	@echo "Testing Google Stream: $(GOOGLE_MODEL)"
 	@echo "==========================================\n"
-	curl -i -X POST $(HOST)/v1/chat/completions/stream \
+	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-N \
-		--insecure \
-		-d '{"model": "$(GOOGLE_MODEL)","messages": [{"role": "user","content": $(PROMPT)}],"temperature": $(TEMPERATURE),"max_tokens": $(MAX_TOKENS)}'
+		-d '{"model": "$(GOOGLE_MODEL)","messages": [{"role": "user","content": $(PROMPT)}],"temperature": $(TEMPERATURE),"max_tokens": $(MAX_TOKENS),"stream": true}'
 
 .PHONY: test-stream-xai
 test-stream-xai:
 	@echo "\n=========================================="
 	@echo "Testing xAI Stream: $(XAI_MODEL)"
 	@echo "==========================================\n"
-	curl -i -X POST $(HOST)/v1/chat/completions/stream \
+	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-N \
-		--insecure \
-		-d '{"model": "$(XAI_MODEL)","messages": [{"role": "user","content": $(PROMPT)}],"temperature": $(TEMPERATURE),"max_tokens": $(MAX_TOKENS)}'
+		-d '{"model": "$(XAI_MODEL)","messages": [{"role": "user","content": $(PROMPT)}],"temperature": $(TEMPERATURE),"max_tokens": $(MAX_TOKENS),"stream": true}'
 
 # Test completions for all providers (only OpenAI/xAI support this)
 .PHONY: test-completion-all-models
@@ -200,6 +224,7 @@ test-completion-openai:
 	@echo "==========================================\n"
 	curl -i -k -X POST $(HOST)/v1/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d '{"model": "$(OPENAI_MODEL)", "prompt": $(PROMPT), "temperature": $(TEMPERATURE), "max_tokens": $(MAX_TOKENS)}'
 
 .PHONY: test-completion-xai
@@ -209,6 +234,7 @@ test-completion-xai:
 	@echo "==========================================\n"
 	curl -i -k -X POST $(HOST)/v1/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d '{"model": "$(XAI_MODEL)", "prompt": $(PROMPT), "temperature": $(TEMPERATURE), "max_tokens": $(MAX_TOKENS)}'
 
 # Tool calling tests for all providers
@@ -223,6 +249,7 @@ test-tools-openai:
 	@echo '{"model":"$(OPENAI_MODEL)","messages":[{"role":"user","content":"What is the weather in San Francisco?"}],"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"get_weather","description":"Get current weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["location"]}}}]}' | \
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d @-
 
 .PHONY: test-tools-anthropic
@@ -233,6 +260,7 @@ test-tools-anthropic:
 	@echo '{"model":"$(ANTHROPIC_MODEL)","messages":[{"role":"user","content":"Calculate 15 times 23 plus 47"}],"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"calculator","description":"Perform basic arithmetic operations","parameters":{"type":"object","properties":{"operation":{"type":"string","enum":["add","subtract","multiply","divide"]},"a":{"type":"number"},"b":{"type":"number"}},"required":["operation","a","b"]}}}]}' | \
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d @-
 
 .PHONY: test-tools-google
@@ -243,6 +271,7 @@ test-tools-google:
 	@echo '{"model":"$(GOOGLE_MODEL)","messages":[{"role":"user","content":"Search for recent AI news"}],"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"web_search","description":"Search the web for information","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"num_results":{"type":"integer","description":"Number of results","default":5}},"required":["query"]}}}]}' | \
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d @-
 
 .PHONY: test-tools-xai
@@ -253,6 +282,7 @@ test-tools-xai:
 	@echo '{"model":"$(XAI_MODEL)","messages":[{"role":"user","content":"Send an email to john@example.com about the meeting tomorrow at 2pm"}],"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"send_email","description":"Send an email to a recipient","parameters":{"type":"object","properties":{"to":{"type":"string","description":"Recipient email"},"subject":{"type":"string","description":"Email subject"},"body":{"type":"string","description":"Email body"}},"required":["to","subject","body"]}}}]}' | \
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d @-
 
 # Multi-turn tool calling test (weather example)
@@ -265,13 +295,15 @@ test-tools-multiturn:
 	@echo '{"model":"$(GOOGLE_MODEL)","messages":[{"role":"user","content":"What is the weather in Tokyo?"}],"tools":[{"type":"function","function":{"name":"get_weather","description":"Get current weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["location"]}}}]}' | \
 	curl -s -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d @- > /tmp/tool_response.json
 	@echo "\n"
 	@cat /tmp/tool_response.json | python3 -m json.tool
 	@echo "\n\nStep 2: Sending tool result back..."
-	@python3 -c 'import json; resp = json.load(open("/tmp/tool_response.json")); tc = resp["message"]["tool_calls"][0]; req = {"model": "$(GOOGLE_MODEL)", "messages": [{"role": "user", "content": "What is the weather in Tokyo?"}, {"role": "assistant", "content": "", "tool_calls": [tc]}, {"role": "tool", "tool_call_id": tc["id"], "name": "get_weather", "content": "{\"temperature\": 18, \"condition\": \"cloudy\", \"humidity\": 75}"}], "tools": [{"type": "function", "function": {"name": "get_weather", "description": "Get current weather for a location", "parameters": {"type": "object", "properties": {"location": {"type": "string"}, "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]}}, "required": ["location"]}}}]}; print(json.dumps(req))' | \
+	@python3 -c 'import json; resp = json.load(open("/tmp/tool_response.json")); tc = resp["choices"][0]["message"]["tool_calls"][0]; req = {"model": "$(GOOGLE_MODEL)", "messages": [{"role": "user", "content": "What is the weather in Tokyo?"}, {"role": "assistant", "content": "", "tool_calls": [tc]}, {"role": "tool", "tool_call_id": tc["id"], "name": "get_weather", "content": "{\"temperature\": 18, \"condition\": \"cloudy\", \"humidity\": 75}"}], "tools": [{"type": "function", "function": {"name": "get_weather", "description": "Get current weather for a location", "parameters": {"type": "object", "properties": {"location": {"type": "string"}, "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]}}, "required": ["location"]}}}]}; print(json.dumps(req))' | \
 	curl -s -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d @- | python3 -m json.tool
 
 # Database query tool test (complex parameters)
@@ -283,6 +315,7 @@ test-tools-complex:
 	@echo '{"model":"$(ANTHROPIC_MODEL)","messages":[{"role":"user","content":"Find all users who signed up in the last 7 days from California"}],"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"query_database","description":"Query the user database with filters","parameters":{"type":"object","properties":{"table":{"type":"string","description":"Database table name"},"filters":{"type":"array","description":"Filter conditions","items":{"type":"object","properties":{"field":{"type":"string"},"operator":{"type":"string","enum":["equals","greater_than","less_than","contains"]},"value":{}},"required":["field","operator","value"]}},"limit":{"type":"integer","description":"Max results"}},"required":["table","filters"]}}}]}' | \
 	curl -i -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
+		$(DEBUG_KEY_HEADER) \
 		-d @-
 
 # Streaming tool calling tests for all providers
@@ -295,9 +328,9 @@ test-stream-tools-openai:
 	@echo "Testing OpenAI Streaming Tools: $(OPENAI_MODEL)"
 	@echo "==========================================\n"
 	@echo '{"model":"$(OPENAI_MODEL)","messages":[{"role":"user","content":"What is the weather in San Francisco and New York?"}],"stream":true,"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"get_weather","description":"Get current weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["location"]}}}]}' | \
-	curl -N -X POST $(HOST)/v1/chat/completions/stream \
+	curl -N -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
-		--insecure \
+		$(DEBUG_KEY_HEADER) \
 		-d @-
 
 .PHONY: test-stream-tools-anthropic
@@ -306,9 +339,9 @@ test-stream-tools-anthropic:
 	@echo "Testing Anthropic Streaming Tools: $(ANTHROPIC_MODEL)"
 	@echo "==========================================\n"
 	@echo '{"model":"$(ANTHROPIC_MODEL)","messages":[{"role":"user","content":"Calculate 15 times 23, then add 47 to the result"}],"stream":true,"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"calculator","description":"Perform basic arithmetic operations","parameters":{"type":"object","properties":{"operation":{"type":"string","enum":["add","subtract","multiply","divide"]},"a":{"type":"number"},"b":{"type":"number"}},"required":["operation","a","b"]}}}]}' | \
-	curl -N -X POST $(HOST)/v1/chat/completions/stream \
+	curl -N -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
-		--insecure \
+		$(DEBUG_KEY_HEADER) \
 		-d @-
 
 .PHONY: test-stream-tools-google
@@ -317,9 +350,9 @@ test-stream-tools-google:
 	@echo "Testing Google Streaming Tools: $(GOOGLE_MODEL)"
 	@echo "==========================================\n"
 	@echo '{"model":"$(GOOGLE_MODEL)","messages":[{"role":"user","content":"Search for AI news and get the weather in Tokyo"}],"stream":true,"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"web_search","description":"Search the web for information","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"num_results":{"type":"integer","description":"Number of results","default":5}},"required":["query"]}}},{"type":"function","function":{"name":"get_weather","description":"Get current weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["location"]}}}]}' | \
-	curl -N -X POST $(HOST)/v1/chat/completions/stream \
+	curl -N -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
-		--insecure \
+		$(DEBUG_KEY_HEADER) \
 		-d @-
 
 .PHONY: test-stream-tools-xai
@@ -328,9 +361,9 @@ test-stream-tools-xai:
 	@echo "Testing xAI Streaming Tools: $(XAI_MODEL)"
 	@echo "==========================================\n"
 	@echo '{"model":"$(XAI_MODEL)","messages":[{"role":"user","content":"Send emails to john@example.com and jane@example.com about tomorrows meeting at 2pm"}],"stream":true,"temperature":$(TEMPERATURE),"max_tokens":$(MAX_TOKENS),"tools":[{"type":"function","function":{"name":"send_email","description":"Send an email to a recipient","parameters":{"type":"object","properties":{"to":{"type":"string","description":"Recipient email"},"subject":{"type":"string","description":"Email subject"},"body":{"type":"string","description":"Email body"}},"required":["to","subject","body"]}}}]}' | \
-	curl -N -X POST $(HOST)/v1/chat/completions/stream \
+	curl -N -k -X POST $(HOST)/v1/chat/completions \
 		-H "Content-Type: application/json" \
-		--insecure \
+		$(DEBUG_KEY_HEADER) \
 		-d @-
 
 # Quick streaming tool test
@@ -369,6 +402,7 @@ test-tools-quick:
 help:
 	@echo "Available targets:"
 	@echo "  make run                         - Build and run enclave"
+	@echo "  make test-local                  - Run server locally without TEE (dev)"
 	@echo "  make test-chat                   - Test basic chat completion"
 	@echo "  make test-stream                 - Test streaming completion"
 	@echo "  make test-chat-all-models        - Test chat with all providers"
@@ -385,7 +419,14 @@ help:
 	@echo "Environment variables:"
 	@echo "  HOST                             - API endpoint (default: https://127.0.0.1:443)"
 	@echo "  MODEL                            - Model to use (default: gemini-2.5-flash-lite)"
-	@echo "  OPENAI_MODEL                     - OpenAI model (default: gpt-4o)"
+	@echo "  OPENAI_MODEL                     - OpenAI model (default: gpt-4.1)"
 	@echo "  ANTHROPIC_MODEL                  - Anthropic model (default: claude-3.7-sonnet)"
 	@echo "  GOOGLE_MODEL                     - Google model (default: gemini-2.5-flash-lite)"
 	@echo "  XAI_MODEL                        - xAI model (default: grok-3-mini-beta)"
+	@echo ""
+	@echo "Testing from the enclave host (bypass x402 payment):"
+	@echo "  1. Launch the enclave with DEBUG_BYPASS_KEY set:"
+	@echo "       DEBUG_BYPASS_KEY=mysecret make run"
+	@echo "  2. Run any test target with the matching key and direct host:"
+	@echo "       make test-chat-all-models HOST=http://127.0.0.1:8000 DEBUG_KEY=mysecret"
+	@echo "  Note: port 8000 is loopback-only and not reachable from the internet."

@@ -714,7 +714,7 @@ paths:
               },
               "system_fingerprint": null
             }
-      x-openapi-router-controller: openapi_server.controllers.chat_controller
+      x-openapi-router-controller: tee_gateway.controllers.chat_controller
       x-codegen-request-body-name: body
   /completions:
     post:
@@ -860,7 +860,7 @@ paths:
               "model": "gpt-3.5-turbo-instruct"
               "system_fingerprint": "fp_44709d6fcb",
             }
-      x-openapi-router-controller: openapi_server.controllers.completions_controller
+      x-openapi-router-controller: tee_gateway.controllers.completions_controller
       x-codegen-request-body-name: body
 components:
   schemas:
@@ -19018,7 +19018,7 @@ components:
     ApiKeyAuth:
       scheme: bearer
       type: http
-      x-bearerInfoFunc: openapi_server.controllers.security_controller.info_from_ApiKeyAuth
+      x-bearerInfoFunc: tee_gateway.controllers.security_controller.info_from_ApiKeyAuth
 x-oaiMeta:
   navigationGroups:
   - id: endpoints

@@ -1,5 +1,5 @@
-from openapi_server.models.base_model import Model
-from openapi_server import util  # noqa: F401
+from tee_gateway.models.base_model import Model
+from tee_gateway import util  # noqa: F401
 
 
 class _ToolCallFunction:

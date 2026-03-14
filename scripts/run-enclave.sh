@@ -29,7 +29,7 @@ if [ ! -S /tmp/network.sock ]; then
 fi
 
 # Ensure that socket file has correct permissions
-sudo chmod 777 /tmp/network.sock
+sudo chmod 660 /tmp/network.sock
 
 # Add port forwarding through gvproxy to nitriding
 echo "[ec2] Adding port forwarding to nitriding"
@@ -40,12 +40,12 @@ sudo curl \
   -X POST \
   -d '{"local":":443","remote":"192.168.127.2:443"}'
 
-echo "[ec2] Forwarding port 8000"
+echo "[ec2] Forwarding port 8000 (loopback only — used for key injection from this host)"
 sudo curl \
   --unix-socket /tmp/network.sock \
   http:/unix/services/forwarder/expose \
   -X POST \
-  -d '{"local":":8000","remote":"192.168.127.2:8000"}'
+  -d '{"local":"127.0.0.1:8000","remote":"192.168.127.2:8000"}'
 
 # Print out ports forwarding through gproxy
 echo "[ec2] Forwarded ports:"

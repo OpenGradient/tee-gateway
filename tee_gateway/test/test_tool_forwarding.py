@@ -2,12 +2,12 @@ import unittest
 from unittest.mock import patch, MagicMock, Mock
 import json
 
-from openapi_server.controllers.chat_controller import (
+from tee_gateway.controllers.chat_controller import (
     parse_chat_request,
     parse_message,
     create_chat_completion,
 )
-from openapi_server.models import (
+from tee_gateway.models import (
     ChatCompletionRequestUserMessage,
     ChatCompletionRequestSystemMessage,
     ChatCompletionRequestAssistantMessage,
@@ -66,8 +66,8 @@ class TestToolForwarding(unittest.TestCase):
         self.assertEqual(len(result.tools), 1)
         self.assertEqual(result.tool_choice, "auto")
 
-    @patch('openapi_server.controllers.chat_controller.http_session')
-    @patch('openapi_server.controllers.chat_controller.connexion')
+    @patch('tee_gateway.controllers.chat_controller.http_session')
+    @patch('tee_gateway.controllers.chat_controller.connexion')
     def test_tools_forwarded_to_backend(self, mock_connexion, mock_http_session):
         """Test that tools are forwarded to HTTP backend"""
         # Setup mock request
@@ -129,8 +129,8 @@ class TestToolForwarding(unittest.TestCase):
         self.assertIn('choices', result)
         self.assertEqual(len(result['choices']), 1)
 
-    @patch('openapi_server.controllers.chat_controller.http_session')
-    @patch('openapi_server.controllers.chat_controller.connexion')
+    @patch('tee_gateway.controllers.chat_controller.http_session')
+    @patch('tee_gateway.controllers.chat_controller.connexion')
     def test_tool_calls_extracted_from_response(self, mock_connexion, mock_http_session):
         """Test that tool_calls are extracted from HTTP response"""
         # Setup mock request
@@ -185,8 +185,8 @@ class TestToolForwarding(unittest.TestCase):
         self.assertEqual(message["tool_calls"][0]["function"]["name"], "get_weather")
         self.assertEqual(message["tool_calls"][0]["function"]["arguments"], '{"location": "San Francisco"}')
 
-    @patch('openapi_server.controllers.chat_controller.http_session')
-    @patch('openapi_server.controllers.chat_controller.connexion')
+    @patch('tee_gateway.controllers.chat_controller.http_session')
+    @patch('tee_gateway.controllers.chat_controller.connexion')
     def test_tool_message_forwarded_to_backend(self, mock_connexion, mock_http_session):
         """Test that tool messages in the conversation are forwarded to HTTP backend"""
         # Setup mock request with tool message
@@ -269,8 +269,8 @@ class TestToolForwarding(unittest.TestCase):
         self.assertIn('choices', result)
         self.assertEqual(result['choices'][0]['finish_reason'], "stop")
 
-    @patch('openapi_server.controllers.chat_controller.http_session')
-    @patch('openapi_server.controllers.chat_controller.connexion')
+    @patch('tee_gateway.controllers.chat_controller.http_session')
+    @patch('tee_gateway.controllers.chat_controller.connexion')
     def test_payment_header_forwarded(self, mock_connexion, mock_http_session):
         """Test that X-PAYMENT header is forwarded to backend"""
         # Setup mock request with payment header
@@ -311,8 +311,8 @@ class TestToolForwarding(unittest.TestCase):
         self.assertIn('X-PAYMENT', call_kwargs['headers'])
         self.assertEqual(call_kwargs['headers']['X-PAYMENT'], "payment_token_123")
 
-    @patch('openapi_server.controllers.chat_controller.http_session')
-    @patch('openapi_server.controllers.chat_controller.connexion')
+    @patch('tee_gateway.controllers.chat_controller.http_session')
+    @patch('tee_gateway.controllers.chat_controller.connexion')
     def test_tee_metadata_preserved(self, mock_connexion, mock_http_session):
         """Test that TEE metadata is preserved in response"""
         # Setup mock request
@@ -361,8 +361,8 @@ class TestToolForwarding(unittest.TestCase):
         self.assertIn('tee_timestamp', result)
         self.assertEqual(result['tee_timestamp'], "2025-01-26T12:00:00Z")
 
-    @patch('openapi_server.controllers.chat_controller.http_session')
-    @patch('openapi_server.controllers.chat_controller.connexion')
+    @patch('tee_gateway.controllers.chat_controller.http_session')
+    @patch('tee_gateway.controllers.chat_controller.connexion')
     def test_http_error_handling(self, mock_connexion, mock_http_session):
         """Test that HTTP errors are handled properly"""
         # Setup mock request

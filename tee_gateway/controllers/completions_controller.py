@@ -6,11 +6,11 @@ import logging
 import connexion
 from langchain_core.messages import HumanMessage
 
-from openapi_server.models.create_completion_request import CreateCompletionRequest
-from openapi_server.models.create_completion_response import CreateCompletionResponse
+from tee_gateway.models.create_completion_request import CreateCompletionRequest
+from tee_gateway.models.create_completion_response import CreateCompletionResponse
 
-from openapi_server.tee_manager import get_tee_keys, compute_tee_msg_hash
-from openapi_server.llm_backend import get_chat_model_cached, extract_usage
+from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
+from tee_gateway.llm_backend import get_chat_model_cached, extract_usage
 
 logger = logging.getLogger(__name__)
 
@@ -74,4 +74,4 @@ def create_completion(body):
 
     except Exception as e:
         logger.error(f"Completion error: {str(e)}", exc_info=True)
-        return {"error": "Request processing failed", "details": str(e)}, 500
+        return {"error": "Request processing failed"}, 500

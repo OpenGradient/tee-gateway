@@ -12,5 +12,5 @@ sleep 1
 # and nitriding readiness signaling all happen inside this process.
 echo "[sh] Starting OpenAI-compatible API server on port 8000..."
 cd /app
-python3 -m openapi_server
+python3 -m tee_gateway
 echo "[sh] API server exited."

@@ -12,29 +12,25 @@ the heartbeat loop starts.
 Signed message:  keccak256(abi.encodePacked(teeId, timestamp))
 TEE ID:          keccak256(publicKeyDER)
 
-The TEE wallet private key is still generated inside the enclave and never
-leaves it. It is retained for identity continuity but is no longer required
-to pay gas for heartbeat transactions.
-
 Enabled via environment variables:
-    HEARTBEAT_CONTRACT_ADDRESS — TEERegistry contract address
-    HEARTBEAT_FACILITATOR_URL  — Facilitator base URL (must expose POST /heartbeat)
-    TEE_HEARTBEAT_INTERVAL     — Seconds between pings (default 900 = 15 min)
+    HEARTBEAT_CONTRACT_ADDRESS    — TEERegistry contract address
+    HEARTBEAT_FACILITATOR_URL     — Facilitator base URL (must expose POST /heartbeat)
+    TEE_HEARTBEAT_INTERVAL        — Seconds between pings (default 900 = 15 min)
     HEARTBEAT_FACILITATOR_TIMEOUT — HTTP timeout seconds (default 20)
 
-Also requires the TEEKeyManager (tee_keys) from server.py for RSA signing.
+Also requires the TEEKeyManager (tee_keys) for RSA signing.
 """
 
 import os
 import logging
-import asyncio
 import base64
 import time
+import threading
 from typing import Optional
 
 from eth_hash.auto import keccak
 from cryptography.hazmat.primitives import serialization
-import requests
+import httpx
 
 logger = logging.getLogger("heartbeat")
 
@@ -45,7 +41,7 @@ RETRY_DELAY = 10  # seconds
 
 
 class HeartbeatService:
-    """Sends TEE-signed heartbeats to the TEERegistry contract."""
+    """Sends TEE-signed heartbeats to the TEERegistry contract via a daemon thread."""
 
     def __init__(
         self,
@@ -56,7 +52,6 @@ class HeartbeatService:
         facilitator_timeout: int = DEFAULT_FACILITATOR_TIMEOUT,
     ):
         self.interval = interval
-        self._task: Optional[asyncio.Task] = None
         self.tee_keys = tee_keys
         self.facilitator_timeout = facilitator_timeout
 
@@ -79,9 +74,11 @@ class HeartbeatService:
         self.total_errors: int = 0
         self.last_tx_hash: Optional[str] = None
         self._running: bool = False
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
 
     def _sign_heartbeat(self, timestamp: int) -> bytes:
-        """Sign keccak256(teeId ‖ timestamp) with the TEE's RSA key.
+        """Sign keccak256(teeId || timestamp) with the TEE's RSA key.
 
         Returns raw signature bytes (not base64).
         Uses the same RSA-PSS-SHA256 path as tee_keys.sign_data().
@@ -98,12 +95,10 @@ class HeartbeatService:
             "signature": base64.b64encode(signature).decode("ascii"),
             "contractAddress": self.contract_address,
         }
-        headers = {"Content-Type": "application/json"}
 
-        response = requests.post(
+        response = httpx.post(
             self.heartbeat_endpoint,
             json=payload,
-            headers=headers,
             timeout=self.facilitator_timeout,
         )
 
@@ -131,15 +126,13 @@ class HeartbeatService:
 
         return tx_hash
 
-    async def _send_heartbeat(self) -> bool:
+    def _send_heartbeat(self) -> bool:
         """Sign and relay heartbeat transaction via facilitator. Returns True on success."""
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 timestamp = int(time.time())
                 signature = self._sign_heartbeat(timestamp)
-                tx_hash = await asyncio.to_thread(
-                    self._relay_heartbeat, timestamp, signature
-                )
+                tx_hash = self._relay_heartbeat(timestamp, signature)
 
                 self.last_success = time.time()
                 self.total_sent += 1
@@ -157,13 +150,14 @@ class HeartbeatService:
                     "Heartbeat attempt %d/%d failed: %s", attempt, MAX_RETRIES, e
                 )
                 if attempt < MAX_RETRIES:
-                    await asyncio.sleep(RETRY_DELAY)
+                    if self._stop_event.wait(timeout=RETRY_DELAY):
+                        return False
 
         logger.error("Heartbeat failed after %d attempts", MAX_RETRIES)
         return False
 
-    async def _run_loop(self):
-        """Main heartbeat loop. Runs until cancelled."""
+    def _run_loop(self):
+        """Main heartbeat loop. Runs until stop event is set."""
         logger.info(
             "Heartbeat started (teeId=%s registry=%s interval=%ds teeWallet=%s relay=%s)",
             self.tee_id.hex(),
@@ -174,29 +168,29 @@ class HeartbeatService:
         )
         self._running = True
         try:
-            while True:
-                await self._send_heartbeat()
-                await asyncio.sleep(self.interval)
-        except asyncio.CancelledError:
-            logger.info("Heartbeat loop cancelled")
+            while not self._stop_event.is_set():
+                self._send_heartbeat()
+                self._stop_event.wait(timeout=self.interval)
         except Exception as e:
             logger.error("Heartbeat loop crashed: %s", e, exc_info=True)
         finally:
             self._running = False
+            logger.info("Heartbeat loop stopped")
 
-    def start(self) -> asyncio.Task:
-        """Start the heartbeat background task."""
-        self._task = asyncio.create_task(self._run_loop())
-        return self._task
+    def start(self):
+        """Start the heartbeat background thread."""
+        if self._thread and self._thread.is_alive():
+            logger.warning("Heartbeat already running, skipping duplicate start")
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread.start()
 
-    async def stop(self):
-        """Cancel the background task and wait for clean shutdown."""
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
+    def stop(self):
+        """Signal the background thread to stop and wait for it."""
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=10)
         self._running = False
         logger.info("Heartbeat service stopped")
 
@@ -237,7 +231,6 @@ def create_heartbeat_service(tee_keys) -> Optional["HeartbeatService"]:
         )
         return None
 
-    # Parse interval only after confirming heartbeat is enabled
     try:
         interval = int(
             os.getenv("TEE_HEARTBEAT_INTERVAL", str(DEFAULT_HEARTBEAT_INTERVAL))

@@ -10,7 +10,6 @@ import json
 import gc
 import time
 import threading
-import asyncio
 import atexit
 import psutil
 
@@ -55,59 +54,31 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Heartbeat background service (asyncio loop in a daemon thread)
+# Heartbeat background service
 # ---------------------------------------------------------------------------
 _heartbeat_service = None
-_heartbeat_loop = None
-
-
-def _start_heartbeat_loop(loop: asyncio.AbstractEventLoop):
-    """Run an asyncio event loop in a background thread."""
-    asyncio.set_event_loop(loop)
-    loop.run_forever()
-
-
-def _heartbeat_startup_done(future):
-    """Callback for the heartbeat startup Future"""
-    exc = future.exception()
-    if exc is not None:
-        logger.error("Heartbeat startup failed: %s", exc, exc_info=exc)
 
 
 def _init_heartbeat():
     """Create and start the heartbeat service if env vars are configured."""
-    global _heartbeat_service, _heartbeat_loop
+    global _heartbeat_service
+
+    if _heartbeat_service is not None:
+        logger.info("Heartbeat already initialized, skipping")
+        return
 
     tee_keys = get_tee_keys()
     _heartbeat_service = create_heartbeat_service(tee_keys)
     if _heartbeat_service is None:
         return
 
-    _heartbeat_loop = asyncio.new_event_loop()
-    t = threading.Thread(target=_start_heartbeat_loop, args=(_heartbeat_loop,), daemon=True)
-    t.start()
-
-    future = asyncio.run_coroutine_threadsafe(_async_start_heartbeat(), _heartbeat_loop)
-    future.add_done_callback(_heartbeat_startup_done)
-    logger.info("Heartbeat service scheduled on background event loop")
-
-
-async def _async_start_heartbeat():
-    """Start the heartbeat task inside the background event loop."""
     _heartbeat_service.start()
 
 
 def _shutdown_heartbeat():
-    """Stop the heartbeat service and background loop on process exit."""
-    global _heartbeat_service, _heartbeat_loop
-    if _heartbeat_service and _heartbeat_loop and _heartbeat_loop.is_running():
-        future = asyncio.run_coroutine_threadsafe(_heartbeat_service.stop(), _heartbeat_loop)
-        try:
-            future.result(timeout=10)
-        except Exception:
-            pass
-        _heartbeat_loop.call_soon_threadsafe(_heartbeat_loop.stop)
-    logger.info("Heartbeat shutdown complete")
+    """Stop the heartbeat service on process exit."""
+    if _heartbeat_service is not None:
+        _heartbeat_service.stop()
 
 
 atexit.register(_shutdown_heartbeat)
@@ -206,10 +177,6 @@ def set_provider_keys():
             os.environ["XAI_API_KEY"] = body['xai_api_key']
 
         # Inject heartbeat configuration into the environment
-        # Note: wallet private key is generated inside the TEE (by TEEKeyManager),
-        # so only RPC URL and contract address need to be injected externally.
-        if body.get('heartbeat_rpc_url'):
-            os.environ["HEARTBEAT_RPC_URL"] = body['heartbeat_rpc_url']
         if body.get('heartbeat_contract_address'):
             os.environ["HEARTBEAT_CONTRACT_ADDRESS"] = body['heartbeat_contract_address']
         if body.get('heartbeat_facilitator_url'):
@@ -225,7 +192,6 @@ def set_provider_keys():
         logger.info("  GOOGLE_API_KEY              : %s", _key_status("GOOGLE_API_KEY"))
         logger.info("  ANTHROPIC_API_KEY           : %s", _key_status("ANTHROPIC_API_KEY"))
         logger.info("  XAI_API_KEY                 : %s", _key_status("XAI_API_KEY"))
-        logger.info("  HEARTBEAT_RPC_URL           : %s", _key_status("HEARTBEAT_RPC_URL"))
         logger.info("  HEARTBEAT_CONTRACT_ADDRESS  : %s", _key_status("HEARTBEAT_CONTRACT_ADDRESS"))
         logger.info("  HEARTBEAT_FACILITATOR_URL   : %s", _key_status("HEARTBEAT_FACILITATOR_URL"))
         logger.info("  TEE_HEARTBEAT_INTERVAL      : %s", os.environ.get("TEE_HEARTBEAT_INTERVAL", "900 (default)"))

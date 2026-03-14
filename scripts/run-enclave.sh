@@ -91,7 +91,6 @@ if [ -f "$ENV_FILE" ]; then
         XAI_API_KEY="$(grep -E '^XAI_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
 
         # Heartbeat configuration (optional — wallet key is generated inside the TEE)
-        HEARTBEAT_RPC_URL="$(grep -E '^HEARTBEAT_RPC_URL=' "$ENV_FILE" | cut -d'=' -f2-)"
         HEARTBEAT_CONTRACT_ADDRESS="$(grep -E '^HEARTBEAT_CONTRACT_ADDRESS=' "$ENV_FILE" | cut -d'=' -f2-)"
         HEARTBEAT_FACILITATOR_URL="$(grep -E '^HEARTBEAT_FACILITATOR_URL=' "$ENV_FILE" | cut -d'=' -f2-)"
         TEE_HEARTBEAT_INTERVAL="$(grep -E '^TEE_HEARTBEAT_INTERVAL=' "$ENV_FILE" | cut -d'=' -f2-)"
@@ -103,7 +102,6 @@ if [ -f "$ENV_FILE" ]; then
             --arg google "$GOOGLE_API_KEY" \
             --arg anthropic "$ANTHROPIC_API_KEY" \
             --arg xai "$XAI_API_KEY" \
-            --arg hb_rpc "$HEARTBEAT_RPC_URL" \
             --arg hb_contract "$HEARTBEAT_CONTRACT_ADDRESS" \
             --arg hb_facilitator "$HEARTBEAT_FACILITATOR_URL" \
             --arg hb_interval "$TEE_HEARTBEAT_INTERVAL" \
@@ -113,7 +111,6 @@ if [ -f "$ENV_FILE" ]; then
                 anthropic_api_key: $anthropic,
                 xai_api_key: $xai
             }
-            + if $hb_rpc != "" then {heartbeat_rpc_url: $hb_rpc} else {} end
             + if $hb_contract != "" then {heartbeat_contract_address: $hb_contract} else {} end
             + if $hb_facilitator != "" then {heartbeat_facilitator_url: $hb_facilitator} else {} end
             + if $hb_interval != "" then {tee_heartbeat_interval: $hb_interval} else {} end
@@ -139,7 +136,7 @@ if [ -f "$ENV_FILE" ]; then
 
         # Clear key variables from this shell immediately after use
         unset OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY XAI_API_KEY
-        unset HEARTBEAT_RPC_URL HEARTBEAT_CONTRACT_ADDRESS HEARTBEAT_FACILITATOR_URL TEE_HEARTBEAT_INTERVAL
+        unset HEARTBEAT_CONTRACT_ADDRESS HEARTBEAT_FACILITATOR_URL TEE_HEARTBEAT_INTERVAL
     fi
 else
     echo "[ec2] No .env file found at $ENV_FILE"

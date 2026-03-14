@@ -37,7 +37,6 @@ class TEEKeyManager:
         self.public_key = None
         self.public_key_pem = None
         self.tee_id = None
-        self.wallet_private_key = None
         self.wallet_address = None
         self._generate_keys()
         if register:
@@ -73,7 +72,6 @@ class TEEKeyManager:
         # the attestation trust boundary and never leaves the enclave.
         wallet_key_bytes = secrets.token_bytes(32)
         wallet_account = Account.from_key(wallet_key_bytes)
-        self.wallet_private_key = wallet_account.key.hex()
         self.wallet_address = wallet_account.address
 
         logger.info("TEE key pair generated successfully")
@@ -148,10 +146,6 @@ class TEEKeyManager:
     def get_tee_id(self) -> str:
         """Return the tee_id: keccak256(abi.encodePacked(public_key_der))."""
         return self.tee_id
-
-    def get_wallet_private_key(self) -> str:
-        """Return the TEE-generated Ethereum wallet private key (hex, 0x-prefixed)."""
-        return self.wallet_private_key
 
     def get_wallet_address(self) -> str:
         """Return the TEE-generated Ethereum wallet address (checksum)."""

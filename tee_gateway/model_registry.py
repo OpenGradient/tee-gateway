@@ -13,10 +13,10 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class ModelConfig:
-    provider: str               # "openai" | "anthropic" | "google" | "x-ai"
-    api_name: str               # model name sent to provider API
-    input_price_usd: Decimal    # USD per token
-    output_price_usd: Decimal   # USD per token
+    provider: str  # "openai" | "anthropic" | "google" | "x-ai"
+    api_name: str  # model name sent to provider API
+    input_price_usd: Decimal  # USD per token
+    output_price_usd: Decimal  # USD per token
     force_temperature: Optional[float] = None
     thinking_budget: Optional[int] = None
 
@@ -190,39 +190,39 @@ class SupportedModel(Enum):
 # The "user-facing name" is what callers pass in the `model` field of requests.
 _MODEL_LOOKUP: dict[str, SupportedModel] = {
     # OpenAI
-    "gpt-4.1-2025-04-14":              SupportedModel.GPT_4_1,
-    "gpt-4.1":                          SupportedModel.GPT_4_1,
-    "o4-mini":                          SupportedModel.O4_MINI,
-    "gpt-5":                            SupportedModel.GPT_5,
-    "gpt-5-mini":                       SupportedModel.GPT_5_MINI,
-    "gpt-5.2":                          SupportedModel.GPT_5_2,
+    "gpt-4.1-2025-04-14": SupportedModel.GPT_4_1,
+    "gpt-4.1": SupportedModel.GPT_4_1,
+    "o4-mini": SupportedModel.O4_MINI,
+    "gpt-5": SupportedModel.GPT_5,
+    "gpt-5-mini": SupportedModel.GPT_5_MINI,
+    "gpt-5.2": SupportedModel.GPT_5_2,
     # Anthropic
-    "claude-sonnet-4-5":                SupportedModel.CLAUDE_SONNET_4_5,
-    "claude-sonnet-4-6":                SupportedModel.CLAUDE_SONNET_4_6,
-    "claude-haiku-4-5":                 SupportedModel.CLAUDE_HAIKU_4_5,
-    "claude-opus-4-5":                  SupportedModel.CLAUDE_OPUS_4_5,
-    "claude-opus-4-6":                  SupportedModel.CLAUDE_OPUS_4_6,
-    "claude-3.7-sonnet":                SupportedModel.CLAUDE_3_7_SONNET,
-    "claude-3.5-haiku":                 SupportedModel.CLAUDE_3_5_HAIKU,
-    "claude-4.0-sonnet":                SupportedModel.CLAUDE_4_0_SONNET,
+    "claude-sonnet-4-5": SupportedModel.CLAUDE_SONNET_4_5,
+    "claude-sonnet-4-6": SupportedModel.CLAUDE_SONNET_4_6,
+    "claude-haiku-4-5": SupportedModel.CLAUDE_HAIKU_4_5,
+    "claude-opus-4-5": SupportedModel.CLAUDE_OPUS_4_5,
+    "claude-opus-4-6": SupportedModel.CLAUDE_OPUS_4_6,
+    "claude-3.7-sonnet": SupportedModel.CLAUDE_3_7_SONNET,
+    "claude-3.5-haiku": SupportedModel.CLAUDE_3_5_HAIKU,
+    "claude-4.0-sonnet": SupportedModel.CLAUDE_4_0_SONNET,
     # Google
-    "gemini-2.5-flash":                 SupportedModel.GEMINI_2_5_FLASH,
-    "gemini-2.5-pro":                   SupportedModel.GEMINI_2_5_PRO,
-    "gemini-2.5-flash-lite":            SupportedModel.GEMINI_2_5_FLASH_LITE,
-    "gemini-3-pro-preview":             SupportedModel.GEMINI_3_PRO_PREVIEW,
-    "gemini-3-flash-preview":           SupportedModel.GEMINI_3_FLASH_PREVIEW,
+    "gemini-2.5-flash": SupportedModel.GEMINI_2_5_FLASH,
+    "gemini-2.5-pro": SupportedModel.GEMINI_2_5_PRO,
+    "gemini-2.5-flash-lite": SupportedModel.GEMINI_2_5_FLASH_LITE,
+    "gemini-3-pro-preview": SupportedModel.GEMINI_3_PRO_PREVIEW,
+    "gemini-3-flash-preview": SupportedModel.GEMINI_3_FLASH_PREVIEW,
     # xAI
-    "grok-4":                           SupportedModel.GROK_4,
-    "grok-4-fast":                      SupportedModel.GROK_4_FAST,
-    "grok-4-1-fast":                    SupportedModel.GROK_4_1_FAST,
-    "grok-4.1-fast":                    SupportedModel.GROK_4_1_FAST,
-    "grok-4-1-fast-non-reasoning":      SupportedModel.GROK_4_1_FAST_NON_REASONING,
-    "grok-3-mini-beta":                 SupportedModel.GROK_3_MINI,
-    "grok-3-mini":                      SupportedModel.GROK_3_MINI,
-    "grok-3-beta":                      SupportedModel.GROK_3,
-    "grok-3":                           SupportedModel.GROK_3,
-    "grok-2-1212":                      SupportedModel.GROK_2,
-    "grok-2":                           SupportedModel.GROK_2,
+    "grok-4": SupportedModel.GROK_4,
+    "grok-4-fast": SupportedModel.GROK_4_FAST,
+    "grok-4-1-fast": SupportedModel.GROK_4_1_FAST,
+    "grok-4.1-fast": SupportedModel.GROK_4_1_FAST,
+    "grok-4-1-fast-non-reasoning": SupportedModel.GROK_4_1_FAST_NON_REASONING,
+    "grok-3-mini-beta": SupportedModel.GROK_3_MINI,
+    "grok-3-mini": SupportedModel.GROK_3_MINI,
+    "grok-3-beta": SupportedModel.GROK_3,
+    "grok-3": SupportedModel.GROK_3,
+    "grok-2-1212": SupportedModel.GROK_2,
+    "grok-2": SupportedModel.GROK_2,
 }
 
 # Build the rate card automatically from the enum (for backward compat with util.py)

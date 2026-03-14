@@ -224,7 +224,7 @@ def create_heartbeat_service(tee_keys) -> Optional["HeartbeatService"]:
         "FACILITATOR_URL"
     )
 
-    if not all([contract_address, facilitator_url]):
+    if not contract_address or not facilitator_url:
         logger.info(
             "Heartbeat disabled (set HEARTBEAT_CONTRACT_ADDRESS and "
             "HEARTBEAT_FACILITATOR_URL or FACILITATOR_URL to enable)"

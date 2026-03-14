@@ -25,18 +25,22 @@ def create_completion(body):
         request_dict = {
             "model": body.model,
             "prompt": body.prompt,
-            "temperature": float(body.temperature) if body.temperature is not None else 0.0,
+            "temperature": float(body.temperature)
+            if body.temperature is not None
+            else 0.0,
         }
         if body.max_tokens is not None:
             request_dict["max_tokens"] = body.max_tokens
         if body.stop:
             request_dict["stop"] = body.stop
 
-        request_bytes = json.dumps(request_dict, sort_keys=True).encode('utf-8')
+        request_bytes = json.dumps(request_dict, sort_keys=True).encode("utf-8")
 
         model = get_chat_model_cached(
             model=body.model,
-            temperature=float(body.temperature) if body.temperature is not None else 0.0,
+            temperature=float(body.temperature)
+            if body.temperature is not None
+            else 0.0,
             max_tokens=body.max_tokens or 4096,
         )
 
@@ -58,11 +62,13 @@ def create_completion(body):
             "object": "text_completion",
             "created": timestamp,
             "model": body.model,
-            "choices": [{
-                "text": response_content,
-                "index": 0,
-                "finish_reason": "stop",
-            }],
+            "choices": [
+                {
+                    "text": response_content,
+                    "index": 0,
+                    "finish_reason": "stop",
+                }
+            ],
             "usage": usage,
             "tee_signature": signature,
             "tee_request_hash": input_hash_hex,

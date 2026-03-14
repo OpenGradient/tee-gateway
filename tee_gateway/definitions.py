@@ -48,7 +48,7 @@ BASE_OPG_ADDRESS: str = "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
 
 # Maps lowercase contract address → number of decimals for unit conversion.
 ASSET_DECIMALS_BY_ADDRESS: dict[str, int] = {
-    USDC_ADDRESS.lower(): 6,    # USDC / OUSDC standard: 6 decimals
+    USDC_ADDRESS.lower(): 6,  # USDC / OUSDC standard: 6 decimals
     BASE_OPG_ADDRESS.lower(): 18,  # OPG: 18 decimals (ERC-20 standard)
 }
 

@@ -106,7 +106,11 @@ routes = {
                 price=AssetAmount(
                     amount=CHAT_COMPLETIONS_USDC_AMOUNT,
                     asset=USDC_ADDRESS,
-                    extra={"name": "OUSDC", "version": "2", "assetTransferMethod": "permit2"},
+                    extra={
+                        "name": "OUSDC",
+                        "version": "2",
+                        "assetTransferMethod": "permit2",
+                    },
                 ),
                 network=EVM_NETWORK,
             ),
@@ -116,7 +120,11 @@ routes = {
                 price=AssetAmount(
                     amount=CHAT_COMPLETIONS_OPG_AMOUNT,
                     asset=BASE_OPG_ADDRESS,
-                    extra={"name": "OPG", "version": "2", "assetTransferMethod": "permit2"},
+                    extra={
+                        "name": "OPG",
+                        "version": "2",
+                        "assetTransferMethod": "permit2",
+                    },
                 ),
                 network=BASE_TESTNET_NETWORK,
             ),
@@ -159,29 +167,33 @@ def set_provider_keys():
 
     with _keys_lock:
         if _keys_initialized:
-            return jsonify({"error": "Provider keys have already been initialized"}), 409
+            return jsonify(
+                {"error": "Provider keys have already been initialized"}
+            ), 409
 
         body = request.get_json(silent=True)
         if not body:
             return jsonify({"error": "JSON body required"}), 400
 
         # Inject LLM provider keys into the environment
-        if body.get('openai_api_key'):
-            os.environ["OPENAI_API_KEY"] = body['openai_api_key']
-        if body.get('google_api_key'):
-            os.environ["GOOGLE_API_KEY"] = body['google_api_key']
-        if body.get('anthropic_api_key'):
-            os.environ["ANTHROPIC_API_KEY"] = body['anthropic_api_key']
-        if body.get('xai_api_key'):
-            os.environ["XAI_API_KEY"] = body['xai_api_key']
+        if body.get("openai_api_key"):
+            os.environ["OPENAI_API_KEY"] = body["openai_api_key"]
+        if body.get("google_api_key"):
+            os.environ["GOOGLE_API_KEY"] = body["google_api_key"]
+        if body.get("anthropic_api_key"):
+            os.environ["ANTHROPIC_API_KEY"] = body["anthropic_api_key"]
+        if body.get("xai_api_key"):
+            os.environ["XAI_API_KEY"] = body["xai_api_key"]
 
         # Inject heartbeat configuration into the environment
-        if body.get('heartbeat_contract_address'):
-            os.environ["HEARTBEAT_CONTRACT_ADDRESS"] = body['heartbeat_contract_address']
-        if body.get('heartbeat_facilitator_url'):
-            os.environ["HEARTBEAT_FACILITATOR_URL"] = body['heartbeat_facilitator_url']
-        if body.get('tee_heartbeat_interval'):
-            os.environ["TEE_HEARTBEAT_INTERVAL"] = str(body['tee_heartbeat_interval'])
+        if body.get("heartbeat_contract_address"):
+            os.environ["HEARTBEAT_CONTRACT_ADDRESS"] = body[
+                "heartbeat_contract_address"
+            ]
+        if body.get("heartbeat_facilitator_url"):
+            os.environ["HEARTBEAT_FACILITATOR_URL"] = body["heartbeat_facilitator_url"]
+        if body.get("tee_heartbeat_interval"):
+            os.environ["TEE_HEARTBEAT_INTERVAL"] = str(body["tee_heartbeat_interval"])
 
         def _key_status(env_var: str) -> str:
             return "set" if os.environ.get(env_var) else "NOT SET"
@@ -189,12 +201,25 @@ def set_provider_keys():
         logger.info("ENV check after injection:")
         logger.info("  OPENAI_API_KEY              : %s", _key_status("OPENAI_API_KEY"))
         logger.info("  GOOGLE_API_KEY              : %s", _key_status("GOOGLE_API_KEY"))
-        logger.info("  ANTHROPIC_API_KEY           : %s", _key_status("ANTHROPIC_API_KEY"))
+        logger.info(
+            "  ANTHROPIC_API_KEY           : %s", _key_status("ANTHROPIC_API_KEY")
+        )
         logger.info("  XAI_API_KEY                 : %s", _key_status("XAI_API_KEY"))
-        logger.info("  HEARTBEAT_CONTRACT_ADDRESS  : %s", _key_status("HEARTBEAT_CONTRACT_ADDRESS"))
-        logger.info("  HEARTBEAT_FACILITATOR_URL   : %s", _key_status("HEARTBEAT_FACILITATOR_URL"))
-        logger.info("  TEE_HEARTBEAT_INTERVAL      : %s", os.environ.get("TEE_HEARTBEAT_INTERVAL", "900 (default)"))
-        logger.info("  HEARTBEAT_WALLET (TEE-gen)  : %s", get_tee_keys().get_wallet_address())
+        logger.info(
+            "  HEARTBEAT_CONTRACT_ADDRESS  : %s",
+            _key_status("HEARTBEAT_CONTRACT_ADDRESS"),
+        )
+        logger.info(
+            "  HEARTBEAT_FACILITATOR_URL   : %s",
+            _key_status("HEARTBEAT_FACILITATOR_URL"),
+        )
+        logger.info(
+            "  TEE_HEARTBEAT_INTERVAL      : %s",
+            os.environ.get("TEE_HEARTBEAT_INTERVAL", "900 (default)"),
+        )
+        logger.info(
+            "  HEARTBEAT_WALLET (TEE-gen)  : %s", get_tee_keys().get_wallet_address()
+        )
 
         # Rebuild HTTP clients with the new Authorization headers and clear
         # the model cache so subsequent requests use fresh instances.
@@ -209,23 +234,30 @@ def set_provider_keys():
         _keys_initialized = True
 
     providers_set = [
-        p for p, k in {
-            "openai": body.get('openai_api_key'),
-            "google": body.get('google_api_key'),
-            "anthropic": body.get('anthropic_api_key'),
-            "xai": body.get('xai_api_key'),
-        }.items() if k
+        p
+        for p, k in {
+            "openai": body.get("openai_api_key"),
+            "google": body.get("google_api_key"),
+            "anthropic": body.get("anthropic_api_key"),
+            "xai": body.get("xai_api_key"),
+        }.items()
+        if k
     ]
-    heartbeat_configured = all([
-        os.environ.get("HEARTBEAT_CONTRACT_ADDRESS"),
-        os.environ.get("HEARTBEAT_FACILITATOR_URL") or os.environ.get("FACILITATOR_URL"),
-    ])
+    heartbeat_configured = all(
+        [
+            os.environ.get("HEARTBEAT_CONTRACT_ADDRESS"),
+            os.environ.get("HEARTBEAT_FACILITATOR_URL")
+            or os.environ.get("FACILITATOR_URL"),
+        ]
+    )
     logger.info("Provider API keys initialized for: %s", ", ".join(providers_set))
-    return jsonify({
-        "status": "ok",
-        "providers_initialized": providers_set,
-        "heartbeat_enabled": heartbeat_configured,
-    }), 200
+    return jsonify(
+        {
+            "status": "ok",
+            "providers_initialized": providers_set,
+            "heartbeat_enabled": heartbeat_configured,
+        }
+    ), 200
 
 
 def health():
@@ -279,14 +311,16 @@ def heartbeat_status():
 def create_app():
     app = connexion.App(__name__, specification_dir="./openapi/")
     app.app.json_encoder = encoder.JSONEncoder
-    app.add_api("openapi.yaml",
-                arguments={"title": "OpenAI API"},
-                pythonic_params=True)
+    app.add_api("openapi.yaml", arguments={"title": "OpenAI API"}, pythonic_params=True)
 
     app.app.add_url_rule("/health", "health", health, methods=["GET"])
     app.app.add_url_rule("/signing-key", "signing-key", signing_key, methods=["GET"])
-    app.app.add_url_rule("/v1/keys", "set-provider-keys", set_provider_keys, methods=["POST"])
-    app.app.add_url_rule("/heartbeat/status", "heartbeat-status", heartbeat_status, methods=["GET"])
+    app.app.add_url_rule(
+        "/v1/keys", "set-provider-keys", set_provider_keys, methods=["POST"]
+    )
+    app.app.add_url_rule(
+        "/heartbeat/status", "heartbeat-status", heartbeat_status, methods=["GET"]
+    )
 
     # Initialize TEE here so it runs under both Gunicorn and direct execution.
     # This is the single TEEKeyManager instance — the same key both registers
@@ -296,7 +330,6 @@ def create_app():
         logger.info("TEE initialized successfully")
     except Exception as e:
         logger.warning(f"TEE initialization failed (may not be in enclave): {e}")
-
 
     return app.app
 
@@ -311,6 +344,7 @@ application = create_app()
 # This patch ensures that non-payment 0-length requests can still bypass the middleware
 _original_read_body_bytes = x402_flask._read_body_bytes
 
+
 def _patched_read_body_bytes(environ):
     try:
         content_length = int(environ.get("CONTENT_LENGTH") or 0)
@@ -321,6 +355,7 @@ def _patched_read_body_bytes(environ):
         return b""
 
     return _original_read_body_bytes(environ)
+
 
 x402_flask._read_body_bytes = _patched_read_body_bytes
 

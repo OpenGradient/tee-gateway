@@ -44,16 +44,14 @@ class TEEKeyManager:
         """Generate RSA key pair and derive the tee_id."""
         logger.info("Generating TEE RSA key pair...")
         self.private_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=2048,
-            backend=default_backend()
+            public_exponent=65537, key_size=2048, backend=default_backend()
         )
         self.public_key = self.private_key.public_key()
 
         self.public_key_pem = self.public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ).decode('utf-8')
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).decode("utf-8")
 
         # tee_id = keccak256(abi.encodePacked(signingKey))
         # signingKey is the DER-encoded public key (canonical binary form, no
@@ -62,7 +60,7 @@ class TEEKeyManager:
         # the body, and keccak256-hash the resulting bytes.
         public_key_der = self.public_key.public_bytes(
             encoding=serialization.Encoding.DER,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
         self.tee_id = keccak(public_key_der).hex()
 
@@ -81,11 +79,11 @@ class TEEKeyManager:
         try:
             public_key_der = self.public_key.public_bytes(
                 encoding=serialization.Encoding.DER,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
 
             key_hash = hashlib.sha256(public_key_der).digest()
-            key_hash_b64 = base64.b64encode(key_hash).decode('utf-8')
+            key_hash_b64 = base64.b64encode(key_hash).decode("utf-8")
 
             logger.info(f"Public key DER length: {len(public_key_der)} bytes")
             logger.info(f"Public key SHA256 hash (hex): {key_hash.hex()}")
@@ -93,28 +91,30 @@ class TEEKeyManager:
 
             url = f"{NITRIDING_BASE_URL}/enclave/hash"
             req = urllib.request.Request(
-                url,
-                data=key_hash_b64.encode('utf-8'),
-                method='POST'
+                url, data=key_hash_b64.encode("utf-8"), method="POST"
             )
 
             response = urllib.request.urlopen(req, timeout=5)
-            response_body = response.read().decode('utf-8')
+            response_body = response.read().decode("utf-8")
 
             if response.getcode() == 200:
                 logger.info("Successfully registered public key hash with nitriding")
                 logger.info(f"Response: {response_body}")
                 return True
             else:
-                logger.error(f"Failed to register public key hash: HTTP {response.getcode()}")
+                logger.error(
+                    f"Failed to register public key hash: HTTP {response.getcode()}"
+                )
                 return False
 
         except urllib.error.HTTPError as e:
-            error_body = e.read().decode('utf-8') if e.fp else "No error body"
+            error_body = e.read().decode("utf-8") if e.fp else "No error body"
             logger.error(f"HTTP Error {e.code}: {e.reason} - {error_body}")
             return False
         except Exception as e:
-            logger.warning(f"Could not register with nitriding (may not be in TEE): {e}")
+            logger.warning(
+                f"Could not register with nitriding (may not be in TEE): {e}"
+            )
             return False
 
     def sign_data(self, data: bytes) -> str:
@@ -131,11 +131,11 @@ class TEEKeyManager:
             data,
             padding.PSS(
                 mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=hashes.SHA256().digest_size  # 32 bytes
+                salt_length=hashes.SHA256().digest_size,  # 32 bytes
             ),
-            hashes.SHA256()
+            hashes.SHA256(),
         )
-        return base64.b64encode(signature).decode('utf-8')
+        return base64.b64encode(signature).decode("utf-8")
 
     def get_public_key(self) -> str:
         """Return public key in PEM format."""
@@ -159,9 +159,9 @@ class TEEKeyManager:
             "enclave_info": {
                 "platform": "aws-nitro",
                 "instance_type": "tee-enabled",
-                "version": "1.0.0"
+                "version": "1.0.0",
             },
-            "measurements": None  # Would contain PCR values in real deployment
+            "measurements": None,  # Would contain PCR values in real deployment
         }
 
 
@@ -189,10 +189,10 @@ def compute_tee_msg_hash(
 
     Returns (msg_hash_bytes, input_hash_hex, output_hash_hex).
     """
-    input_hash  = keccak(request_bytes)
-    output_hash = keccak(response_content.encode('utf-8'))
-    msg_hash    = keccak(input_hash + output_hash + timestamp.to_bytes(32, 'big'))
-    logger.debug(f"Compute TEE Message Hash:\n\tInput hash: {input_hash.hex()} \n\tOutput hash: {output_hash.hex()}\n\tmsg_hash: {msg_hash}\n\ttimestamp: {timestamp} hashed timestamp:{timestamp.to_bytes(32, 'big')}")
+    input_hash = keccak(request_bytes)
+    output_hash = keccak(response_content.encode("utf-8"))
+    msg_hash = keccak(input_hash + output_hash + timestamp.to_bytes(32, "big"))
+
     return msg_hash, input_hash.hex(), output_hash.hex()
 
 

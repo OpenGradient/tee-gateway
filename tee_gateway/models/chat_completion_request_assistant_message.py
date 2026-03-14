@@ -16,26 +16,34 @@ class _ToolCall:
 
 
 class ChatCompletionRequestAssistantMessage(Model):
-
-    def __init__(self, content=None, refusal=None, role=None, name=None, audio=None, tool_calls=None, function_call=None):  # noqa: E501
+    def __init__(
+        self,
+        content=None,
+        refusal=None,
+        role=None,
+        name=None,
+        audio=None,
+        tool_calls=None,
+        function_call=None,
+    ):  # noqa: E501
         self.openapi_types = {
-            'content': object,
-            'refusal': str,
-            'role': str,
-            'name': str,
-            'audio': object,
-            'tool_calls': object,
-            'function_call': object,
+            "content": object,
+            "refusal": str,
+            "role": str,
+            "name": str,
+            "audio": object,
+            "tool_calls": object,
+            "function_call": object,
         }
 
         self.attribute_map = {
-            'content': 'content',
-            'refusal': 'refusal',
-            'role': 'role',
-            'name': 'name',
-            'audio': 'audio',
-            'tool_calls': 'tool_calls',
-            'function_call': 'function_call',
+            "content": "content",
+            "refusal": "refusal",
+            "role": "role",
+            "name": "name",
+            "audio": "audio",
+            "tool_calls": "tool_calls",
+            "function_call": "function_call",
         }
 
         self._content = content
@@ -47,29 +55,31 @@ class ChatCompletionRequestAssistantMessage(Model):
         self._function_call = function_call
 
     @classmethod
-    def from_dict(cls, dikt) -> 'ChatCompletionRequestAssistantMessage':
-        raw_tool_calls = dikt.get('tool_calls')
+    def from_dict(cls, dikt) -> "ChatCompletionRequestAssistantMessage":
+        raw_tool_calls = dikt.get("tool_calls")
         tool_calls = None
         if raw_tool_calls:
             tool_calls = []
             for tc in raw_tool_calls:
-                func_raw = tc.get('function', {}) if isinstance(tc, dict) else {}
-                tool_calls.append(_ToolCall(
-                    id=tc.get('id') if isinstance(tc, dict) else None,
-                    type=tc.get('type') if isinstance(tc, dict) else None,
-                    function=_ToolCallFunction(
-                        name=func_raw.get('name'),
-                        arguments=func_raw.get('arguments'),
-                    ),
-                ))
+                func_raw = tc.get("function", {}) if isinstance(tc, dict) else {}
+                tool_calls.append(
+                    _ToolCall(
+                        id=tc.get("id") if isinstance(tc, dict) else None,
+                        type=tc.get("type") if isinstance(tc, dict) else None,
+                        function=_ToolCallFunction(
+                            name=func_raw.get("name"),
+                            arguments=func_raw.get("arguments"),
+                        ),
+                    )
+                )
         return cls(
-            content=dikt.get('content'),
-            refusal=dikt.get('refusal'),
-            role=dikt.get('role'),
-            name=dikt.get('name'),
-            audio=dikt.get('audio'),
+            content=dikt.get("content"),
+            refusal=dikt.get("refusal"),
+            role=dikt.get("role"),
+            name=dikt.get("name"),
+            audio=dikt.get("audio"),
             tool_calls=tool_calls,
-            function_call=dikt.get('function_call'),
+            function_call=dikt.get("function_call"),
         )
 
     @property
@@ -97,8 +107,9 @@ class ChatCompletionRequestAssistantMessage(Model):
         allowed_values = ["assistant"]  # noqa: E501
         if role not in allowed_values:
             raise ValueError(
-                "Invalid value for `role` ({0}), must be one of {1}"
-                .format(role, allowed_values)
+                "Invalid value for `role` ({0}), must be one of {1}".format(
+                    role, allowed_values
+                )
             )
         self._role = role
 

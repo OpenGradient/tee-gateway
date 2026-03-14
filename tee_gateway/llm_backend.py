@@ -118,7 +118,9 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
     cfg = get_model_config(model)
     provider = cfg.provider
     api_name = cfg.api_name
-    effective_temp = cfg.force_temperature if cfg.force_temperature is not None else temperature
+    effective_temp = (
+        cfg.force_temperature if cfg.force_temperature is not None else temperature
+    )
 
     logger.info(f"Creating cached chat model - Provider: {provider}, Model: {api_name}")
 
@@ -192,17 +194,17 @@ def convert_messages(messages: list) -> List[Any]:
     for msg in messages:
         # Support both OpenAPI model objects and plain dicts
         if isinstance(msg, dict):
-            role = msg.get('role', '').lower()
-            content = msg.get('content', '') or ''
-            tool_calls = msg.get('tool_calls')
-            tool_call_id = msg.get('tool_call_id')
-            name = msg.get('name')
+            role = msg.get("role", "").lower()
+            content = msg.get("content", "") or ""
+            tool_calls = msg.get("tool_calls")
+            tool_call_id = msg.get("tool_call_id")
+            name = msg.get("name")
         else:
-            role = getattr(msg, 'role', '').lower()
-            content = getattr(msg, 'content', '') or ''
-            tool_calls = getattr(msg, 'tool_calls', None)
-            tool_call_id = getattr(msg, 'tool_call_id', None)
-            name = getattr(msg, 'name', None)
+            role = getattr(msg, "role", "").lower()
+            content = getattr(msg, "content", "") or ""
+            tool_calls = getattr(msg, "tool_calls", None)
+            tool_call_id = getattr(msg, "tool_call_id", None)
+            name = getattr(msg, "name", None)
 
         if role == "system":
             langchain_messages.append(SystemMessage(content=content))
@@ -210,8 +212,8 @@ def convert_messages(messages: list) -> List[Any]:
         elif role == "user":
             # content may be a string or a list of content parts; handle both
             if isinstance(content, list):
-                content = ''.join(
-                    part.get('text', '') if isinstance(part, dict) else str(part)
+                content = "".join(
+                    part.get("text", "") if isinstance(part, dict) else str(part)
                     for part in content
                 )
             langchain_messages.append(HumanMessage(content=content))
@@ -221,15 +223,15 @@ def convert_messages(messages: list) -> List[Any]:
                 langchain_tool_calls = []
                 for tc in tool_calls:
                     if isinstance(tc, dict):
-                        func = tc.get('function', {})
-                        args = func.get('arguments', '{}')
-                        tc_id = tc.get('id', '')
-                        func_name = func.get('name', '')
+                        func = tc.get("function", {})
+                        args = func.get("arguments", "{}")
+                        tc_id = tc.get("id", "")
+                        func_name = func.get("name", "")
                     else:
-                        func = getattr(tc, 'function', None)
-                        args = func.arguments if func else '{}'
-                        tc_id = getattr(tc, 'id', '')
-                        func_name = func.name if func else ''
+                        func = getattr(tc, "function", None)
+                        args = func.arguments if func else "{}"
+                        tc_id = getattr(tc, "id", "")
+                        func_name = func.name if func else ""
 
                     if isinstance(args, str):
                         try:
@@ -237,41 +239,49 @@ def convert_messages(messages: list) -> List[Any]:
                         except json.JSONDecodeError:
                             args = {}
 
-                    langchain_tool_calls.append({
-                        "name": func_name,
-                        "args": args,
-                        "id": tc_id,
-                        "type": "function",
-                    })
+                    langchain_tool_calls.append(
+                        {
+                            "name": func_name,
+                            "args": args,
+                            "id": tc_id,
+                            "type": "function",
+                        }
+                    )
 
-                langchain_messages.append(AIMessage(
-                    content=content,
-                    tool_calls=langchain_tool_calls,
-                ))
+                langchain_messages.append(
+                    AIMessage(
+                        content=content,
+                        tool_calls=langchain_tool_calls,
+                    )
+                )
             else:
                 langchain_messages.append(AIMessage(content=content))
 
         elif role == "tool":
-            langchain_messages.append(ToolMessage(
-                content=content,
-                tool_call_id=tool_call_id or "",
-                name=name or "",
-            ))
+            langchain_messages.append(
+                ToolMessage(
+                    content=content,
+                    tool_call_id=tool_call_id or "",
+                    name=name or "",
+                )
+            )
 
         elif role == "function":
             # Legacy function role: treat as tool message
-            langchain_messages.append(ToolMessage(
-                content=content,
-                tool_call_id="",
-                name=name or "",
-            ))
+            langchain_messages.append(
+                ToolMessage(
+                    content=content,
+                    tool_call_id="",
+                    name=name or "",
+                )
+            )
 
     return langchain_messages
 
 
 def extract_usage(response) -> Optional[Dict[str, int]]:
     """Extract token usage from a LangChain response object."""
-    if hasattr(response, 'usage_metadata') and response.usage_metadata:
+    if hasattr(response, "usage_metadata") and response.usage_metadata:
         meta = response.usage_metadata
         return {
             "prompt_tokens": meta.get("input_tokens", 0),

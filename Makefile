@@ -86,6 +86,10 @@ test-local:
 	#   export OPENAI_API_KEY=...  ANTHROPIC_API_KEY=...  etc.
 	python3 -m tee_gateway
 
+.PHONY: mypy
+mypy:
+	python3 -m mypy tee_gateway
+
 .PHONY: help
 help:
 	@echo "Available targets:"
@@ -99,6 +103,7 @@ help:
 	@echo "  make get-tls-cert   - Print the nitriding TLS certificate"
 	@echo ""
 	@echo "  make test-local     - Run server locally without TEE (development)"
+	@echo "  make mypy           - Run mypy type checker on tee_gateway"
 	@echo ""
 	@echo "  LLM endpoints (/v1/chat/completions, /v1/completions) require x402"
 	@echo "  payment headers. Use an x402-compatible client to call them."

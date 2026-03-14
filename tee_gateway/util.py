@@ -73,10 +73,11 @@ def deserialize_date(string):
     :rtype: date
     """
     if string is None:
-      return None
-    
+        return None
+
     try:
         from dateutil.parser import parse
+
         return parse(string).date()
     except ImportError:
         return string
@@ -93,10 +94,11 @@ def deserialize_datetime(string):
     :rtype: datetime
     """
     if string is None:
-      return None
-    
+        return None
+
     try:
         from dateutil.parser import parse
+
         return parse(string)
     except ImportError:
         return string
@@ -116,9 +118,11 @@ def deserialize_model(data, klass):
         return data
 
     for attr, attr_type in instance.openapi_types.items():
-        if data is not None \
-                and instance.attribute_map[attr] in data \
-                and isinstance(data, (list, dict)):
+        if (
+            data is not None
+            and instance.attribute_map[attr] in data
+            and isinstance(data, (list, dict))
+        ):
             value = data[instance.attribute_map[attr]]
             setattr(instance, attr, _deserialize(value, attr_type))
 
@@ -135,8 +139,7 @@ def _deserialize_list(data, boxed_type):
     :return: deserialized list.
     :rtype: list
     """
-    return [_deserialize(sub_data, boxed_type)
-            for sub_data in data]
+    return [_deserialize(sub_data, boxed_type) for sub_data in data]
 
 
 def _deserialize_dict(data, boxed_type):
@@ -149,14 +152,15 @@ def _deserialize_dict(data, boxed_type):
     :return: deserialized dict.
     :rtype: dict
     """
-    return {k: _deserialize(v, boxed_type)
-            for k, v in data.items() }
+    return {k: _deserialize(v, boxed_type) for k, v in data.items()}
+
 
 from tee_gateway.definitions import (  # noqa: E402
     ASSET_DECIMALS_BY_ADDRESS,
     DEFAULT_ASSET_DECIMALS,
 )
 from tee_gateway.model_registry import get_model_config  # noqa: E402
+
 TOKEN_A_PRICE_CACHE_TTL_SECONDS = 60
 
 _token_price_cache: dict[str, Any] = {
@@ -183,7 +187,10 @@ def get_token_a_price_usd() -> Decimal:
     with _token_price_lock:
         cached_value = _token_price_cache.get("value")
         cached_at = float(_token_price_cache.get("updated_at") or 0.0)
-        if isinstance(cached_value, Decimal) and (now - cached_at) < TOKEN_A_PRICE_CACHE_TTL_SECONDS:
+        if (
+            isinstance(cached_value, Decimal)
+            and (now - cached_at) < TOKEN_A_PRICE_CACHE_TTL_SECONDS
+        ):
             return cached_value
 
         value = _fetch_token_a_price_usd_mock()
@@ -229,7 +236,9 @@ def _normalize_model_name(model: str | None) -> str | None:
     return str(model).strip().lower()
 
 
-def _extract_usage_tokens(response_json: dict[str, Any] | None) -> tuple[int, int] | None:
+def _extract_usage_tokens(
+    response_json: dict[str, Any] | None,
+) -> tuple[int, int] | None:
     if not isinstance(response_json, dict):
         return None
     usage = response_json.get("usage")
@@ -277,7 +286,9 @@ def dynamic_session_cost_calculator(context: dict[str, Any]) -> int:
     response_json = context.get("response_json")
 
     if not isinstance(request_json, dict) or not isinstance(response_json, dict):
-        raise ValueError("dynamic_session_cost_calculator requires both request_json and response_json")
+        raise ValueError(
+            "dynamic_session_cost_calculator requires both request_json and response_json"
+        )
 
     model = _extract_model_from_context(request_json, response_json)
     if not model:
@@ -296,15 +307,21 @@ def dynamic_session_cost_calculator(context: dict[str, Any]) -> int:
     input_rate = cfg.input_price_usd
     output_rate = cfg.output_price_usd
 
-    total_usd = (Decimal(input_tokens) * input_rate) + (Decimal(output_tokens) * output_rate)
+    total_usd = (Decimal(input_tokens) * input_rate) + (
+        Decimal(output_tokens) * output_rate
+    )
     token_price_usd = get_token_a_price_usd()
     if token_price_usd <= 0:
         raise ValueError(f"Token A price is non-positive: {token_price_usd}")
 
     token_amount = total_usd / token_price_usd
-    decimals = _extract_asset_decimals_from_requirements(context.get("payment_requirements"))
+    decimals = _extract_asset_decimals_from_requirements(
+        context.get("payment_requirements")
+    )
     scale = Decimal(10) ** decimals
-    cost_smallest_units = int((token_amount * scale).to_integral_value(rounding=ROUND_CEILING))
+    cost_smallest_units = int(
+        (token_amount * scale).to_integral_value(rounding=ROUND_CEILING)
+    )
 
     logger.info(
         "DYNAMIC_SESSION_COST model=%s input_tokens=%d output_tokens=%d total_usd=%s token_price_usd=%s decimals=%d cost=%d",

@@ -1,14 +1,39 @@
 class CreateChatCompletionRequest:
     """Minimal data holder for chat completion requests."""
 
-    def __init__(self, messages=None, model=None, store=False, reasoning_effort='medium',
-                 metadata=None, frequency_penalty=0, logit_bias=None, logprobs=False,
-                 top_logprobs=None, max_tokens=None, max_completion_tokens=None, n=1,
-                 modalities=None, prediction=None, audio=None, presence_penalty=0,
-                 response_format=None, seed=None, service_tier='auto', stop=None,
-                 stream=False, stream_options=None, temperature=1, top_p=1,
-                 tools=None, tool_choice=None, parallel_tool_calls=True,
-                 user=None, function_call=None, functions=None):
+    def __init__(
+        self,
+        messages=None,
+        model=None,
+        store=False,
+        reasoning_effort="medium",
+        metadata=None,
+        frequency_penalty=0,
+        logit_bias=None,
+        logprobs=False,
+        top_logprobs=None,
+        max_tokens=None,
+        max_completion_tokens=None,
+        n=1,
+        modalities=None,
+        prediction=None,
+        audio=None,
+        presence_penalty=0,
+        response_format=None,
+        seed=None,
+        service_tier="auto",
+        stop=None,
+        stream=False,
+        stream_options=None,
+        temperature=1,
+        top_p=1,
+        tools=None,
+        tool_choice=None,
+        parallel_tool_calls=True,
+        user=None,
+        function_call=None,
+        functions=None,
+    ):
         self.messages = messages
         self.model = model
         self.store = store
@@ -41,15 +66,39 @@ class CreateChatCompletionRequest:
         self.functions = functions
 
     @classmethod
-    def from_dict(cls, dikt) -> 'CreateChatCompletionRequest':
+    def from_dict(cls, dikt) -> "CreateChatCompletionRequest":
         if not isinstance(dikt, dict):
             return dikt
         known = {
-            'messages', 'model', 'store', 'reasoning_effort', 'metadata',
-            'frequency_penalty', 'logit_bias', 'logprobs', 'top_logprobs',
-            'max_tokens', 'max_completion_tokens', 'n', 'modalities', 'prediction',
-            'audio', 'presence_penalty', 'response_format', 'seed', 'service_tier',
-            'stop', 'stream', 'stream_options', 'temperature', 'top_p', 'tools',
-            'tool_choice', 'parallel_tool_calls', 'user', 'function_call', 'functions',
+            "messages",
+            "model",
+            "store",
+            "reasoning_effort",
+            "metadata",
+            "frequency_penalty",
+            "logit_bias",
+            "logprobs",
+            "top_logprobs",
+            "max_tokens",
+            "max_completion_tokens",
+            "n",
+            "modalities",
+            "prediction",
+            "audio",
+            "presence_penalty",
+            "response_format",
+            "seed",
+            "service_tier",
+            "stop",
+            "stream",
+            "stream_options",
+            "temperature",
+            "top_p",
+            "tools",
+            "tool_choice",
+            "parallel_tool_calls",
+            "user",
+            "function_call",
+            "functions",
         }
         return cls(**{k: v for k, v in dikt.items() if k in known})

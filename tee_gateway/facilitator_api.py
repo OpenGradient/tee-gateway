@@ -1,6 +1,8 @@
 """Pydantic models from TEE routing API to be used for facilitator."""
+
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
+
 
 class Message(BaseModel):
     role: str
@@ -56,6 +58,7 @@ class ChatResponse(BaseModel):
 
 class AttestationResponse(BaseModel):
     """TEE attestation document"""
+
     public_key: str
     timestamp: str
     enclave_info: Dict[str, Any]

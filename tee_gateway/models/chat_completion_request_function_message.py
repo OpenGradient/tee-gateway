@@ -22,24 +22,16 @@ class ChatCompletionRequestFunctionMessage(Model):
         :param name: The name of this ChatCompletionRequestFunctionMessage.  # noqa: E501
         :type name: str
         """
-        self.openapi_types = {
-            'role': str,
-            'content': str,
-            'name': str
-        }
+        self.openapi_types = {"role": str, "content": str, "name": str}
 
-        self.attribute_map = {
-            'role': 'role',
-            'content': 'content',
-            'name': 'name'
-        }
+        self.attribute_map = {"role": "role", "content": "content", "name": "name"}
 
         self._role = role
         self._content = content
         self._name = name
 
     @classmethod
-    def from_dict(cls, dikt) -> 'ChatCompletionRequestFunctionMessage':
+    def from_dict(cls, dikt) -> "ChatCompletionRequestFunctionMessage":
         """Returns the dict as a model
 
         :param dikt: A dict.
@@ -72,8 +64,9 @@ class ChatCompletionRequestFunctionMessage(Model):
         allowed_values = ["function"]  # noqa: E501
         if role not in allowed_values:
             raise ValueError(
-                "Invalid value for `role` ({0}), must be one of {1}"
-                .format(role, allowed_values)
+                "Invalid value for `role` ({0}), must be one of {1}".format(
+                    role, allowed_values
+                )
             )
 
         self._role = role

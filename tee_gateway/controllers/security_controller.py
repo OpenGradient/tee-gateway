@@ -1,5 +1,3 @@
-
-
 def info_from_ApiKeyAuth(token):
     """
     OpenAPI security handler for ApiKeyAuth — intentional passthrough.
@@ -15,4 +13,4 @@ def info_from_ApiKeyAuth(token):
     :return: Minimal token_info dict required by connexion
     :rtype: dict
     """
-    return {'uid': 'user_id'}
+    return {"uid": "user_id"}

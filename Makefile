@@ -51,6 +51,10 @@ run: $(image_eif)
 clean:
 	rm -f $(image_tar) $(image_eif)
 
+.PHONY: test-heartbeat-status
+test-heartbeat-status:
+	curl -i -k $(HOST)/heartbeat/status
+
 # ---------------------------------------------------------------------------
 # Enclave health / attestation checks (no payment required)
 # ---------------------------------------------------------------------------

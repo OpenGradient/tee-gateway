@@ -10,6 +10,7 @@ import json
 import gc
 import time
 import threading
+import atexit
 import psutil
 
 import connexion
@@ -17,6 +18,7 @@ from flask import jsonify, request
 from tee_gateway import encoder
 from tee_gateway.tee_manager import initialize_tee, get_tee_keys
 from tee_gateway.llm_backend import reinitialize_http_clients
+from tee_gateway.heartbeat import create_heartbeat_service
 
 from x402v2.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
 from x402v2.http.middleware.flask import payment_middleware
@@ -51,6 +53,40 @@ logging.getLogger("x402.middleware").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Heartbeat background service
+# ---------------------------------------------------------------------------
+_heartbeat_service = None
+
+
+def _init_heartbeat():
+    """Create and start the heartbeat service if env vars are configured."""
+    global _heartbeat_service
+
+    if _heartbeat_service is not None:
+        logger.info("Heartbeat already initialized, skipping")
+        return
+
+    tee_keys = get_tee_keys()
+    _heartbeat_service = create_heartbeat_service(tee_keys)
+    if _heartbeat_service is None:
+        return
+
+    _heartbeat_service.start()
+
+
+def _shutdown_heartbeat():
+    """Stop the heartbeat service on process exit."""
+    if _heartbeat_service is not None:
+        _heartbeat_service.stop()
+
+
+atexit.register(_shutdown_heartbeat)
+
+
+EVM_NETWORK: Network = "eip155:10740"
+BASE_TESTNET_NETWORK: Network = "eip155:84532"
+EVM_PAYMENT_ADDRESS = "0x40eFb45552EDfB2502D90A657a8ab41F03ec460d"
 FACILITATOR_URL = os.getenv("FACILITATOR_URL", "https://facilitator.memchat.io")
 
 facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=FACILITATOR_URL))
@@ -130,7 +166,7 @@ def set_provider_keys():
         if not body:
             return jsonify({"error": "JSON body required"}), 400
 
-        # Inject keys directly into the environment
+        # Inject LLM provider keys into the environment
         if body.get('openai_api_key'):
             os.environ["OPENAI_API_KEY"] = body['openai_api_key']
         if body.get('google_api_key'):
@@ -140,18 +176,36 @@ def set_provider_keys():
         if body.get('xai_api_key'):
             os.environ["XAI_API_KEY"] = body['xai_api_key']
 
+        # Inject heartbeat configuration into the environment
+        if body.get('heartbeat_contract_address'):
+            os.environ["HEARTBEAT_CONTRACT_ADDRESS"] = body['heartbeat_contract_address']
+        if body.get('heartbeat_facilitator_url'):
+            os.environ["HEARTBEAT_FACILITATOR_URL"] = body['heartbeat_facilitator_url']
+        if body.get('tee_heartbeat_interval'):
+            os.environ["TEE_HEARTBEAT_INTERVAL"] = str(body['tee_heartbeat_interval'])
+
         def _key_status(env_var: str) -> str:
             return "set" if os.environ.get(env_var) else "NOT SET"
 
         logger.info("ENV check after injection:")
-        logger.info("  OPENAI_API_KEY    : %s", _key_status("OPENAI_API_KEY"))
-        logger.info("  GOOGLE_API_KEY    : %s", _key_status("GOOGLE_API_KEY"))
-        logger.info("  ANTHROPIC_API_KEY : %s", _key_status("ANTHROPIC_API_KEY"))
-        logger.info("  XAI_API_KEY       : %s", _key_status("XAI_API_KEY"))
+        logger.info("  OPENAI_API_KEY              : %s", _key_status("OPENAI_API_KEY"))
+        logger.info("  GOOGLE_API_KEY              : %s", _key_status("GOOGLE_API_KEY"))
+        logger.info("  ANTHROPIC_API_KEY           : %s", _key_status("ANTHROPIC_API_KEY"))
+        logger.info("  XAI_API_KEY                 : %s", _key_status("XAI_API_KEY"))
+        logger.info("  HEARTBEAT_CONTRACT_ADDRESS  : %s", _key_status("HEARTBEAT_CONTRACT_ADDRESS"))
+        logger.info("  HEARTBEAT_FACILITATOR_URL   : %s", _key_status("HEARTBEAT_FACILITATOR_URL"))
+        logger.info("  TEE_HEARTBEAT_INTERVAL      : %s", os.environ.get("TEE_HEARTBEAT_INTERVAL", "900 (default)"))
+        logger.info("  HEARTBEAT_WALLET (TEE-gen)  : %s", get_tee_keys().get_wallet_address())
 
         # Rebuild HTTP clients with the new Authorization headers and clear
         # the model cache so subsequent requests use fresh instances.
         reinitialize_http_clients()
+
+        # Start heartbeat service now that env vars are available
+        try:
+            _init_heartbeat()
+        except Exception as e:
+            logger.warning(f"Heartbeat initialization failed: {e}")
 
         _keys_initialized = True
 
@@ -163,8 +217,16 @@ def set_provider_keys():
             "xai": body.get('xai_api_key'),
         }.items() if k
     ]
+    heartbeat_configured = all([
+        os.environ.get("HEARTBEAT_CONTRACT_ADDRESS"),
+        os.environ.get("HEARTBEAT_FACILITATOR_URL") or os.environ.get("FACILITATOR_URL"),
+    ])
     logger.info("Provider API keys initialized for: %s", ", ".join(providers_set))
-    return jsonify({"status": "ok", "providers_initialized": providers_set}), 200
+    return jsonify({
+        "status": "ok",
+        "providers_initialized": providers_set,
+        "heartbeat_enabled": heartbeat_configured,
+    }), 200
 
 
 def health():
@@ -208,6 +270,13 @@ def signing_key():
         return {"error": str(e)}, 500
 
 
+def heartbeat_status():
+    """GET /heartbeat/status — return heartbeat service status."""
+    if _heartbeat_service is None:
+        return jsonify({"enabled": False}), 200
+    return jsonify({"enabled": True, **_heartbeat_service.status()}), 200
+
+
 def create_app():
     app = connexion.App(__name__, specification_dir="./openapi/")
     app.app.json_encoder = encoder.JSONEncoder
@@ -218,6 +287,7 @@ def create_app():
     app.app.add_url_rule("/health", "health", health, methods=["GET"])
     app.app.add_url_rule("/signing-key", "signing-key", signing_key, methods=["GET"])
     app.app.add_url_rule("/v1/keys", "set-provider-keys", set_provider_keys, methods=["POST"])
+    app.app.add_url_rule("/heartbeat/status", "heartbeat-status", heartbeat_status, methods=["GET"])
 
     # Initialize TEE here so it runs under both Gunicorn and direct execution.
     # This is the single TEEKeyManager instance — the same key both registers
@@ -227,6 +297,7 @@ def create_app():
         logger.info("TEE initialized successfully")
     except Exception as e:
         logger.warning(f"TEE initialization failed (may not be in enclave): {e}")
+
 
     return app.app
 

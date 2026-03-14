@@ -9,12 +9,14 @@ import logging
 import hashlib
 import base64
 import json
+import secrets
 import urllib.request
 from datetime import datetime, UTC
 
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.backends import default_backend
+from eth_account import Account
 from eth_hash.auto import keccak
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,7 @@ class TEEKeyManager:
         self.public_key = None
         self.public_key_pem = None
         self.tee_id = None
+        self.wallet_address = None
         self._generate_keys()
         if register:
             self.register_with_nitriding()
@@ -65,8 +68,15 @@ class TEEKeyManager:
         )
         self.tee_id = keccak(public_key_der).hex()
 
+        # Generate Ethereum wallet key pair inside the TEE so it is part of
+        # the attestation trust boundary and never leaves the enclave.
+        wallet_key_bytes = secrets.token_bytes(32)
+        wallet_account = Account.from_key(wallet_key_bytes)
+        self.wallet_address = wallet_account.address
+
         logger.info("TEE key pair generated successfully")
         logger.info(f"tee_id: 0x{self.tee_id}")
+        logger.info(f"wallet_address: {self.wallet_address}")
 
     def register_with_nitriding(self):
         """Register public key hash with nitriding."""
@@ -137,11 +147,16 @@ class TEEKeyManager:
         """Return the tee_id: keccak256(abi.encodePacked(public_key_der))."""
         return self.tee_id
 
+    def get_wallet_address(self) -> str:
+        """Return the TEE-generated Ethereum wallet address (checksum)."""
+        return self.wallet_address
+
     def get_attestation_document(self) -> dict:
         """Return TEE attestation document."""
         return {
             "public_key": self.public_key_pem,
             "tee_id": f"0x{self.tee_id}",
+            "wallet_address": self.wallet_address,
             "timestamp": datetime.now(UTC).isoformat(),
             "enclave_info": {
                 "platform": "aws-nitro",

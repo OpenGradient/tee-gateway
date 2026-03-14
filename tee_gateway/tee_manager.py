@@ -4,11 +4,9 @@ Handles RSA key pair generation, nitriding registration, and request/response si
 Single source of truth for the enclave's signing key — used by all controllers.
 """
 
-import os
 import logging
 import hashlib
 import base64
-import json
 import secrets
 import urllib.request
 from datetime import datetime, UTC

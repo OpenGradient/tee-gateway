@@ -1,10 +1,7 @@
 import datetime
 
-import typing
 from tee_gateway import typing_utils
 import logging
-import os
-import sys
 import threading
 import time
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
@@ -156,8 +153,6 @@ def _deserialize_dict(data, boxed_type):
             for k, v in data.items() }
 
 from tee_gateway.definitions import (  # noqa: E402
-    USDC_ADDRESS,
-    BASE_OPG_ADDRESS,
     ASSET_DECIMALS_BY_ADDRESS,
     DEFAULT_ASSET_DECIMALS,
 )

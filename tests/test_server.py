@@ -5,13 +5,12 @@ Tests completion, chat, tool calls, and streaming endpoints for each provider.
 """
 
 import pytest
-import asyncio
 import json
 import os
 import sys
 from pathlib import Path
-from typing import List, Dict, Any
-from unittest.mock import patch, MagicMock, AsyncMock
+from typing import List, Dict
+from unittest.mock import patch, MagicMock
 from dotenv import load_dotenv
 
 # Add src/ to path so we can import server
@@ -31,13 +30,7 @@ from fastapi.testclient import TestClient
 # Mock the TEE key manager registration before importing the app
 with patch('urllib.request.urlopen'):
     from server import (
-        app, 
-        get_chat_model_cached,
-        convert_messages,
-        Message,
-        CompletionRequest,
-        ChatRequest,
-        Tool
+        app
     )
 
 client = TestClient(app)
@@ -832,7 +825,6 @@ def test_chat_streaming_tool_calls_xai(mock_get_model, mock_tool_call_model):
 # Test Summary Function
 def run_all_tests():
     """Run all tests and return summary"""
-    import sys
     
     # Run pytest with verbose output
     exit_code = pytest.main([

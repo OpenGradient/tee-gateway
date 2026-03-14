@@ -1,4 +1,3 @@
-from typing import List
 
 
 def info_from_ApiKeyAuth(token):

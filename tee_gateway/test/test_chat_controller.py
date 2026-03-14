@@ -2,8 +2,6 @@ import unittest
 
 from flask import json
 
-from tee_gateway.models.create_chat_completion_request import CreateChatCompletionRequest  # noqa: E501
-from tee_gateway.models.create_chat_completion_response import CreateChatCompletionResponse  # noqa: E501
 from tee_gateway.test import BaseTestCase
 
 

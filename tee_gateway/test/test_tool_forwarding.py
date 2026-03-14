@@ -1,6 +1,5 @@
 import unittest
-from unittest.mock import patch, MagicMock, Mock
-import json
+from unittest.mock import patch, Mock
 
 from tee_gateway.controllers.chat_controller import (
     parse_chat_request,
@@ -8,9 +7,6 @@ from tee_gateway.controllers.chat_controller import (
     create_chat_completion,
 )
 from tee_gateway.models import (
-    ChatCompletionRequestUserMessage,
-    ChatCompletionRequestSystemMessage,
-    ChatCompletionRequestAssistantMessage,
     ChatCompletionRequestToolMessage,
     ChatCompletionRequestFunctionMessage,
 )

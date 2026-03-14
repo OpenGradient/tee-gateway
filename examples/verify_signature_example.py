@@ -113,7 +113,7 @@ print(json.dumps(signed_data, indent=2, sort_keys=True))
 # Create the signed message (with sort_keys=True to match server)
 signed_message = json.dumps(signed_data, sort_keys=True).encode('utf-8')
 
-print(f"\nSigned message (first 200 chars):")
+print("\nSigned message (first 200 chars):")
 print(signed_message[:200].decode('utf-8', errors='replace'))
 
 # Verify the signature using RSA-PSS
@@ -143,5 +143,5 @@ try:
     print("=" * 70)
     
 except Exception as e:
-    print(f"\n✗ SIGNATURE VERIFICATION FAILED!")
+    print("\n✗ SIGNATURE VERIFICATION FAILED!")
     print(f"Error: {e}")

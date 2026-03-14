@@ -6,7 +6,6 @@ Runs inside a Nitro Enclave, proxied by nitriding on port 443.
 import logging
 import sys
 import os
-import json
 import gc
 import time
 import threading

@@ -5,7 +5,6 @@ import json
 import logging
 from collections import namedtuple
 import subprocess
-import sys
 import hashlib
 
 from cose import EC2, CoseAlgorithms, CoseEllipticCurves
@@ -77,7 +76,7 @@ def get_attestation(url: str, nonce: str) -> str:
 
     # Return the output of the curl command
     if result.stdout == None:
-        print(f"Curl command result was None")
+        print("Curl command result was None")
 
     return result.stdout
 

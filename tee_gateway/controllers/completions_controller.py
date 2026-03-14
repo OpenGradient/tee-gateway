@@ -7,7 +7,6 @@ import connexion
 from langchain_core.messages import HumanMessage
 
 from tee_gateway.models.create_completion_request import CreateCompletionRequest
-from tee_gateway.models.create_completion_response import CreateCompletionResponse
 
 from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
 from tee_gateway.llm_backend import get_chat_model_cached, extract_usage

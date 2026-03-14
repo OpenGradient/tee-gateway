@@ -14,9 +14,9 @@ import psutil
 
 import connexion
 from flask import jsonify, request
-from openapi_server import encoder
-from openapi_server.tee_manager import initialize_tee, get_tee_keys
-from openapi_server.llm_backend import reinitialize_http_clients
+from tee_gateway import encoder
+from tee_gateway.tee_manager import initialize_tee, get_tee_keys
+from tee_gateway.llm_backend import reinitialize_http_clients
 
 from x402v2.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
 from x402v2.http.middleware.flask import payment_middleware
@@ -27,7 +27,17 @@ from x402v2.schemas import AssetAmount, Network
 from x402v2.server import x402ResourceServerSync
 from x402v2.session import SessionStore
 import x402v2.http.middleware.flask as x402_flask
-from .util import BASE_OPG_ADDRESS, USDC_ADDRESS, dynamic_session_cost_calculator
+from .util import dynamic_session_cost_calculator
+from .definitions import (
+    EVM_NETWORK,
+    BASE_TESTNET_NETWORK,
+    EVM_PAYMENT_ADDRESS,
+    USDC_ADDRESS,
+    BASE_OPG_ADDRESS,
+    CHAT_COMPLETIONS_USDC_AMOUNT,
+    CHAT_COMPLETIONS_OPG_AMOUNT,
+    COMPLETIONS_USDC_AMOUNT,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -41,9 +51,6 @@ logging.getLogger("x402.middleware").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-EVM_NETWORK: Network = "eip155:10740"
-BASE_TESTNET_NETWORK: Network = "eip155:84532"
-EVM_PAYMENT_ADDRESS = "0x40eFb45552EDfB2502D90A657a8ab41F03ec460d"
 FACILITATOR_URL = os.getenv("FACILITATOR_URL", "https://facilitator.memchat.io")
 
 facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=FACILITATOR_URL))
@@ -62,7 +69,7 @@ routes = {
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
-                    amount="100000",  # $0.01 USDC
+                    amount=CHAT_COMPLETIONS_USDC_AMOUNT,
                     asset=USDC_ADDRESS,
                     extra={"name": "OUSDC", "version": "2", "assetTransferMethod": "permit2"},
                 ),
@@ -72,7 +79,7 @@ routes = {
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
-                    amount="50000000000000000",  # 0.05 OPG
+                    amount=CHAT_COMPLETIONS_OPG_AMOUNT,
                     asset=BASE_OPG_ADDRESS,
                     extra={"name": "OPG", "version": "2", "assetTransferMethod": "permit2"},
                 ),
@@ -88,7 +95,7 @@ routes = {
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
-                    amount="10000",  # $0.01 USDC
+                    amount=COMPLETIONS_USDC_AMOUNT,
                     asset=USDC_ADDRESS,
                     extra={"name": "USDC", "version": "2"},
                 ),
@@ -134,10 +141,7 @@ def set_provider_keys():
             os.environ["XAI_API_KEY"] = body['xai_api_key']
 
         def _key_status(env_var: str) -> str:
-            val = os.environ.get(env_var, "")
-            if not val:
-                return "NOT SET"
-            return f"set ({val[:6]}...{val[-4:]})"
+            return "set" if os.environ.get(env_var) else "NOT SET"
 
         logger.info("ENV check after injection:")
         logger.info("  OPENAI_API_KEY    : %s", _key_status("OPENAI_API_KEY"))
@@ -227,7 +231,11 @@ def create_app():
     return app.app
 
 
-# Create the WSGI application and attach x402v2 payment middleware
+# ---------------------------------------------------------------------------
+# WSGI application + x402v2 payment middleware
+# ---------------------------------------------------------------------------
+
+# Create the WSGI application
 application = create_app()
 
 # This patch ensures that non-payment 0-length requests can still bypass the middleware

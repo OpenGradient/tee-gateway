@@ -6,9 +6,9 @@ import logging
 import connexion
 from flask import Response
 
-from openapi_server.models.create_chat_completion_request import CreateChatCompletionRequest
-from openapi_server.models.create_chat_completion_response import CreateChatCompletionResponse
-from openapi_server.models import (
+from tee_gateway.models.create_chat_completion_request import CreateChatCompletionRequest
+from tee_gateway.models.create_chat_completion_response import CreateChatCompletionResponse
+from tee_gateway.models import (
     ChatCompletionRequestUserMessage,
     ChatCompletionRequestSystemMessage,
     ChatCompletionRequestAssistantMessage,
@@ -16,8 +16,8 @@ from openapi_server.models import (
     ChatCompletionRequestFunctionMessage,
 )
 
-from openapi_server.tee_manager import get_tee_keys, compute_tee_msg_hash
-from openapi_server.llm_backend import (
+from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
+from tee_gateway.llm_backend import (
     get_provider_from_model,
     get_chat_model_cached,
     convert_messages,
@@ -147,7 +147,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
 
     except Exception as e:
         logger.error(f"Chat completion error: {str(e)}", exc_info=True)
-        return {"error": "Request processing failed", "details": str(e)}, 500
+        return {"error": "Request processing failed"}, 500
 
 
 def _create_streaming_response(chat_request: CreateChatCompletionRequest):
@@ -333,7 +333,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
 
             except Exception as e:
                 logger.error(f"Streaming error: {str(e)}", exc_info=True)
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                yield f"data: {json.dumps({'error': 'Stream processing failed'})}\n\n"
 
         return Response(
             generate(),
@@ -346,7 +346,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
 
     except Exception as e:
         logger.error(f"Stream setup error: {str(e)}", exc_info=True)
-        return {"error": "Stream setup failed", "details": str(e)}, 500
+        return {"error": "Stream setup failed"}, 500
 
 
 # ---------------------------------------------------------------------------

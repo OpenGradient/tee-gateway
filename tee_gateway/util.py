@@ -1,7 +1,7 @@
 import datetime
 
 import typing
-from openapi_server import typing_utils
+from tee_gateway import typing_utils
 import logging
 import os
 import sys
@@ -155,16 +155,13 @@ def _deserialize_dict(data, boxed_type):
     return {k: _deserialize(v, boxed_type)
             for k, v in data.items() }
 
-USDC_ADDRESS = "0x094E464A23B90A71a0894D5D1e5D470FfDD074e1"
-BASE_OPG_ADDRESS = "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
-
-from openapi_server.model_registry import get_model_config  # noqa: E402
-
-ASSET_DECIMALS_BY_ADDRESS = {
-    USDC_ADDRESS.lower(): 6,
-    BASE_OPG_ADDRESS.lower(): 18,
-}
-DEFAULT_ASSET_DECIMALS = 18
+from tee_gateway.definitions import (  # noqa: E402
+    USDC_ADDRESS,
+    BASE_OPG_ADDRESS,
+    ASSET_DECIMALS_BY_ADDRESS,
+    DEFAULT_ASSET_DECIMALS,
+)
+from tee_gateway.model_registry import get_model_config  # noqa: E402
 TOKEN_A_PRICE_CACHE_TTL_SECONDS = 60
 
 _token_price_cache: dict[str, Any] = {
@@ -175,7 +172,14 @@ _token_price_lock = threading.Lock()
 
 
 def _fetch_token_a_price_usd_mock() -> Decimal:
-    """Temporary mock token price fetcher."""
+    """Return the USD price of the payment token used for cost calculation.
+
+    Currently returns a fixed 1:1 ratio, which is correct for USDC-denominated
+    payments (1 USDC ≈ $1 USD). For OPG-denominated payments, replace this
+    with a live price feed (e.g. a DEX oracle or CoinGecko API call) that
+    returns the current OPG/USD exchange rate so that token amounts are
+    calculated correctly against the model's USD pricing.
+    """
     return Decimal("1")
 
 

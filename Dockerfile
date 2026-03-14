@@ -47,10 +47,10 @@ COPY requirements.txt /app/requirements.txt
 ENV PYTHONDONTWRITEBYTECODE=1
 RUN pip install --no-cache-dir --only-binary=:all: --no-compile -r /app/requirements.txt
 
-# Copy the openapi_server package
-COPY openapi_server /app/openapi_server
+# Copy the tee_gateway package
+COPY tee_gateway /app/tee_gateway
 
-# Set working directory to /app so `python -m openapi_server` resolves correctly
+# Set working directory to /app so `python -m tee_gateway` resolves correctly
 WORKDIR /app
 
 # Expose ports:

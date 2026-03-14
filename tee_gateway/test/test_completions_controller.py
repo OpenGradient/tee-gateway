@@ -2,9 +2,9 @@ import unittest
 
 from flask import json
 
-from openapi_server.models.create_completion_request import CreateCompletionRequest  # noqa: E501
-from openapi_server.models.create_completion_response import CreateCompletionResponse  # noqa: E501
-from openapi_server.test import BaseTestCase
+from tee_gateway.models.create_completion_request import CreateCompletionRequest  # noqa: E501
+from tee_gateway.models.create_completion_response import CreateCompletionResponse  # noqa: E501
+from tee_gateway.test import BaseTestCase
 
 
 class TestCompletionsController(BaseTestCase):

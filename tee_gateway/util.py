@@ -23,7 +23,7 @@ def _deserialize(data, klass):
 
     if klass in (int, float, str, bool, bytearray):
         return _deserialize_primitive(data, klass)
-    elif klass == object:
+    elif klass is object:
         return _deserialize_object(data)
     elif klass == datetime.date:
         return deserialize_date(data)
@@ -76,7 +76,7 @@ def deserialize_date(string):
         return None
 
     try:
-        from dateutil.parser import parse
+        from dateutil.parser import parse  # type: ignore[import-untyped]
 
         return parse(string).date()
     except ImportError:
@@ -97,7 +97,7 @@ def deserialize_datetime(string):
         return None
 
     try:
-        from dateutil.parser import parse
+        from dateutil.parser import parse  # type: ignore[import-untyped]
 
         return parse(string)
     except ImportError:

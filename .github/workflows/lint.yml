@@ -25,5 +25,5 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt mypy
+      - run: pip install -r requirements.txt mypy==1.19.1
       - run: mypy tee_gateway

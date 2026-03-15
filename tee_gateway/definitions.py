@@ -11,10 +11,15 @@ variable before starting the server.
 import os
 
 # ---------------------------------------------------------------------------
+# X402 Facilitator
+# ---------------------------------------------------------------------------
+FACILITATOR_URL = os.getenv("FACILITATOR_URL", "https://facilitator.memchat.io")
+
+# ---------------------------------------------------------------------------
 # Network IDs (EIP-155 chain identifiers)
 # ---------------------------------------------------------------------------
 
-# Lavanet EVM — where USDC payments are accepted
+# OG EVM — where USDC payments are accepted
 EVM_NETWORK: str = "eip155:10740"
 
 # Base Testnet — where OPG payments are accepted

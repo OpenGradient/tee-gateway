@@ -14,8 +14,14 @@ from typing import List, Dict, Optional, Any
 from functools import lru_cache
 
 import httpx
-
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from pydantic import SecretStr
+from langchain_core.messages import (
+    HumanMessage,
+    SystemMessage,
+    AIMessage,
+    ToolMessage,
+    BaseMessage,
+)
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
@@ -145,13 +151,13 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
 
         return ChatOpenAI(
             model=api_name,
-            api_key=api_key,
             temperature=effective_temp,
             max_tokens=max_tokens,
             http_client=openai_http_client,
+            api_key=SecretStr(api_key),
             streaming=True,
             stream_usage=True,
-        )
+        )  # type: ignore [call-arg]
 
     elif provider == "anthropic":
         api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -160,13 +166,13 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
 
         return ChatAnthropic(
             model=api_name,
-            api_key=api_key,
+            api_key=SecretStr(api_key),
             temperature=effective_temp,
             max_tokens=max_tokens,
             timeout=ANTHROPIC_TIMEOUT,
             streaming=True,
             stream_usage=True,
-        )
+        )  # type: ignore [call-arg]
 
     elif provider == "x-ai":
         api_key = os.getenv("XAI_API_KEY")
@@ -175,7 +181,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
 
         return ChatXAI(
             model=api_name,
-            api_key=api_key,
+            api_key=SecretStr(api_key),
             temperature=effective_temp,
             max_tokens=max_tokens,
             http_client=xai_http_client,
@@ -189,7 +195,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
 
 def convert_messages(messages: list) -> List[Any]:
     """Convert OpenAI-format message objects or dicts to LangChain message objects."""
-    langchain_messages = []
+    langchain_messages: List[BaseMessage] = []
 
     for msg in messages:
         # Support both OpenAPI model objects and plain dicts

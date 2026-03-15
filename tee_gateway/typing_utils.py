@@ -5,15 +5,15 @@ if sys.version_info < (3, 7):
 
     def is_generic(klass):
         """Determine whether klass is a generic class"""
-        return type(klass) == typing.GenericMeta
+        return type(klass) is typing.GenericMeta
 
     def is_dict(klass):
         """Determine whether klass is a Dict"""
-        return klass.__extra__ == dict
+        return klass.__extra__ is dict
 
     def is_list(klass):
         """Determine whether klass is a List"""
-        return klass.__extra__ == list
+        return klass.__extra__ is list
 
 else:
 
@@ -23,8 +23,8 @@ else:
 
     def is_dict(klass):
         """Determine whether klass is a Dict"""
-        return klass.__origin__ == dict
+        return klass.__origin__ is dict
 
     def is_list(klass):
         """Determine whether klass is a List"""
-        return klass.__origin__ == list
+        return klass.__origin__ is list

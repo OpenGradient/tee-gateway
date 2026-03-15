@@ -246,7 +246,7 @@ def set_provider_keys():
             or os.environ.get("FACILITATOR_URL"),
         ]
     )
-    logger.info("Provider API keys initialized for: %s", ", ".join(providers_set))
+
     return jsonify(
         {
             "status": "ok",

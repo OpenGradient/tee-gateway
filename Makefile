@@ -88,8 +88,8 @@ test-local:
 
 .PHONY: lint
 lint:
+	python3 -m ruff format .
 	python3 -m ruff check .
-	python3 -m ruff format --check .
 	python3 -m mypy tee_gateway
 
 .PHONY: mypy

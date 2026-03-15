@@ -151,13 +151,13 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
 
         return ChatOpenAI(
             model=api_name,
-            api_key=SecretStr(api_key),
             temperature=effective_temp,
             max_tokens=max_tokens,
             http_client=openai_http_client,
+            api_key=SecretStr(api_key),
             streaming=True,
             stream_usage=True,
-        )
+        )  # type: ignore [call-arg]
 
     elif provider == "anthropic":
         api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -172,7 +172,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
             timeout=ANTHROPIC_TIMEOUT,
             streaming=True,
             stream_usage=True,
-        )
+        )  # type: ignore [call-arg]
 
     elif provider == "x-ai":
         api_key = os.getenv("XAI_API_KEY")

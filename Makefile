@@ -1,7 +1,8 @@
 prog := tee-llm-router
 version := 1.0.0
+dist := dist
 image_tag := $(prog):$(version)
-image_tar := $(prog)-$(version)-kaniko.tar
+image_tar := $(dist)/$(prog)-$(version)-kaniko.tar
 image_eif := $(image_tar:%.tar=%.eif)
 
 SOURCE_DATE_EPOCH ?= 1700006400

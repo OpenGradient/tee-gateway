@@ -1,5 +1,5 @@
 # Build nitriding from source
-FROM golang:1.25 as builder
+FROM golang:1.24 as builder
 
 WORKDIR /
 

@@ -1,12 +1,8 @@
-# CLAUDE.md
+# Project Overview
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+OpenGradient TEE-gateway is an LLM routing service designed to run within AWS Nitro Enclave TEE (Trusted Execution Environment). It provides a secure, cryptographically verifiable interface to multiple LLM providers (OpenAI, Anthropic, Google Gemini, xAI Grok) with remote attestation, response signing, and x402v2 micropayment access control. The tee-gateway is a part of the decentralized OpenGradient network providing verifiable inference.
 
-## Project Overview
-
-OpenGradient TEE-gateway is an LLM routing service designed to run within AWS Nitro Enclave TEE (Trusted Execution Environment). It provides a secure, cryptographically verifiable interface to multiple LLM providers (OpenAI, Anthropic, Google Gemini, xAI Grok) with remote attestation, response signing, and x402v2 micropayment access control.
-
-The repo must provide a stable AWS Nitro PCR when the code doesn't change in order to allow anyone to reproduce the PCRs locally by building the image as a way to verify what code we are running.
+The repo must provide a stable AWS Nitro PCR when the code doesn't change in order to allow anyone to reproduce the PCRs locally by building the image as a way to verify what code we are running and also for 3rd party operators to set up their own tee-gateway nodes with the same PCRs in order to participate in the network.
 
 ## Project Structure highlighting core files
 
@@ -26,9 +22,7 @@ The repo must provide a stable AWS Nitro PCR when the code doesn't change in ord
 ├── scripts/
 │   ├── start.sh             # Enclave startup script (nitriding + server)
 │   ├── run-enclave.sh       # EC2 host launcher (gvproxy, EIF, key injection)
-├── examples/                # Client-side verification examples
 ├── pyproject.toml           # Project metadata and dependencies (managed by uv)
-├── uv.lock                  # Locked dependency versions and hashes
 ├── Dockerfile               # Multi-stage: nitriding builder + python:3.12-slim-bullseye + uv
 ├── Makefile
 └── measurements.txt         # PCR measurements for the deployed enclave image

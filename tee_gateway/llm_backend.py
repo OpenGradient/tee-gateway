@@ -14,7 +14,13 @@ from typing import List, Dict, Optional, Any
 from functools import lru_cache
 
 import httpx
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage, BaseMessage
+from langchain_core.messages import (
+    HumanMessage,
+    SystemMessage,
+    AIMessage,
+    ToolMessage,
+    BaseMessage,
+)
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic

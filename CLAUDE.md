@@ -1,12 +1,10 @@
-# CLAUDE.md
+# Project Overview
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+OpenGradient TEE-gateway is an LLM routing service designed to run within AWS Nitro Enclave TEE (Trusted Execution Environment). It provides a secure, cryptographically verifiable interface to multiple LLM providers (OpenAI, Anthropic, Google Gemini, xAI Grok) with remote attestation, response signing, and x402v2 micropayment access control. The tee-gateway is a part of the decentralized OpenGradient network providing verifiable inference.
 
-## Project Overview
+The repo must provide a stable AWS Nitro PCR when the code doesn't change in order to allow anyone to reproduce the PCRs locally by building the image as a way to verify what code we are running and also for 3rd party operators to set up their own tee-gateway nodes with the same PCRs in order to participate in the network.
 
-OpenGradient TEE-gateway is an LLM routing service designed to run within AWS Nitro Enclave TEE (Trusted Execution Environment). It provides a secure, cryptographically verifiable interface to multiple LLM providers (OpenAI, Anthropic, Google Gemini, xAI Grok) with remote attestation, response signing, and x402v2 micropayment access control.
-
-## Project Structure
+## Project Structure highlighting core files
 
 ```
 ├── tee_gateway/             # Main application package (Flask/connexion)
@@ -15,9 +13,8 @@ OpenGradient TEE-gateway is an LLM routing service designed to run within AWS Ni
 │   ├── tee_manager.py       # TEE key generation, nitriding registration, response signing
 │   ├── model_registry.py    # Model config and per-token pricing
 │   ├── definitions.py       # On-chain addresses, network IDs, payment amounts
-│   ├── util.py              # Deserialization helpers, dynamic cost calculator
-│   ├── encoder.py           # JSON encoder for OpenAPI models
-│   ├── typing_utils.py      # Generic type helpers
+│   ├── facilitator_api.py   # x402 facilitator API client
+│   ├── heartbeat/           # Heartbeat/health monitoring
 │   ├── controllers/         # Request handlers (chat, completions, security)
 │   ├── models/              # OpenAI-compatible Pydantic models
 │   ├── openapi/             # openapi.yaml spec
@@ -25,13 +22,8 @@ OpenGradient TEE-gateway is an LLM routing service designed to run within AWS Ni
 ├── scripts/
 │   ├── start.sh             # Enclave startup script (nitriding + server)
 │   ├── run-enclave.sh       # EC2 host launcher (gvproxy, EIF, key injection)
-│   └── stresstest.sh        # Load testing
-├── examples/                # Client-side verification examples
-│   ├── verify_attestation.py
-│   ├── verify_signature_example.py
-│   └── requirements.txt
-├── requirements.txt         # Server dependencies
-├── Dockerfile               # Multi-stage: nitriding builder + python:3.12-slim
+├── pyproject.toml           # Project metadata and dependencies (managed by uv)
+├── Dockerfile               # Multi-stage: nitriding builder + python:3.12-slim-bullseye + uv
 ├── Makefile
 └── measurements.txt         # PCR measurements for the deployed enclave image
 ```
@@ -39,19 +31,25 @@ OpenGradient TEE-gateway is an LLM routing service designed to run within AWS Ni
 ## Common Commands
 
 ```bash
+# Dependency management (uses uv — https://docs.astral.sh/uv/)
+uv sync                      # Install/update dependencies from uv.lock
+uv add <package>             # Add a new dependency
+uv lock                      # Regenerate lockfile after editing pyproject.toml
+# IMPORTANT: uv.lock is baked into the Docker image and affects PCR measurements.
+# Only regenerate the lockfile when intentionally changing dependencies.
+
 # Run server locally for development (without TEE)
-make test-local              # Runs: python3 -m tee_gateway
+make test-local              # Runs: uv run python -m tee_gateway
+
+# Linting and type checking
+make lint                    # Run ruff format + ruff check + mypy
+make mypy                    # Run mypy type checker only
 
 # Build enclave image
 make image                   # Build Docker image as TAR using Kaniko
 
 # Build EIF and run in Nitro Enclave
 make run                     # or: make all
-
-# Test endpoints
-make test-completion         # Test /v1/completions
-make test-chat               # Test /v1/chat/completions
-make test-stream             # Test /v1/chat/completions (stream=true)
 
 # Clean build artifacts
 make clean
@@ -113,10 +111,10 @@ Server configuration:
 ### Supported Providers
 
 Model name prefixes determine routing:
-- **OpenAI**: gpt-4.1, gpt-5, o4-mini
-- **Anthropic**: claude-sonnet-4-5, claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-5
-- **Google**: gemini-2.5-flash, gemini-2.5-pro, gemini-3-pro-preview
-- **xAI**: grok-4, grok-4-fast
+- **OpenAI**: gpt-4.1, gpt-5, gpt-5-mini, gpt-5.2, o4-mini
+- **Anthropic**: claude-sonnet-4-0/4-5/4-6, claude-haiku-4-5, claude-opus-4-5/4-6, claude-3-7-sonnet, claude-3-5-haiku
+- **Google**: gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview
+- **xAI**: grok-2, grok-3, grok-3-mini, grok-4, grok-4-fast, grok-4-1-fast
 
 ## Verification Examples
 
@@ -125,6 +123,6 @@ Model name prefixes determine routing:
 
 ## Deployment
 
-Multi-stage Docker build: nitriding compiled from source (`brave/nitriding-daemon`), then copied into `python:3.12-slim-bullseye`. Enclave launched via `scripts/run-enclave.sh` with gvproxy as the vsock network bridge, allocating 2 CPUs and 8GB memory.
+Multi-stage Docker build: nitriding compiled from source (`brave/nitriding-daemon`), then copied into `python:3.12.10-slim-bullseye`. Dependencies are installed via `uv sync --frozen` from the lockfile for reproducible builds. Enclave launched via `scripts/run-enclave.sh` with gvproxy as the vsock network bridge, allocating 2 CPUs and 8GB memory.
 
 Port 8000 is forwarded to `127.0.0.1` only on the EC2 host (loopback-only for key injection). Port 443 is forwarded publicly via gvproxy.

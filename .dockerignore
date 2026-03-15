@@ -11,12 +11,18 @@ __pycache__/
 
 # Dev/test files
 venv/
+.venv/
 .git/
+.github/
 tests/
 examples/
+scripts/run-enclave.sh
 *.log
+Makefile
 
-# Docs
+# Docs & meta
 README.md
 MIGRATION.md
 CLAUDE.md
+.claude/
+LICENSE*

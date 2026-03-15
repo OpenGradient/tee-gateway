@@ -20,9 +20,9 @@ all: run
 .PHONY: image
 image: $(image_tar)
 
-$(image_tar): Dockerfile scripts/start.sh requirements.txt
+$(image_tar): Dockerfile scripts/start.sh pyproject.toml uv.lock
 	find tee_gateway -exec touch -t 202311150000 {} \;
-	touch -t 202311150000 scripts/start.sh Dockerfile requirements.txt
+	touch -t 202311150000 scripts/start.sh Dockerfile pyproject.toml uv.lock
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) docker run \
 		-v $(PWD):/workspace \
 		-e SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \
@@ -84,17 +84,17 @@ test-local:
 	# Run server locally without TEE (for development).
 	# Set API keys via environment variables before running:
 	#   export OPENAI_API_KEY=...  ANTHROPIC_API_KEY=...  etc.
-	python3 -m tee_gateway
+	uv run python -m tee_gateway
 
 .PHONY: lint
 lint:
-	python3 -m ruff format .
-	python3 -m ruff check .
-	python3 -m mypy tee_gateway
+	uv run ruff format .
+	uv run ruff check .
+	uv run mypy tee_gateway
 
 .PHONY: mypy
 mypy:
-	python3 -m mypy tee_gateway
+	uv run mypy tee_gateway
 
 .PHONY: help
 help:

@@ -14,7 +14,7 @@ from typing import List, Dict, Optional, Any
 from functools import lru_cache
 
 import httpx
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage, BaseMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
@@ -188,7 +188,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
 
 def convert_messages(messages: list) -> List[Any]:
     """Convert OpenAI-format message objects or dicts to LangChain message objects."""
-    langchain_messages = []
+    langchain_messages: List[BaseMessage] = []
 
     for msg in messages:
         # Support both OpenAPI model objects and plain dicts

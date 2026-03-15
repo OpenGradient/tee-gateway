@@ -84,17 +84,17 @@ test-local:
 	# Run server locally without TEE (for development).
 	# Set API keys via environment variables before running:
 	#   export OPENAI_API_KEY=...  ANTHROPIC_API_KEY=...  etc.
-	python3 -m tee_gateway
+	uv run python -m tee_gateway
 
 .PHONY: lint
 lint:
-	python3 -m ruff format .
-	python3 -m ruff check .
-	python3 -m mypy tee_gateway
+	uv run ruff format .
+	uv run ruff check .
+	uv run mypy tee_gateway
 
 .PHONY: mypy
 mypy:
-	python3 -m mypy tee_gateway
+	uv run mypy tee_gateway
 
 .PHONY: help
 help:

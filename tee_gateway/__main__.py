@@ -83,8 +83,6 @@ def _shutdown_heartbeat():
 atexit.register(_shutdown_heartbeat)
 
 
-EVM_NETWORK: Network = "eip155:10740"
-BASE_TESTNET_NETWORK: Network = "eip155:84532"
 EVM_PAYMENT_ADDRESS = "0x40eFb45552EDfB2502D90A657a8ab41F03ec460d"
 FACILITATOR_URL = os.getenv("FACILITATOR_URL", "https://facilitator.memchat.io")
 

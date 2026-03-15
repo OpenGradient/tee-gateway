@@ -14,7 +14,7 @@ import os
 # Network IDs (EIP-155 chain identifiers)
 # ---------------------------------------------------------------------------
 
-# Lavanet EVM — where USDC payments are accepted
+# OG EVM — where USDC payments are accepted
 EVM_NETWORK: str = "eip155:10740"
 
 # Base Testnet — where OPG payments are accepted

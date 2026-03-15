@@ -151,7 +151,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
 
         return ChatOpenAI(
             model=api_name,
-            api_key=api_key,
+            api_key=SecretStr(api_key),
             temperature=effective_temp,
             max_tokens=max_tokens,
             http_client=openai_http_client,

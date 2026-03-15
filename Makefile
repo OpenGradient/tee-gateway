@@ -20,9 +20,9 @@ all: run
 .PHONY: image
 image: $(image_tar)
 
-$(image_tar): Dockerfile scripts/start.sh requirements.txt
+$(image_tar): Dockerfile scripts/start.sh pyproject.toml uv.lock
 	find tee_gateway -exec touch -t 202311150000 {} \;
-	touch -t 202311150000 scripts/start.sh Dockerfile requirements.txt
+	touch -t 202311150000 scripts/start.sh Dockerfile pyproject.toml uv.lock
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) docker run \
 		-v $(PWD):/workspace \
 		-e SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \

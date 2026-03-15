@@ -42,10 +42,13 @@ RUN echo 'Dir::Log "/dev/null";' > /etc/apt/apt.conf.d/00no-log \
 COPY --from=builder /nitriding-daemon/nitriding /bin/nitriding
 COPY --from=builder /bin/start.sh /bin/start.sh
 
-# Install Python dependencies
-COPY requirements.txt /app/requirements.txt
-ENV PYTHONDONTWRITEBYTECODE=1
-RUN pip install --no-cache-dir --only-binary=:all: --no-compile -r /app/requirements.txt
+# Install uv for deterministic dependency installation from lockfile
+COPY --from=ghcr.io/astral-sh/uv:0.7.3 /uv /usr/local/bin/uv
+
+# Install Python dependencies from lockfile (exact versions + hashes)
+COPY pyproject.toml uv.lock /app/
+ENV PYTHONDONTWRITEBYTECODE=1 UV_SYSTEM_PYTHON=1
+RUN cd /app && uv sync --frozen --no-dev --no-install-project
 
 # Copy the tee_gateway package
 COPY tee_gateway /app/tee_gateway

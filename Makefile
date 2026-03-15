@@ -86,6 +86,12 @@ test-local:
 	#   export OPENAI_API_KEY=...  ANTHROPIC_API_KEY=...  etc.
 	python3 -m tee_gateway
 
+.PHONY: lint
+lint:
+	python3 -m ruff check tee_gateway
+	python3 -m ruff format --check tee_gateway
+	python3 -m mypy tee_gateway
+
 .PHONY: mypy
 mypy:
 	python3 -m mypy tee_gateway
@@ -103,6 +109,7 @@ help:
 	@echo "  make get-tls-cert   - Print the nitriding TLS certificate"
 	@echo ""
 	@echo "  make test-local     - Run server locally without TEE (development)"
+	@echo "  make lint           - Run ruff check, ruff format --check, and mypy"
 	@echo "  make mypy           - Run mypy type checker on tee_gateway"
 	@echo ""
 	@echo "  LLM endpoints (/v1/chat/completions, /v1/completions) require x402"

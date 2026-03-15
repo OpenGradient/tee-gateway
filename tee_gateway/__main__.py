@@ -24,10 +24,11 @@ from x402v2.http.middleware.flask import payment_middleware
 from x402v2.http.types import RouteConfig
 from x402v2.mechanisms.evm.exact import ExactEvmServerScheme
 from x402v2.mechanisms.evm.upto import UptoEvmServerScheme
-from x402v2.schemas import AssetAmount, Network
+from x402v2.schemas import AssetAmount
 from x402v2.server import x402ResourceServerSync
 from x402v2.session import SessionStore
 import x402v2.http.middleware.flask as x402_flask
+
 from .util import dynamic_session_cost_calculator
 from .definitions import (
     EVM_NETWORK,
@@ -38,6 +39,7 @@ from .definitions import (
     CHAT_COMPLETIONS_USDC_AMOUNT,
     CHAT_COMPLETIONS_OPG_AMOUNT,
     COMPLETIONS_USDC_AMOUNT,
+    FACILITATOR_URL,
 )
 
 # Configure logging
@@ -81,10 +83,6 @@ def _shutdown_heartbeat():
 
 
 atexit.register(_shutdown_heartbeat)
-
-
-EVM_PAYMENT_ADDRESS = "0x40eFb45552EDfB2502D90A657a8ab41F03ec460d"
-FACILITATOR_URL = os.getenv("FACILITATOR_URL", "https://facilitator.memchat.io")
 
 facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=FACILITATOR_URL))
 server = x402ResourceServerSync(facilitator)

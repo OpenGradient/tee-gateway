@@ -1,10 +1,12 @@
 # Build nitriding from source
-FROM golang:latest as builder
+FROM golang:1.25 as builder
 
 WORKDIR /
 
 # Clone the repository and build the stand-alone nitriding executable.
-RUN git clone https://github.com/brave/nitriding-daemon.git
+ARG NITRIDING_COMMIT=2b7dfefaee56819681b7f5a4ee8d66a417ad457d
+RUN git clone https://github.com/brave/nitriding-daemon.git && \
+    cd nitriding-daemon && git checkout ${NITRIDING_COMMIT}
 ARG TARGETARCH
 RUN ARCH=${TARGETARCH} make -C nitriding-daemon/ nitriding
 
@@ -14,7 +16,7 @@ RUN chown root:root /bin/start.sh
 RUN chmod 0755 /bin/start.sh
 
 # ---------- Final image ----------
-FROM python:3.12-slim-bullseye
+FROM python:3.12.10-slim-bullseye
 
 # API keys are NOT set here — they are injected at runtime via POST /v1/keys
 # after the enclave starts, keeping PCR measurements stable across deployments.

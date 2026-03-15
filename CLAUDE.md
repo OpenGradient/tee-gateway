@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OpenGradient TEE-gateway is an LLM routing service designed to run within AWS Nitro Enclave TEE (Trusted Execution Environment). It provides a secure, cryptographically verifiable interface to multiple LLM providers (OpenAI, Anthropic, Google Gemini, xAI Grok) with remote attestation, response signing, and x402v2 micropayment access control.
 
+The repo must provide a stable AWS Nitro PCR when the code doesn't change in order to allow anyone to reproduce the PCRs locally by building the image as a way to verify what code we are running.
+
 ## Project Structure highlighting core files
 
 ```

@@ -14,6 +14,7 @@ from typing import List, Dict, Optional, Any
 from functools import lru_cache
 
 import httpx
+from pydantic import SecretStr
 from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
@@ -165,7 +166,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
 
         return ChatAnthropic(
             model=api_name,
-            api_key=api_key,
+            api_key=SecretStr(api_key),
             temperature=effective_temp,
             max_tokens=max_tokens,
             timeout=ANTHROPIC_TIMEOUT,
@@ -180,7 +181,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
 
         return ChatXAI(
             model=api_name,
-            api_key=api_key,
+            api_key=SecretStr(api_key),
             temperature=effective_temp,
             max_tokens=max_tokens,
             http_client=xai_http_client,

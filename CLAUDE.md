@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OpenGradient TEE-gateway is an LLM routing service designed to run within AWS Nitro Enclave TEE (Trusted Execution Environment). It provides a secure, cryptographically verifiable interface to multiple LLM providers (OpenAI, Anthropic, Google Gemini, xAI Grok) with remote attestation, response signing, and x402v2 micropayment access control.
 
-## Project Structure
+## Project Structure highlighting core files
 
 ```
 ├── tee_gateway/             # Main application package (Flask/connexion)
@@ -15,10 +15,7 @@ OpenGradient TEE-gateway is an LLM routing service designed to run within AWS Ni
 │   ├── tee_manager.py       # TEE key generation, nitriding registration, response signing
 │   ├── model_registry.py    # Model config and per-token pricing
 │   ├── definitions.py       # On-chain addresses, network IDs, payment amounts
-│   ├── util.py              # Deserialization helpers, dynamic cost calculator
 │   ├── facilitator_api.py   # x402 facilitator API client
-│   ├── encoder.py           # JSON encoder for OpenAPI models
-│   ├── typing_utils.py      # Generic type helpers
 │   ├── heartbeat/           # Heartbeat/health monitoring
 │   ├── controllers/         # Request handlers (chat, completions, security)
 │   ├── models/              # OpenAI-compatible Pydantic models
@@ -27,11 +24,7 @@ OpenGradient TEE-gateway is an LLM routing service designed to run within AWS Ni
 ├── scripts/
 │   ├── start.sh             # Enclave startup script (nitriding + server)
 │   ├── run-enclave.sh       # EC2 host launcher (gvproxy, EIF, key injection)
-│   └── stresstest.sh        # Load testing
 ├── examples/                # Client-side verification examples
-│   ├── verify_attestation.py
-│   ├── verify_signature_example.py
-│   └── requirements.txt
 ├── pyproject.toml           # Project metadata and dependencies (managed by uv)
 ├── uv.lock                  # Locked dependency versions and hashes
 ├── Dockerfile               # Multi-stage: nitriding builder + python:3.12-slim-bullseye + uv

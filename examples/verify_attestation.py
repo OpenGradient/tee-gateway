@@ -74,7 +74,7 @@ def get_attestation(url: str, nonce: str) -> str:
         return None
 
     # Return the output of the curl command
-    if result.stdout == None:
+    if result.stdout is None:
         print("Curl command result was None")
 
     return result.stdout
@@ -197,7 +197,6 @@ def verify_attestation_doc(attestation_string: str) -> None:
     cert_public_numbers = cert.get_pubkey().to_cryptography_key().public_numbers()
     x = cert_public_numbers.x
     y = cert_public_numbers.y
-    curve = cert_public_numbers.curve
 
     x = long_to_bytes(x)
     y = long_to_bytes(y)

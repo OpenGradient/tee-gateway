@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import List, Dict
 from unittest.mock import patch, MagicMock
 from dotenv import load_dotenv
+from fastapi.testclient import TestClient
 
 # Add src/ to path so we can import server
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -24,8 +25,6 @@ required_keys = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "XAI_A
 missing_keys = [key for key in required_keys if not os.getenv(key)]
 if missing_keys:
     raise ValueError(f"Missing required API keys in .env: {', '.join(missing_keys)}")
-
-from fastapi.testclient import TestClient
 
 # Mock the TEE key manager registration before importing the app
 with patch("urllib.request.urlopen"):

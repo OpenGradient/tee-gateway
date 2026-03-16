@@ -12,6 +12,8 @@ from typing import Optional
 # Heartbeat defaults
 DEFAULT_HEARTBEAT_INTERVAL = 900  # 15 minutes
 DEFAULT_FACILITATOR_TIMEOUT = 20  # seconds
+HEARTBEAT_MAX_RETRIES = 3
+HEARTBEAT_RETRY_DELAY = 10  # seconds
 
 
 @dataclass(frozen=True)

@@ -12,11 +12,11 @@ the heartbeat loop starts.
 Signed message:  keccak256(abi.encodePacked(teeId, timestamp))
 TEE ID:          keccak256(publicKeyDER)
 
-Enabled via environment variables:
-    HEARTBEAT_CONTRACT_ADDRESS    — TEERegistry contract address
-    HEARTBEAT_FACILITATOR_URL     — Facilitator base URL (must expose POST /heartbeat)
-    TEE_HEARTBEAT_INTERVAL        — Seconds between pings (default 900 = 15 min)
-    HEARTBEAT_FACILITATOR_TIMEOUT — HTTP timeout seconds (default 20)
+Configured via HeartbeatConfig (injected at runtime via POST /v1/keys):
+    contract_address   — TEERegistry contract address
+    facilitator_url    — Facilitator base URL (must expose POST /heartbeat)
+    interval           — Seconds between pings (default 900 = 15 min)
+    facilitator_timeout — HTTP timeout seconds (default 20)
 
 Also requires the TEEKeyManager (tee_keys) for RSA signing.
 """
@@ -31,12 +31,15 @@ from eth_hash.auto import keccak
 from cryptography.hazmat.primitives import serialization
 import httpx
 
-from tee_gateway.config import HeartbeatConfig
+from tee_gateway.config import (
+    DEFAULT_FACILITATOR_TIMEOUT,
+    DEFAULT_HEARTBEAT_INTERVAL,
+    HEARTBEAT_HEARTBEAT_MAX_RETRIES,
+    HEARTBEAT_HEARTBEAT_RETRY_DELAY,
+    HeartbeatConfig,
+)
 
 logger = logging.getLogger("heartbeat")
-
-MAX_RETRIES = 3
-RETRY_DELAY = 10  # seconds
 
 
 class HeartbeatService:
@@ -127,7 +130,7 @@ class HeartbeatService:
 
     def _send_heartbeat(self) -> bool:
         """Sign and relay heartbeat transaction via facilitator. Returns True on success."""
-        for attempt in range(1, MAX_RETRIES + 1):
+        for attempt in range(1, HEARTBEAT_MAX_RETRIES + 1):
             try:
                 timestamp = int(time.time())
                 signature = self._sign_heartbeat(timestamp)
@@ -146,13 +149,13 @@ class HeartbeatService:
                 self.last_error = str(e)
                 self.total_errors += 1
                 logger.warning(
-                    "Heartbeat attempt %d/%d failed: %s", attempt, MAX_RETRIES, e
+                    "Heartbeat attempt %d/%d failed: %s", attempt, HEARTBEAT_MAX_RETRIES, e
                 )
-                if attempt < MAX_RETRIES:
-                    if self._stop_event.wait(timeout=RETRY_DELAY):
+                if attempt < HEARTBEAT_MAX_RETRIES:
+                    if self._stop_event.wait(timeout=HEARTBEAT_RETRY_DELAY):
                         return False
 
-        logger.error("Heartbeat failed after %d attempts", MAX_RETRIES)
+        logger.error("Heartbeat failed after %d attempts", HEARTBEAT_MAX_RETRIES)
         return False
 
     def _run_loop(self):

@@ -8,8 +8,6 @@ called from the Flask/connexion controllers.
 
 import json
 import logging
-import threading
-from dataclasses import dataclass
 from typing import List, Dict, Optional, Any
 from functools import lru_cache
 
@@ -27,6 +25,7 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_xai import ChatXAI
 
+from tee_gateway.config import ProviderConfig
 from tee_gateway.model_registry import get_model_config
 
 logger = logging.getLogger(__name__)
@@ -54,50 +53,40 @@ openai_http_client: Optional[httpx.Client] = None
 xai_http_client: Optional[httpx.Client] = None
 
 
-@dataclass(frozen=True)
-class ProviderConfig:
-    openai_api_key: Optional[str] = None
-    anthropic_api_key: Optional[str] = None
-    google_api_key: Optional[str] = None
-    xai_api_key: Optional[str] = None
-
-
 _provider_config: Optional[ProviderConfig] = None
-_config_lock = threading.Lock()
 
 
 def set_provider_config(config: ProviderConfig) -> None:
     """Store the provider config and rebuild HTTP clients. Called once after key injection."""
     global _provider_config, openai_http_client, xai_http_client
 
-    with _config_lock:
-        old_openai = openai_http_client
-        old_xai = xai_http_client
+    old_openai = openai_http_client
+    old_xai = xai_http_client
 
-        openai_http_client = httpx.Client(
-            base_url="https://api.openai.com/v1",
-            headers={"Authorization": f"Bearer {config.openai_api_key or ''}"},
-            timeout=_TIMEOUT,
-            limits=_LIMITS,
-            http2=True,
-            follow_redirects=False,
-        )
-        xai_http_client = httpx.Client(
-            base_url="https://api.x.ai/v1",
-            headers={"Authorization": f"Bearer {config.xai_api_key or ''}"},
-            timeout=_TIMEOUT,
-            limits=_LIMITS,
-            http2=True,
-            follow_redirects=False,
-        )
+    openai_http_client = httpx.Client(
+        base_url="https://api.openai.com/v1",
+        headers={"Authorization": f"Bearer {config.openai_api_key or ''}"},
+        timeout=_TIMEOUT,
+        limits=_LIMITS,
+        http2=True,
+        follow_redirects=False,
+    )
+    xai_http_client = httpx.Client(
+        base_url="https://api.x.ai/v1",
+        headers={"Authorization": f"Bearer {config.xai_api_key or ''}"},
+        timeout=_TIMEOUT,
+        limits=_LIMITS,
+        http2=True,
+        follow_redirects=False,
+    )
 
-        get_chat_model_cached.cache_clear()
-        _provider_config = config
+    get_chat_model_cached.cache_clear()
+    _provider_config = config
 
-        if old_openai is not None:
-            old_openai.close()
-        if old_xai is not None:
-            old_xai.close()
+    if old_openai is not None:
+        old_openai.close()
+    if old_xai is not None:
+        old_xai.close()
 
 
 def get_provider_config() -> Optional[ProviderConfig]:

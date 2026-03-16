@@ -25,27 +25,18 @@ import logging
 import base64
 import time
 import threading
-from dataclasses import dataclass
 from typing import Optional
 
 from eth_hash.auto import keccak
 from cryptography.hazmat.primitives import serialization
 import httpx
 
+from tee_gateway.config import HeartbeatConfig
+
 logger = logging.getLogger("heartbeat")
 
-DEFAULT_HEARTBEAT_INTERVAL = 900  # 15 minutes
-DEFAULT_FACILITATOR_TIMEOUT = 20  # seconds
 MAX_RETRIES = 3
 RETRY_DELAY = 10  # seconds
-
-
-@dataclass(frozen=True)
-class HeartbeatConfig:
-    contract_address: str
-    facilitator_url: str
-    interval: int = DEFAULT_HEARTBEAT_INTERVAL
-    facilitator_timeout: int = DEFAULT_FACILITATOR_TIMEOUT
 
 
 class HeartbeatService:

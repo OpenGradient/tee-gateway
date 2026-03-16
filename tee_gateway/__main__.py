@@ -16,8 +16,9 @@ import connexion
 from flask import jsonify, request
 from tee_gateway import encoder
 from tee_gateway.tee_manager import initialize_tee, get_tee_keys
-from tee_gateway.llm_backend import ProviderConfig, set_provider_config
-from tee_gateway.heartbeat import HeartbeatConfig, create_heartbeat_service
+from tee_gateway.config import HeartbeatConfig, ProviderConfig
+from tee_gateway.llm_backend import set_provider_config
+from tee_gateway.heartbeat import create_heartbeat_service
 
 from x402v2.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
 from x402v2.http.middleware.flask import payment_middleware

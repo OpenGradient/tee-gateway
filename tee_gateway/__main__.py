@@ -16,7 +16,8 @@ import connexion
 from flask import jsonify, request
 from tee_gateway import encoder
 from tee_gateway.tee_manager import initialize_tee, get_tee_keys
-from tee_gateway.llm_backend import reinitialize_http_clients
+from tee_gateway.config import HeartbeatConfig, ProviderConfig
+from tee_gateway.llm_backend import set_provider_config
 from tee_gateway.heartbeat import create_heartbeat_service
 
 from x402.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
@@ -60,8 +61,8 @@ logger = logging.getLogger(__name__)
 _heartbeat_service = None
 
 
-def _init_heartbeat():
-    """Create and start the heartbeat service if env vars are configured."""
+def _init_heartbeat(heartbeat_config: HeartbeatConfig | None):
+    """Create and start the heartbeat service if a HeartbeatConfig is provided."""
     global _heartbeat_service
 
     if _heartbeat_service is not None:
@@ -69,7 +70,7 @@ def _init_heartbeat():
         return
 
     tee_keys = get_tee_keys()
-    _heartbeat_service = create_heartbeat_service(tee_keys)
+    _heartbeat_service = create_heartbeat_service(tee_keys, heartbeat_config)
     if _heartbeat_service is None:
         return
 
@@ -171,59 +172,68 @@ def set_provider_keys():
         if not body:
             return jsonify({"error": "JSON body required"}), 400
 
-        # Inject LLM provider keys into the environment
-        if body.get("openai_api_key"):
-            os.environ["OPENAI_API_KEY"] = body["openai_api_key"]
-        if body.get("google_api_key"):
-            os.environ["GOOGLE_API_KEY"] = body["google_api_key"]
-        if body.get("anthropic_api_key"):
-            os.environ["ANTHROPIC_API_KEY"] = body["anthropic_api_key"]
-        if body.get("xai_api_key"):
-            os.environ["XAI_API_KEY"] = body["xai_api_key"]
-
-        # Inject heartbeat configuration into the environment
-        if body.get("heartbeat_contract_address"):
-            os.environ["HEARTBEAT_CONTRACT_ADDRESS"] = body[
-                "heartbeat_contract_address"
-            ]
-        if body.get("heartbeat_facilitator_url"):
-            os.environ["HEARTBEAT_FACILITATOR_URL"] = body["heartbeat_facilitator_url"]
-        if body.get("tee_heartbeat_interval"):
-            os.environ["TEE_HEARTBEAT_INTERVAL"] = str(body["tee_heartbeat_interval"])
-
-        def _key_status(env_var: str) -> str:
-            return "set" if os.environ.get(env_var) else "NOT SET"
-
-        logger.info("ENV check after injection:")
-        logger.info("  OPENAI_API_KEY              : %s", _key_status("OPENAI_API_KEY"))
-        logger.info("  GOOGLE_API_KEY              : %s", _key_status("GOOGLE_API_KEY"))
-        logger.info(
-            "  ANTHROPIC_API_KEY           : %s", _key_status("ANTHROPIC_API_KEY")
+        # Build provider config from request body
+        provider_config = ProviderConfig(
+            openai_api_key=body.get("openai_api_key") or None,
+            anthropic_api_key=body.get("anthropic_api_key") or None,
+            google_api_key=body.get("google_api_key") or None,
+            xai_api_key=body.get("xai_api_key") or None,
         )
-        logger.info("  XAI_API_KEY                 : %s", _key_status("XAI_API_KEY"))
-        logger.info(
-            "  HEARTBEAT_CONTRACT_ADDRESS  : %s",
-            _key_status("HEARTBEAT_CONTRACT_ADDRESS"),
+        set_provider_config(provider_config)
+
+        # Build heartbeat config from request body (optional)
+        contract_address = body.get("heartbeat_contract_address")
+        facilitator_url = body.get("heartbeat_facilitator_url") or os.getenv(
+            "FACILITATOR_URL"
         )
+        heartbeat_config: HeartbeatConfig | None = None
+        if contract_address and facilitator_url:
+            try:
+                interval = int(body.get("tee_heartbeat_interval", 900))
+            except (ValueError, TypeError):
+                interval = 900
+            heartbeat_config = HeartbeatConfig(
+                contract_address=contract_address,
+                facilitator_url=facilitator_url,
+                interval=interval,
+            )
+
+        def _set(val: str | None) -> str:
+            return "set" if val else "NOT SET"
+
+        logger.info("Config check after injection:")
         logger.info(
-            "  HEARTBEAT_FACILITATOR_URL   : %s",
-            _key_status("HEARTBEAT_FACILITATOR_URL"),
+            "  openai_api_key              : %s", _set(provider_config.openai_api_key)
         )
         logger.info(
-            "  TEE_HEARTBEAT_INTERVAL      : %s",
-            os.environ.get("TEE_HEARTBEAT_INTERVAL", "900 (default)"),
+            "  google_api_key              : %s", _set(provider_config.google_api_key)
+        )
+        logger.info(
+            "  anthropic_api_key           : %s",
+            _set(provider_config.anthropic_api_key),
+        )
+        logger.info(
+            "  xai_api_key                 : %s", _set(provider_config.xai_api_key)
+        )
+        logger.info(
+            "  heartbeat_contract_address  : %s",
+            _set(heartbeat_config.contract_address if heartbeat_config else None),
+        )
+        logger.info(
+            "  heartbeat_facilitator_url   : %s",
+            _set(heartbeat_config.facilitator_url if heartbeat_config else None),
+        )
+        logger.info(
+            "  tee_heartbeat_interval      : %s",
+            heartbeat_config.interval if heartbeat_config else "900 (default)",
         )
         logger.info(
             "  HEARTBEAT_WALLET (TEE-gen)  : %s", get_tee_keys().get_wallet_address()
         )
 
-        # Rebuild HTTP clients with the new Authorization headers and clear
-        # the model cache so subsequent requests use fresh instances.
-        reinitialize_http_clients()
-
-        # Start heartbeat service now that env vars are available
+        # Start heartbeat service if configured
         try:
-            _init_heartbeat()
+            _init_heartbeat(heartbeat_config)
         except Exception as e:
             logger.warning(f"Heartbeat initialization failed: {e}")
 
@@ -232,26 +242,19 @@ def set_provider_keys():
     providers_set = [
         p
         for p, k in {
-            "openai": body.get("openai_api_key"),
-            "google": body.get("google_api_key"),
-            "anthropic": body.get("anthropic_api_key"),
-            "xai": body.get("xai_api_key"),
+            "openai": provider_config.openai_api_key,
+            "google": provider_config.google_api_key,
+            "anthropic": provider_config.anthropic_api_key,
+            "xai": provider_config.xai_api_key,
         }.items()
         if k
     ]
-    heartbeat_configured = all(
-        [
-            os.environ.get("HEARTBEAT_CONTRACT_ADDRESS"),
-            os.environ.get("HEARTBEAT_FACILITATOR_URL")
-            or os.environ.get("FACILITATOR_URL"),
-        ]
-    )
 
     return jsonify(
         {
             "status": "ok",
             "providers_initialized": providers_set,
-            "heartbeat_enabled": heartbeat_configured,
+            "heartbeat_enabled": heartbeat_config is not None,
         }
     ), 200
 

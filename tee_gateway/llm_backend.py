@@ -6,10 +6,8 @@ and shared HTTP clients. Replaces src/server.py as the direct LLM backend
 called from the Flask/connexion controllers.
 """
 
-import os
 import json
 import logging
-import threading
 from typing import List, Dict, Optional, Any
 from functools import lru_cache
 
@@ -27,6 +25,7 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_xai import ChatXAI
 
+from tee_gateway.config import ProviderConfig
 from tee_gateway.model_registry import get_model_config
 
 logger = logging.getLogger(__name__)
@@ -49,63 +48,49 @@ _LIMITS = httpx.Limits(
 )
 
 # Shared synchronous HTTP clients for each provider.
-# These are rebuilt by reinitialize_http_clients() after key injection.
-openai_http_client = httpx.Client(
-    base_url="https://api.openai.com/v1",
-    headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY', '')}"},
-    timeout=_TIMEOUT,
-    limits=_LIMITS,
-    http2=True,
-    follow_redirects=False,
-)
-
-xai_http_client = httpx.Client(
-    base_url="https://api.x.ai/v1",
-    headers={"Authorization": f"Bearer {os.getenv('XAI_API_KEY', '')}"},
-    timeout=_TIMEOUT,
-    limits=_LIMITS,
-    http2=True,
-    follow_redirects=False,
-)
-
-_clients_lock = threading.Lock()
+# Initialized to None; built by set_provider_config() after key injection.
+openai_http_client: Optional[httpx.Client] = None
+xai_http_client: Optional[httpx.Client] = None
 
 
-def reinitialize_http_clients():
-    """Recreate shared HTTP clients with updated API keys and clear the model cache.
+_provider_config: Optional[ProviderConfig] = None
 
-    Call this after injecting new provider API keys so that the new
-    Authorization headers are picked up by subsequent requests.
-    """
-    global openai_http_client, xai_http_client
 
-    with _clients_lock:
-        old_openai = openai_http_client
-        old_xai = xai_http_client
+def set_provider_config(config: ProviderConfig) -> None:
+    """Store the provider config and rebuild HTTP clients. Called once after key injection."""
+    global _provider_config, openai_http_client, xai_http_client
 
-        openai_http_client = httpx.Client(
-            base_url="https://api.openai.com/v1",
-            headers={"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}"},
-            timeout=_TIMEOUT,
-            limits=_LIMITS,
-            http2=True,
-            follow_redirects=False,
-        )
-        xai_http_client = httpx.Client(
-            base_url="https://api.x.ai/v1",
-            headers={"Authorization": f"Bearer {os.environ.get('XAI_API_KEY', '')}"},
-            timeout=_TIMEOUT,
-            limits=_LIMITS,
-            http2=True,
-            follow_redirects=False,
-        )
+    old_openai = openai_http_client
+    old_xai = xai_http_client
 
-        # Invalidate the model cache so the next request creates fresh
-        # LangChain instances that read the newly set env-var keys.
-        get_chat_model_cached.cache_clear()
+    openai_http_client = httpx.Client(
+        base_url="https://api.openai.com/v1",
+        headers={"Authorization": f"Bearer {config.openai_api_key or ''}"},
+        timeout=_TIMEOUT,
+        limits=_LIMITS,
+        http2=True,
+        follow_redirects=False,
+    )
+    xai_http_client = httpx.Client(
+        base_url="https://api.x.ai/v1",
+        headers={"Authorization": f"Bearer {config.xai_api_key or ''}"},
+        timeout=_TIMEOUT,
+        limits=_LIMITS,
+        http2=True,
+        follow_redirects=False,
+    )
 
+    get_chat_model_cached.cache_clear()
+    _provider_config = config
+
+    if old_openai is not None:
         old_openai.close()
+    if old_xai is not None:
         old_xai.close()
+
+
+def get_provider_config() -> Optional[ProviderConfig]:
+    return _provider_config
 
 
 def get_provider_from_model(model: str) -> str:
@@ -116,11 +101,15 @@ def get_provider_from_model(model: str) -> str:
 
 @lru_cache(maxsize=32)
 def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
-    """Get cached chat model instance using environment API keys.
+    """Get cached chat model instance using the injected ProviderConfig.
 
     Models are cached by (model, temperature, max_tokens) tuple.
-    Call reinitialize_http_clients() to clear this cache after key injection.
+    Cache is cleared by set_provider_config() after key injection.
     """
+    config = _provider_config
+    if config is None:
+        raise ValueError("Provider keys have not been initialized yet")
+
     cfg = get_model_config(model)
     provider = cfg.provider
     api_name = cfg.api_name
@@ -131,13 +120,12 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
     logger.info(f"Creating cached chat model - Provider: {provider}, Model: {api_name}")
 
     if provider == "google":
-        api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError("GOOGLE_API_KEY not found in environment")
+        if not config.google_api_key:
+            raise ValueError("google_api_key not set in ProviderConfig")
 
         return ChatGoogleGenerativeAI(
             model=api_name,
-            google_api_key=api_key,
+            google_api_key=config.google_api_key,
             temperature=effective_temp,
             max_output_tokens=max_tokens,
             thinking_budget=cfg.thinking_budget,
@@ -145,28 +133,26 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         )
 
     elif provider == "openai":
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment")
+        if not config.openai_api_key:
+            raise ValueError("openai_api_key not set in ProviderConfig")
 
         return ChatOpenAI(
             model=api_name,
             temperature=effective_temp,
             max_tokens=max_tokens,
             http_client=openai_http_client,
-            api_key=SecretStr(api_key),
+            api_key=SecretStr(config.openai_api_key),
             streaming=True,
             stream_usage=True,
         )  # type: ignore [call-arg]
 
     elif provider == "anthropic":
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY not found in environment")
+        if not config.anthropic_api_key:
+            raise ValueError("anthropic_api_key not set in ProviderConfig")
 
         return ChatAnthropic(
             model=api_name,
-            api_key=SecretStr(api_key),
+            api_key=SecretStr(config.anthropic_api_key),
             temperature=effective_temp,
             max_tokens=max_tokens,
             timeout=ANTHROPIC_TIMEOUT,
@@ -175,13 +161,12 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         )  # type: ignore [call-arg]
 
     elif provider == "x-ai":
-        api_key = os.getenv("XAI_API_KEY")
-        if not api_key:
-            raise ValueError("XAI_API_KEY not found in environment")
+        if not config.xai_api_key:
+            raise ValueError("xai_api_key not set in ProviderConfig")
 
         return ChatXAI(
             model=api_name,
-            api_key=SecretStr(api_key),
+            api_key=SecretStr(config.xai_api_key),
             temperature=effective_temp,
             max_tokens=max_tokens,
             http_client=xai_http_client,

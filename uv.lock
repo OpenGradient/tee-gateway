@@ -1243,16 +1243,16 @@ wheels = [
 ]
 
 [[package]]
-name = "og-test-v2-x402"
-version = "0.0.11.dev5"
+name = "og-x402"
+version = "0.0.1.dev1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fd/89/3497555c788ceb25ae878e3684197aab425cc9f1b2bfbfeeb9dcfa550f01/og_test_v2_x402-0.0.11.dev5.tar.gz", hash = "sha256:0681c7dc3b42758c59c72fe1d9907cc0f0c469745e45b396c10c2ee5e4688194", size = 899885, upload-time = "2026-03-05T16:11:34.019Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6c/22/ffce1dac3875bd4d85cc4387eedf3be1d41ced92b29fbff22c5d0d2af257/og_x402-0.0.1.dev1.tar.gz", hash = "sha256:cb40451e988c1e3376e48c37a4cc5fd5058ca7834200da51076bd30e1ad83d66", size = 899655, upload-time = "2026-03-16T17:26:05.564Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f8/dd/ac4a376c98b421730daf4bab62e7eaa779286201db931df5c05b180eb4c4/og_test_v2_x402-0.0.11.dev5-py3-none-any.whl", hash = "sha256:24e1881cbac82a2e587b1a9d5cdf24293f9341300bf817765da6ed84790bb3ff", size = 952878, upload-time = "2026-03-05T16:11:32.343Z" },
+    { url = "https://files.pythonhosted.org/packages/1c/56/0d5eee73c45cfb409b9f87f3d555199c4e4d5a2c07b74ab312363cc6d644/og_x402-0.0.1.dev1-py3-none-any.whl", hash = "sha256:ffa09250097b25fad5c58105dd65e258468890d95be45ed9ff9f1ee6a7195c69", size = 952333, upload-time = "2026-03-16T17:26:03.325Z" },
 ]
 
 [package.optional-dependencies]
@@ -1835,7 +1835,7 @@ dependencies = [
     { name = "langchain-google-genai" },
     { name = "langchain-openai" },
     { name = "langchain-xai" },
-    { name = "og-test-v2-x402", extra = ["evm"] },
+    { name = "og-x402", extra = ["evm"] },
     { name = "openai" },
     { name = "psutil" },
     { name = "pydantic" },
@@ -1881,7 +1881,7 @@ requires-dist = [
     { name = "langchain-google-genai", specifier = ">=4.2.0" },
     { name = "langchain-openai", specifier = ">=0.3.35" },
     { name = "langchain-xai", specifier = ">=0.2.5" },
-    { name = "og-test-v2-x402", extras = ["evm"], specifier = "==0.0.11.dev5" },
+    { name = "og-x402", extras = ["evm"], specifier = "==0.0.1.dev1" },
     { name = "openai", specifier = ">=2.15.0" },
     { name = "psutil", specifier = ">=7.2.1" },
     { name = "pydantic", specifier = ">=2.12.5" },

@@ -41,7 +41,7 @@ EVM_PAYMENT_ADDRESS: str = os.getenv(
 # ERC-20 token contract addresses
 # ---------------------------------------------------------------------------
 
-# Optimistic USDC (OUSDC) on Lavanet
+# USDC Address
 USDC_ADDRESS: str = "0x094E464A23B90A71a0894D5D1e5D470FfDD074e1"
 
 # OpenGradient token (OPG) on Base Testnet

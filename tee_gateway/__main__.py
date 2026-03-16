@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 _heartbeat_service = None
 
 
-def _init_heartbeat(heartbeat_config: "HeartbeatConfig | None"):
+def _init_heartbeat(heartbeat_config: HeartbeatConfig | None):
     """Create and start the heartbeat service if a HeartbeatConfig is provided."""
     global _heartbeat_service
 

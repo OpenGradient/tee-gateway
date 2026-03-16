@@ -271,7 +271,7 @@ assert computed_hash == response["tee_request_hash"]
 
 ## Payment Model (x402)
 
-This gateway uses [x402v2](https://github.com/opengradient/x402) micropayments for access control. Clients pay per request using on-chain EVM transactions (USDC or OPG on supported networks).
+This gateway uses [x402](https://github.com/opengradient/x402) micropayments for access control. Clients pay per request using on-chain EVM transactions (USDC or OPG on supported networks).
 
 To operate your own gateway:
 1. Set `EVM_PAYMENT_ADDRESS` to your wallet address in `.env`

@@ -1,5 +1,5 @@
 """
-OpenAI-compatible API server with TEE integration and x402v2 payment middleware.
+OpenAI-compatible API server with TEE integration and x402 payment middleware.
 Runs inside a Nitro Enclave, proxied by nitriding on port 443.
 """
 
@@ -19,15 +19,15 @@ from tee_gateway.tee_manager import initialize_tee, get_tee_keys
 from tee_gateway.llm_backend import reinitialize_http_clients
 from tee_gateway.heartbeat import create_heartbeat_service
 
-from x402v2.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
-from x402v2.http.middleware.flask import payment_middleware
-from x402v2.http.types import RouteConfig
-from x402v2.mechanisms.evm.exact import ExactEvmServerScheme
-from x402v2.mechanisms.evm.upto import UptoEvmServerScheme
-from x402v2.schemas import AssetAmount
-from x402v2.server import x402ResourceServerSync
-from x402v2.session import SessionStore
-import x402v2.http.middleware.flask as x402_flask
+from x402.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
+from x402.http.middleware.flask import payment_middleware
+from x402.http.types import RouteConfig
+from x402.mechanisms.evm.exact import ExactEvmServerScheme
+from x402.mechanisms.evm.upto import UptoEvmServerScheme
+from x402.schemas import AssetAmount
+from x402.server import x402ResourceServerSync
+from x402.session import SessionStore
+import x402.http.middleware.flask as x402_flask
 
 from .util import dynamic_session_cost_calculator
 from .definitions import (
@@ -331,7 +331,7 @@ def create_app():
 
 
 # ---------------------------------------------------------------------------
-# WSGI application + x402v2 payment middleware
+# WSGI application + x402 payment middleware
 # ---------------------------------------------------------------------------
 
 # Create the WSGI application
@@ -364,7 +364,7 @@ payment_middleware(
     session_idle_timeout=100,
     session_cost_calculator=dynamic_session_cost_calculator,
 )
-logger.info("x402v2 payment middleware initialized")
+logger.info("x402 payment middleware initialized")
 
 if __name__ == "__main__":
     port = int(os.getenv("API_SERVER_PORT", "8000"))

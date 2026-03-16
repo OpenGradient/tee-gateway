@@ -201,10 +201,19 @@ def set_provider_keys():
             return "set" if val else "NOT SET"
 
         logger.info("Config check after injection:")
-        logger.info("  openai_api_key              : %s", _set(provider_config.openai_api_key))
-        logger.info("  google_api_key              : %s", _set(provider_config.google_api_key))
-        logger.info("  anthropic_api_key           : %s", _set(provider_config.anthropic_api_key))
-        logger.info("  xai_api_key                 : %s", _set(provider_config.xai_api_key))
+        logger.info(
+            "  openai_api_key              : %s", _set(provider_config.openai_api_key)
+        )
+        logger.info(
+            "  google_api_key              : %s", _set(provider_config.google_api_key)
+        )
+        logger.info(
+            "  anthropic_api_key           : %s",
+            _set(provider_config.anthropic_api_key),
+        )
+        logger.info(
+            "  xai_api_key                 : %s", _set(provider_config.xai_api_key)
+        )
         logger.info(
             "  heartbeat_contract_address  : %s",
             _set(heartbeat_config.contract_address if heartbeat_config else None),

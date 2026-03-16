@@ -34,8 +34,8 @@ import httpx
 from tee_gateway.config import (
     DEFAULT_FACILITATOR_TIMEOUT,
     DEFAULT_HEARTBEAT_INTERVAL,
-    HEARTBEAT_HEARTBEAT_MAX_RETRIES,
-    HEARTBEAT_HEARTBEAT_RETRY_DELAY,
+    HEARTBEAT_MAX_RETRIES,
+    HEARTBEAT_RETRY_DELAY,
     HeartbeatConfig,
 )
 
@@ -149,7 +149,10 @@ class HeartbeatService:
                 self.last_error = str(e)
                 self.total_errors += 1
                 logger.warning(
-                    "Heartbeat attempt %d/%d failed: %s", attempt, HEARTBEAT_MAX_RETRIES, e
+                    "Heartbeat attempt %d/%d failed: %s",
+                    attempt,
+                    HEARTBEAT_MAX_RETRIES,
+                    e,
                 )
                 if attempt < HEARTBEAT_MAX_RETRIES:
                     if self._stop_event.wait(timeout=HEARTBEAT_RETRY_DELAY):

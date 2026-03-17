@@ -16,7 +16,11 @@ import connexion
 from flask import jsonify, request
 from tee_gateway import encoder
 from tee_gateway.tee_manager import initialize_tee, get_tee_keys
-from tee_gateway.config import HeartbeatConfig, ProviderConfig, DEFAULT_HEARTBEAT_INTERVAL
+from tee_gateway.config import (
+    HeartbeatConfig,
+    ProviderConfig,
+    DEFAULT_HEARTBEAT_INTERVAL,
+)
 from tee_gateway.llm_backend import set_provider_config
 from tee_gateway.heartbeat import create_heartbeat_service
 
@@ -190,7 +194,9 @@ def set_provider_keys():
         )
         heartbeat_config: HeartbeatConfig | None = None
         if contract_address and facilitator_url:
-            interval_raw = body.get("tee_heartbeat_interval", DEFAULT_HEARTBEAT_INTERVAL)
+            interval_raw = body.get(
+                "tee_heartbeat_interval", DEFAULT_HEARTBEAT_INTERVAL
+            )
             try:
                 interval = int(interval_raw)
             except (ValueError, TypeError):

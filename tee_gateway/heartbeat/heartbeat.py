@@ -12,16 +12,15 @@ the heartbeat loop starts.
 Signed message:  keccak256(abi.encodePacked(teeId, timestamp))
 TEE ID:          keccak256(publicKeyDER)
 
-Enabled via environment variables:
-    HEARTBEAT_CONTRACT_ADDRESS    — TEERegistry contract address
-    HEARTBEAT_FACILITATOR_URL     — Facilitator base URL (must expose POST /heartbeat)
-    TEE_HEARTBEAT_INTERVAL        — Seconds between pings (default 900 = 15 min)
-    HEARTBEAT_FACILITATOR_TIMEOUT — HTTP timeout seconds (default 20)
+Configured via HeartbeatConfig (injected at runtime via POST /v1/keys):
+    contract_address   — TEERegistry contract address
+    facilitator_url    — Facilitator base URL (must expose POST /heartbeat)
+    interval           — Seconds between pings (default 900 = 15 min)
+    facilitator_timeout — HTTP timeout seconds (default 20)
 
 Also requires the TEEKeyManager (tee_keys) for RSA signing.
 """
 
-import os
 import logging
 import base64
 import time
@@ -32,12 +31,15 @@ from eth_hash.auto import keccak
 from cryptography.hazmat.primitives import serialization
 import httpx
 
-logger = logging.getLogger("heartbeat")
+from tee_gateway.config import (
+    DEFAULT_FACILITATOR_TIMEOUT,
+    DEFAULT_HEARTBEAT_INTERVAL,
+    HEARTBEAT_MAX_RETRIES,
+    HEARTBEAT_RETRY_DELAY,
+    HeartbeatConfig,
+)
 
-DEFAULT_HEARTBEAT_INTERVAL = 900  # 15 minutes
-DEFAULT_FACILITATOR_TIMEOUT = 20  # seconds
-MAX_RETRIES = 3
-RETRY_DELAY = 10  # seconds
+logger = logging.getLogger("heartbeat")
 
 
 class HeartbeatService:
@@ -128,7 +130,7 @@ class HeartbeatService:
 
     def _send_heartbeat(self) -> bool:
         """Sign and relay heartbeat transaction via facilitator. Returns True on success."""
-        for attempt in range(1, MAX_RETRIES + 1):
+        for attempt in range(1, HEARTBEAT_MAX_RETRIES + 1):
             try:
                 timestamp = int(time.time())
                 signature = self._sign_heartbeat(timestamp)
@@ -147,13 +149,16 @@ class HeartbeatService:
                 self.last_error = str(e)
                 self.total_errors += 1
                 logger.warning(
-                    "Heartbeat attempt %d/%d failed: %s", attempt, MAX_RETRIES, e
+                    "Heartbeat attempt %d/%d failed: %s",
+                    attempt,
+                    HEARTBEAT_MAX_RETRIES,
+                    e,
                 )
-                if attempt < MAX_RETRIES:
-                    if self._stop_event.wait(timeout=RETRY_DELAY):
+                if attempt < HEARTBEAT_MAX_RETRIES:
+                    if self._stop_event.wait(timeout=HEARTBEAT_RETRY_DELAY):
                         return False
 
-        logger.error("Heartbeat failed after %d attempts", MAX_RETRIES)
+        logger.error("Heartbeat failed after %d attempts", HEARTBEAT_MAX_RETRIES)
         return False
 
     def _run_loop(self):
@@ -213,52 +218,18 @@ class HeartbeatService:
         }
 
 
-def create_heartbeat_service(tee_keys) -> Optional["HeartbeatService"]:
-    """Create a HeartbeatService from env vars + TEE keys, or None if not configured.
-
-    Env vars are read at call time (not import time) because they are
-    injected into the enclave at runtime via POST /v1/keys.
-    """
-    contract_address = os.getenv("HEARTBEAT_CONTRACT_ADDRESS")
-    facilitator_url = os.getenv("HEARTBEAT_FACILITATOR_URL") or os.getenv(
-        "FACILITATOR_URL"
-    )
-
-    if not contract_address or not facilitator_url:
-        logger.info(
-            "Heartbeat disabled (set HEARTBEAT_CONTRACT_ADDRESS and "
-            "HEARTBEAT_FACILITATOR_URL or FACILITATOR_URL to enable)"
-        )
+def create_heartbeat_service(
+    tee_keys, config: Optional["HeartbeatConfig"]
+) -> Optional["HeartbeatService"]:
+    """Create a HeartbeatService from a HeartbeatConfig + TEE keys, or None if not configured."""
+    if config is None:
+        logger.info("Heartbeat disabled (no HeartbeatConfig provided)")
         return None
 
-    try:
-        interval = int(
-            os.getenv("TEE_HEARTBEAT_INTERVAL", str(DEFAULT_HEARTBEAT_INTERVAL))
-        )
-    except (ValueError, TypeError):
-        logger.warning(
-            "Invalid TEE_HEARTBEAT_INTERVAL=%r, falling back to default %ds",
-            os.getenv("TEE_HEARTBEAT_INTERVAL"),
-            DEFAULT_HEARTBEAT_INTERVAL,
-        )
-        interval = DEFAULT_HEARTBEAT_INTERVAL
-
-    try:
-        facilitator_timeout = int(
-            os.getenv("HEARTBEAT_FACILITATOR_TIMEOUT", str(DEFAULT_FACILITATOR_TIMEOUT))
-        )
-    except (ValueError, TypeError):
-        logger.warning(
-            "Invalid HEARTBEAT_FACILITATOR_TIMEOUT=%r, falling back to default %ds",
-            os.getenv("HEARTBEAT_FACILITATOR_TIMEOUT"),
-            DEFAULT_FACILITATOR_TIMEOUT,
-        )
-        facilitator_timeout = DEFAULT_FACILITATOR_TIMEOUT
-
     return HeartbeatService(
-        contract_address=contract_address,
-        facilitator_url=facilitator_url,
+        contract_address=config.contract_address,
+        facilitator_url=config.facilitator_url,
         tee_keys=tee_keys,
-        interval=interval,
-        facilitator_timeout=facilitator_timeout,
+        interval=config.interval,
+        facilitator_timeout=config.facilitator_timeout,
     )

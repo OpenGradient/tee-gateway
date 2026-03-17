@@ -49,8 +49,11 @@ COPY --from=ghcr.io/astral-sh/uv:0.7.3 /uv /usr/local/bin/uv
 
 # Install Python dependencies from lockfile (exact versions + hashes)
 COPY pyproject.toml uv.lock /app/
-ENV PYTHONDONTWRITEBYTECODE=1 UV_SYSTEM_PYTHON=1
+ENV PYTHONDONTWRITEBYTECODE=1
 RUN cd /app && uv sync --frozen --no-dev --no-install-project
+ 
+# Prepend the venv bin directory so python3/pip resolve to the venv
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy the tee_gateway package
 COPY tee_gateway /app/tee_gateway

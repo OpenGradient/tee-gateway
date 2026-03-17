@@ -77,7 +77,7 @@ Server configuration:
 ### Core Flow
 
 1. **TEEKeyManager** (`tee_manager.py`) generates RSA-2048 key pair on startup and registers the public key hash with the nitriding daemon
-2. Incoming requests pass through x402v2 payment middleware before reaching handlers
+2. Incoming requests pass through x402 payment middleware before reaching handlers
 3. Requests are routed to the appropriate LLM provider via LangChain (`llm_backend.py`)
 4. All responses are signed with RSA-PSS-SHA256 over `keccak256(requestHash || outputHash || timestamp)`
 5. Clients verify attestation → get public key → verify signatures

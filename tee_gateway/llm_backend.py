@@ -136,6 +136,9 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         if not config.openai_api_key:
             raise ValueError("openai_api_key not set in ProviderConfig")
 
+        if openai_http_client is None:
+            raise RuntimeError("OpenAI HTTP client has not been initialized")
+
         return ChatOpenAI(
             model=api_name,
             temperature=effective_temp,
@@ -163,6 +166,9 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
     elif provider == "x-ai":
         if not config.xai_api_key:
             raise ValueError("xai_api_key not set in ProviderConfig")
+
+        if xai_http_client is None:
+            raise RuntimeError("XAI HTTP client has not been initialized")
 
         return ChatXAI(
             model=api_name,

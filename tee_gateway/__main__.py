@@ -183,8 +183,10 @@ def set_provider_keys():
 
         # Build heartbeat config from request body (optional)
         contract_address = body.get("heartbeat_contract_address")
-        facilitator_url = body.get("heartbeat_facilitator_url") or os.getenv(
-            "FACILITATOR_URL"
+        facilitator_url = (
+            body.get("heartbeat_facilitator_url")
+            or os.getenv("FACILITATOR_URL")
+            or FACILITATOR_URL
         )
         heartbeat_config: HeartbeatConfig | None = None
         if contract_address and facilitator_url:

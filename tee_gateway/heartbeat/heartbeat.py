@@ -28,7 +28,6 @@ import threading
 from typing import Optional
 
 from eth_hash.auto import keccak
-from cryptography.hazmat.primitives import serialization
 import httpx
 
 from tee_gateway.config import (

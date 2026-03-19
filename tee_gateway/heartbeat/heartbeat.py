@@ -10,7 +10,7 @@ The TEE must already be registered via registerTEEWithAttestation() before
 the heartbeat loop starts.
 
 Signed message:  keccak256(abi.encodePacked(teeId, timestamp))
-TEE ID:          keccak256(publicKeyDER)
+TEE ID:          inherited from TEEKeyManager.tee_id (keccak256(publicKeyDER))
 
 Configured via HeartbeatConfig (injected at runtime via POST /v1/keys):
     contract_address   — TEERegistry contract address
@@ -57,12 +57,8 @@ class HeartbeatService:
         self.tee_keys = tee_keys
         self.facilitator_timeout = facilitator_timeout
 
-        # Derive TEE identity from the RSA public key
-        self.public_key_der = tee_keys.public_key.public_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        self.tee_id = keccak(self.public_key_der)  # bytes32
+        # Inherit TEE identity from the key manager (single source of truth)
+        self.tee_id = bytes.fromhex(tee_keys.tee_id)  # bytes32
 
         self.contract_address = contract_address
         self.facilitator_url = facilitator_url.rstrip("/")

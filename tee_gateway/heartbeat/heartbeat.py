@@ -57,7 +57,7 @@ class HeartbeatService:
         self.facilitator_timeout = facilitator_timeout
 
         # Inherit TEE identity from the key manager (single source of truth)
-        self.tee_id = bytes.fromhex(tee_keys.tee_id)  # bytes32
+        self.tee_id: str = tee_keys.tee_id  # hex string, no 0x prefix
 
         self.contract_address = contract_address
         self.facilitator_url = facilitator_url.rstrip("/")
@@ -80,14 +80,14 @@ class HeartbeatService:
         Returns raw signature bytes (not base64).
         Uses the same RSA-PSS-SHA256 path as tee_keys.sign_data().
         """
-        msg_hash = keccak(self.tee_id + timestamp.to_bytes(32, "big"))
+        msg_hash = keccak(bytes.fromhex(self.tee_id) + timestamp.to_bytes(32, "big"))
         sig_b64 = self.tee_keys.sign_data(msg_hash)
         return base64.b64decode(sig_b64)
 
     def _relay_heartbeat(self, timestamp: int, signature: bytes) -> str:
         """Relay a signed heartbeat to facilitator and return the tx hash."""
         payload = {
-            "teeId": "0x" + self.tee_id.hex(),
+            "teeId": "0x" + self.tee_id,
             "timestamp": str(timestamp),
             "signature": base64.b64encode(signature).decode("ascii"),
             "contractAddress": self.contract_address,
@@ -160,7 +160,7 @@ class HeartbeatService:
         """Main heartbeat loop. Runs until stop event is set."""
         logger.info(
             "Heartbeat started (teeId=%s registry=%s interval=%ds teeWallet=%s relay=%s)",
-            self.tee_id.hex(),
+            self.tee_id,
             self.contract_address,
             self.interval,
             self.wallet_address,
@@ -198,7 +198,7 @@ class HeartbeatService:
         """Return current service status."""
         return {
             "running": self._running,
-            "tee_id": "0x" + self.tee_id.hex(),
+            "tee_id": "0x" + self.tee_id,
             "registry": self.contract_address,
             "wallet": self.wallet_address,
             "relay_mode": "facilitator",

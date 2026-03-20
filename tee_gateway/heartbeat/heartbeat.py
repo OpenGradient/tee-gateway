@@ -32,6 +32,7 @@ import httpx
 
 from tee_gateway.config import (
     DEFAULT_FACILITATOR_TIMEOUT,
+    DEFAULT_HEARTBEAT_BUFFER,
     DEFAULT_HEARTBEAT_INTERVAL,
     HEARTBEAT_MAX_RETRIES,
     HEARTBEAT_RETRY_DELAY,
@@ -50,9 +51,11 @@ class HeartbeatService:
         facilitator_url: str,
         tee_keys,
         interval: int = DEFAULT_HEARTBEAT_INTERVAL,
+        timestamp_buffer: int = DEFAULT_HEARTBEAT_BUFFER,
         facilitator_timeout: int = DEFAULT_FACILITATOR_TIMEOUT,
     ):
         self.interval = interval
+        self.timestamp_buffer = timestamp_buffer
         self.tee_keys = tee_keys
         self.facilitator_timeout = facilitator_timeout
 
@@ -127,7 +130,7 @@ class HeartbeatService:
         """Sign and relay heartbeat transaction via facilitator. Returns True on success."""
         for attempt in range(1, HEARTBEAT_MAX_RETRIES + 1):
             try:
-                timestamp = int(time.time())
+                timestamp = int(time.time()) - self.timestamp_buffer
                 signature = self._sign_heartbeat(timestamp)
                 tx_hash = self._relay_heartbeat(timestamp, signature)
 
@@ -226,5 +229,6 @@ def create_heartbeat_service(
         facilitator_url=config.facilitator_url,
         tee_keys=tee_keys,
         interval=config.interval,
+        timestamp_buffer=config.timestamp_buffer,
         facilitator_timeout=config.facilitator_timeout,
     )

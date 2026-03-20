@@ -35,7 +35,6 @@ RUN echo 'Dir::Log "/dev/null";' > /etc/apt/apt.conf.d/00no-log \
     git \
     ca-certificates \
     curl \
-    ntpdate \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /var/cache/ldconfig/aux-cache \
     && find /usr/lib/python3.9 -name "*.pyc" -delete \

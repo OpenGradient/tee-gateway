@@ -1,13 +1,32 @@
 import datetime
+import os
 
 from tee_gateway import typing_utils
 import logging
+import requests
 import threading
 import time
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from typing import Any
 
 logger = logging.getLogger("llm_server.dynamic_pricing")
+
+# ---------------------------------------------------------------------------
+# OPG Price Feed Configuration
+# ---------------------------------------------------------------------------
+# CoinGecko API endpoint for Base network tokens
+COINGECKO_BASE_API = "https://api.coingecko.com/api/v3/simple/token_price/base"
+# OPG token contract address on Base (from definitions.py)
+OPG_CONTRACT_ADDRESS = "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
+
+# Environment variables for price feed configuration
+# Set OPG_PRICE_FEED_URL to use a custom price feed endpoint (e.g., DEX oracle)
+# Set OPG_STATIC_PRICE_USD to use a fixed price (e.g., "0.10" for $0.10)
+OPG_PRICE_FEED_URL = os.getenv("OPG_PRICE_FEED_URL")
+OPG_STATIC_PRICE_USD = os.getenv("OPG_STATIC_PRICE_USD")
+
+# Timeout for external API calls (seconds)
+PRICE_FEED_TIMEOUT = 5
 
 
 def _deserialize(data, klass):
@@ -170,19 +189,117 @@ _token_price_cache: dict[str, Any] = {
 _token_price_lock = threading.Lock()
 
 
-def _fetch_token_a_price_usd_mock() -> Decimal:
-    """Return the USD price of the payment token used for cost calculation.
+def _fetch_price_from_coingecko() -> Decimal | None:
+    """Fetch OPG token price from CoinGecko API.
 
-    Currently returns a fixed 1:1 ratio, which is correct for USDC-denominated
-    payments (1 USDC ≈ $1 USD). For OPG-denominated payments, replace this
-    with a live price feed (e.g. a DEX oracle or CoinGecko API call) that
-    returns the current OPG/USD exchange rate so that token amounts are
-    calculated correctly against the model's USD pricing.
+    Returns the USD price of OPG on Base network, or None if unavailable.
     """
+    try:
+        url = f"{COINGECKO_BASE_API}?contract_addresses={OPG_CONTRACT_ADDRESS}&vs_currencies=usd"
+        response = requests.get(url, timeout=PRICE_FEED_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+
+        # CoinGecko returns: {"0x...": {"usd": 0.123}}
+        price_data = data.get(OPG_CONTRACT_ADDRESS.lower(), {})
+        usd_price = price_data.get("usd")
+
+        if usd_price is not None:
+            price = Decimal(str(usd_price))
+            if price > 0:
+                logger.info("OPG price from CoinGecko: $%s", price)
+                return price
+
+        logger.warning("CoinGecko returned no price data for OPG")
+        return None
+
+    except requests.exceptions.RequestException as e:
+        logger.warning("CoinGecko API request failed: %s", e)
+        return None
+    except (KeyError, ValueError, InvalidOperation) as e:
+        logger.warning("Failed to parse CoinGecko response: %s", e)
+        return None
+
+
+def _fetch_price_from_custom_feed() -> Decimal | None:
+    """Fetch OPG price from a custom price feed URL.
+
+    The custom endpoint should return JSON with a 'price' field (USD value).
+    Example response: {"price": 0.123} or {"price": "0.123"}
+    """
+    if not OPG_PRICE_FEED_URL:
+        return None
+
+    try:
+        response = requests.get(OPG_PRICE_FEED_URL, timeout=PRICE_FEED_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+
+        # Support both {"price": X} and {"usd": X} formats
+        raw_price = data.get("price") or data.get("usd") or data.get("value")
+        if raw_price is not None:
+            price = Decimal(str(raw_price))
+            if price > 0:
+                logger.info("OPG price from custom feed: $%s", price)
+                return price
+
+        logger.warning("Custom price feed returned no valid price")
+        return None
+
+    except requests.exceptions.RequestException as e:
+        logger.warning("Custom price feed request failed: %s", e)
+        return None
+    except (KeyError, ValueError, InvalidOperation) as e:
+        logger.warning("Failed to parse custom price feed response: %s", e)
+        return None
+
+
+def _fetch_opg_price_usd() -> Decimal:
+    """Fetch the USD price of OPG token for payment calculations.
+
+    Tries multiple price sources in order:
+    1. Custom price feed URL (if OPG_PRICE_FEED_URL is set)
+    2. CoinGecko API (for mainnet tokens)
+    3. Static price from environment (if OPG_STATIC_PRICE_USD is set)
+    4. Fallback to 1:1 ratio with warning (suitable for USDC or testing)
+
+    Returns:
+        Decimal: The OPG/USD exchange rate (always positive).
+    """
+    # 1. Try custom price feed first (highest priority for operators)
+    price = _fetch_price_from_custom_feed()
+    if price is not None:
+        return price
+
+    # 2. Try CoinGecko API
+    price = _fetch_price_from_coingecko()
+    if price is not None:
+        return price
+
+    # 3. Use static price from environment if configured
+    if OPG_STATIC_PRICE_USD:
+        try:
+            static_price = Decimal(OPG_STATIC_PRICE_USD)
+            if static_price > 0:
+                logger.info("Using static OPG price from env: $%s", static_price)
+                return static_price
+        except (ValueError, InvalidOperation):
+            logger.error("Invalid OPG_STATIC_PRICE_USD value: %s", OPG_STATIC_PRICE_USD)
+
+    # 4. Fallback to 1:1 — appropriate for USDC payments or testing
+    logger.warning(
+        "No OPG price available from any source. Using 1:1 fallback ratio. "
+        "Set OPG_STATIC_PRICE_USD or OPG_PRICE_FEED_URL for accurate pricing."
+    )
     return Decimal("1")
 
 
 def get_token_a_price_usd() -> Decimal:
+    """Get the cached USD price of the payment token.
+
+    Returns the cached price if still valid (within TTL), otherwise fetches
+    a fresh price from available sources. Thread-safe.
+    """
     now = time.time()
     with _token_price_lock:
         cached_value = _token_price_cache.get("value")
@@ -193,7 +310,7 @@ def get_token_a_price_usd() -> Decimal:
         ):
             return cached_value
 
-        value = _fetch_token_a_price_usd_mock()
+        value = _fetch_opg_price_usd()
         _token_price_cache["value"] = value
         _token_price_cache["updated_at"] = now
         return value

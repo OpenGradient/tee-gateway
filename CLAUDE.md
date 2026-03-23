@@ -94,13 +94,12 @@ Server configuration:
 
 | Endpoint | Purpose |
 |----------|---------|
-| `/health` | Health check with system metrics |
+| `/health` | Health check (status, version, tee_enabled) |
 | `/signing-key` | TEE public key (PEM) and tee_id |
 | `/enclave/attestation` | Nitro attestation document (served by nitriding) |
 | `/v1/keys` | One-time API key injection (POST, loopback-only) |
 | `/v1/completions` | Text completion (signed) |
 | `/v1/chat/completions` | Chat completion with tool support (signed) |
-| `/v1/models` | List available models |
 
 ### TEE Integration
 

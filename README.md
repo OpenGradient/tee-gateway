@@ -114,13 +114,11 @@ The `measurements.txt` checked into this repository reflects the OpenGradient-op
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/health` | GET | Health check |
+| `/health` | GET | Health check (status, version, tee_enabled) |
 | `/enclave/attestation?nonce={nonce}` | GET | Nitro-enclave TEE attestation with public key hash and PCR information |
-| `/attestation` | GET | Get public key (PEM format) and enclave info |
+| `/signing-key` | GET | TEE public key (PEM format) and tee_id |
 | `/v1/completions` | POST | Text completion (signed) |
 | `/v1/chat/completions` | POST | Chat completion (signed) |
-| `/v1/chat/completions/stream` | POST | Streaming chat (SSE) |
-| `/v1/models` | GET | List available models |
 
 ### Request Format
 

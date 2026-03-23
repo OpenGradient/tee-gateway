@@ -10,7 +10,7 @@ The TEE must already be registered via registerTEEWithAttestation() before
 the heartbeat loop starts.
 
 Signed message:  keccak256(abi.encodePacked(teeId, timestamp))
-TEE ID:          keccak256(publicKeyDER)
+TEE ID:          inherited from TEEKeyManager.tee_id (keccak256(publicKeyDER))
 
 Configured via HeartbeatConfig (injected at runtime via POST /v1/keys):
     contract_address   — TEERegistry contract address
@@ -28,11 +28,11 @@ import threading
 from typing import Optional
 
 from eth_hash.auto import keccak
-from cryptography.hazmat.primitives import serialization
 import httpx
 
 from tee_gateway.config import (
     DEFAULT_FACILITATOR_TIMEOUT,
+    DEFAULT_HEARTBEAT_BUFFER,
     DEFAULT_HEARTBEAT_INTERVAL,
     HEARTBEAT_MAX_RETRIES,
     HEARTBEAT_RETRY_DELAY,
@@ -51,18 +51,16 @@ class HeartbeatService:
         facilitator_url: str,
         tee_keys,
         interval: int = DEFAULT_HEARTBEAT_INTERVAL,
+        timestamp_buffer: int = DEFAULT_HEARTBEAT_BUFFER,
         facilitator_timeout: int = DEFAULT_FACILITATOR_TIMEOUT,
     ):
         self.interval = interval
+        self.timestamp_buffer = timestamp_buffer
         self.tee_keys = tee_keys
         self.facilitator_timeout = facilitator_timeout
 
-        # Derive TEE identity from the RSA public key
-        self.public_key_der = tee_keys.public_key.public_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        self.tee_id = keccak(self.public_key_der)  # bytes32
+        # Inherit TEE identity from the key manager (single source of truth)
+        self.tee_id: str = tee_keys.tee_id  # hex string, no 0x prefix
 
         self.contract_address = contract_address
         self.facilitator_url = facilitator_url.rstrip("/")
@@ -85,14 +83,14 @@ class HeartbeatService:
         Returns raw signature bytes (not base64).
         Uses the same RSA-PSS-SHA256 path as tee_keys.sign_data().
         """
-        msg_hash = keccak(self.tee_id + timestamp.to_bytes(32, "big"))
+        msg_hash = keccak(bytes.fromhex(self.tee_id) + timestamp.to_bytes(32, "big"))
         sig_b64 = self.tee_keys.sign_data(msg_hash)
         return base64.b64decode(sig_b64)
 
     def _relay_heartbeat(self, timestamp: int, signature: bytes) -> str:
         """Relay a signed heartbeat to facilitator and return the tx hash."""
         payload = {
-            "teeId": "0x" + self.tee_id.hex(),
+            "teeId": "0x" + self.tee_id,
             "timestamp": str(timestamp),
             "signature": base64.b64encode(signature).decode("ascii"),
             "contractAddress": self.contract_address,
@@ -132,7 +130,7 @@ class HeartbeatService:
         """Sign and relay heartbeat transaction via facilitator. Returns True on success."""
         for attempt in range(1, HEARTBEAT_MAX_RETRIES + 1):
             try:
-                timestamp = int(time.time())
+                timestamp = int(time.time()) - self.timestamp_buffer
                 signature = self._sign_heartbeat(timestamp)
                 tx_hash = self._relay_heartbeat(timestamp, signature)
 
@@ -165,7 +163,7 @@ class HeartbeatService:
         """Main heartbeat loop. Runs until stop event is set."""
         logger.info(
             "Heartbeat started (teeId=%s registry=%s interval=%ds teeWallet=%s relay=%s)",
-            self.tee_id.hex(),
+            self.tee_id,
             self.contract_address,
             self.interval,
             self.wallet_address,
@@ -203,7 +201,7 @@ class HeartbeatService:
         """Return current service status."""
         return {
             "running": self._running,
-            "tee_id": "0x" + self.tee_id.hex(),
+            "tee_id": "0x" + self.tee_id,
             "registry": self.contract_address,
             "wallet": self.wallet_address,
             "relay_mode": "facilitator",
@@ -231,5 +229,6 @@ def create_heartbeat_service(
         facilitator_url=config.facilitator_url,
         tee_keys=tee_keys,
         interval=config.interval,
+        timestamp_buffer=config.timestamp_buffer,
         facilitator_timeout=config.facilitator_timeout,
     )

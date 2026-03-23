@@ -44,6 +44,9 @@ $(image_eif): $(image_tar)
 
 .PHONY: run
 run: $(image_eif)
+	-rm -f /tmp/network.sock
+	-kill $$(lsof -ti :2222 2>/dev/null)
+	-rm -f nohup.out
 	nitro-cli terminate-enclave --all
 	./scripts/run-enclave.sh $(image_eif)
 

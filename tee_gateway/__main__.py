@@ -19,6 +19,7 @@ from tee_gateway.tee_manager import initialize_tee, get_tee_keys
 from tee_gateway.config import (
     HeartbeatConfig,
     ProviderConfig,
+    DEFAULT_HEARTBEAT_BUFFER,
     DEFAULT_HEARTBEAT_INTERVAL,
 )
 from tee_gateway.llm_backend import set_provider_config
@@ -206,10 +207,21 @@ def set_provider_keys():
                     DEFAULT_HEARTBEAT_INTERVAL,
                 )
                 interval = DEFAULT_HEARTBEAT_INTERVAL
+            buffer_raw = body.get("tee_heartbeat_buffer", DEFAULT_HEARTBEAT_BUFFER)
+            try:
+                timestamp_buffer = int(buffer_raw)
+            except (ValueError, TypeError):
+                logger.error(
+                    "Invalid tee_heartbeat_buffer %r; falling back to default %s",
+                    buffer_raw,
+                    DEFAULT_HEARTBEAT_BUFFER,
+                )
+                timestamp_buffer = DEFAULT_HEARTBEAT_BUFFER
             heartbeat_config = HeartbeatConfig(
                 contract_address=contract_address,
                 facilitator_url=facilitator_url,
                 interval=interval,
+                timestamp_buffer=timestamp_buffer,
             )
 
         def _set(val: str | None) -> str:

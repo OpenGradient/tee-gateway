@@ -8,6 +8,8 @@ on:
 jobs:
   reproducible-build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4

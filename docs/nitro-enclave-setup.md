@@ -87,6 +87,8 @@ TEE instances with valid PCR measurements can be registered in the TEE registry 
 
 Third-party operators can reproduce the PCR values locally by building the image themselves and comparing against `measurements.txt` — this is how anyone can independently verify what code a registered TEE is running.
 
+> **Note:** Instructions for registering a TEE instance into the OG registry are currently private. This process is in active use but not yet publicly documented.
+
 ---
 
 ## Managing Enclaves

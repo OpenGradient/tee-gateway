@@ -1,0 +1,43 @@
+name: Reproducible Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  reproducible-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image (run 1)
+        run: make image
+
+      - name: Record hash of first build
+        run: sha256sum tee-llm-router-1.0.0-kaniko.tar | cut -d' ' -f1 > /tmp/hash1.txt
+
+      - name: Clean build artifacts
+        run: make clean
+
+      - name: Build image (run 2)
+        run: make image
+
+      - name: Record hash of second build
+        run: sha256sum tee-llm-router-1.0.0-kaniko.tar | cut -d' ' -f1 > /tmp/hash2.txt
+
+      - name: Verify reproducibility
+        run: |
+          H1=$(cat /tmp/hash1.txt)
+          H2=$(cat /tmp/hash2.txt)
+          echo "Build 1 SHA256: $H1"
+          echo "Build 2 SHA256: $H2"
+          if [ "$H1" = "$H2" ]; then
+            echo "SUCCESS: Docker image is reproducible"
+          else
+            echo "FAILURE: Docker image is NOT reproducible"
+            exit 1
+          fi

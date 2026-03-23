@@ -6,11 +6,7 @@ to ensure no log line is emitted without a leading timestamp.
 
 import logging
 import re
-import sys
 from io import StringIO
-from unittest.mock import patch
-
-import pytest
 
 # Timestamp pattern: YYYY-MM-DD HH:MM:SS.mmm [LEVEL] logger: message
 TIMESTAMP_RE = re.compile(

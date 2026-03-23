@@ -45,14 +45,33 @@ from .definitions import (
     FACILITATOR_URL,
 )
 
-# Configure logging
+# ---------------------------------------------------------------------------
+# Logging configuration
+# ---------------------------------------------------------------------------
+# Centralised format ensures every log line — including third-party libraries
+# such as werkzeug and connexion — carries a UTC timestamp with millisecond
+# precision, making production debugging and log correlation straightforward.
+
+LOG_FORMAT = "%(asctime)s.%(msecs)03d [%(levelname)s] %(name)s: %(message)s"
+LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    format=LOG_FORMAT,
+    datefmt=LOG_DATEFMT,
     handlers=[logging.StreamHandler(sys.stdout)],
     force=True,
 )
+
+# Force third-party loggers to propagate through the root logger so they
+# inherit the timestamped format above.  Without this, libraries that attach
+# their own StreamHandler (e.g. werkzeug, connexion) would emit lines with
+# the default Python format — which has no timestamp.
+for _lib_name in ("werkzeug", "connexion"):
+    _lib_logger = logging.getLogger(_lib_name)
+    _lib_logger.handlers.clear()
+    _lib_logger.propagate = True
+
 logging.getLogger("x402.middleware").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 

@@ -25,19 +25,13 @@ gvproxy --version  # verify installation
 
 # Build tools
 sudo yum install git pip make -y
-```
 
-## 2. Configure Users and Docker
-
-Replace `<USER>` with your IAM instance user (e.g. `ec2-user`, or use `$USER`):
-
-```bash
-sudo usermod -aG ne <USER>
-sudo usermod -aG docker <USER>
+# Docker (required for make image)
+sudo yum install docker -y
 sudo systemctl start docker && sudo systemctl enable docker
 ```
 
-## 3. Start Enclave Services
+## 2. Start Enclave Services
 
 ```bash
 sudo systemctl start nitro-enclaves-allocator.service && sudo systemctl enable nitro-enclaves-allocator.service
@@ -47,13 +41,13 @@ sudo systemctl start nitro-enclaves-vsock-proxy.service && sudo systemctl enable
 sudo systemctl status
 ```
 
-## 4. Reboot
+## 3. Reboot
 
 ```bash
 sudo shutdown -r now
 ```
 
-## 5. Allocate Enclave Resources
+## 4. Allocate Enclave Resources
 
 Configure memory and CPU for the enclave. Ensure enough memory is allocated to load the model — the TEE gateway uses **8192 MB**:
 
@@ -69,7 +63,7 @@ cpu_count: 2
 
 ---
 
-## 6. Build and Run the TEE Gateway
+## 5. Build and Run the TEE Gateway
 
 ```bash
 git clone <tee-gateway-repo>

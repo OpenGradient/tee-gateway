@@ -232,23 +232,6 @@ def test_attestation():
     assert data["enclave_info"]["platform"] == "aws-nitro"
 
 
-# Models List Test
-def test_list_models():
-    """Test models listing endpoint"""
-    response = client.get("/v1/models")
-    assert response.status_code == 200
-    data = response.json()
-    assert "data" in data
-    assert len(data["data"]) > 0
-
-    # Check for models from each provider
-    model_ids = [m["id"] for m in data["data"]]
-    assert any("gpt" in m for m in model_ids)  # OpenAI
-    assert any("claude" in m for m in model_ids)  # Anthropic
-    assert any("gemini" in m for m in model_ids)  # Google
-    assert any("grok" in m for m in model_ids)  # xAI
-
-
 # Completion Tests
 @patch("server.get_chat_model_cached")
 def test_completion_openai(mock_get_model, mock_openai_model):

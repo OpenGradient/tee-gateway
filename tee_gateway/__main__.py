@@ -6,11 +6,8 @@ Runs inside a Nitro Enclave, proxied by nitriding on port 443.
 import logging
 import sys
 import os
-import gc
-import time
 import threading
 import atexit
-import psutil
 
 import connexion
 from flask import jsonify, request
@@ -257,33 +254,10 @@ def set_provider_keys():
 
 
 def health():
-    process = psutil.Process()
-    system_memory = psutil.virtual_memory()
-
-    connections = process.connections()
-    conn_states = {}
-    for conn in connections:
-        state = conn.status if conn.status else "NONE"
-        conn_states[state] = conn_states.get(state, 0) + 1
-
     return {
         "status": "OK",
         "version": "1.0.0",
         "tee_enabled": True,
-        "uptime_seconds": time.time() - process.create_time(),
-        "memory_mb": process.memory_info().rss / 1024 / 1024,
-        "process_memory_mb": process.memory_info().rss / 1024 / 1024,
-        "process_memory_percent": process.memory_percent(),
-        "system_total_memory_mb": system_memory.total / 1024 / 1024,
-        "system_used_memory_mb": system_memory.used / 1024 / 1024,
-        "system_available_memory_mb": system_memory.available / 1024 / 1024,
-        "system_memory_percent": system_memory.percent,
-        "threads": process.num_threads(),
-        "open_files": len(process.open_files()),
-        "num_fds": process.num_fds(),
-        "connections": len(connections),
-        "connection_states": conn_states,
-        "gc_objects": len(gc.get_objects()),
     }, 200
 
 

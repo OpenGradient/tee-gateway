@@ -120,7 +120,9 @@ class TestTEEKeyManager(unittest.TestCase):
         different ciphertext — but both must verify successfully."""
         sig1 = base64.b64decode(self.tee.sign_data(b"same msg"))
         sig2 = base64.b64decode(self.tee.sign_data(b"same msg"))
-        self.assertNotEqual(sig1, sig2, "PSS salt should make signatures non-deterministic")
+        self.assertNotEqual(
+            sig1, sig2, "PSS salt should make signatures non-deterministic"
+        )
         for sig in (sig1, sig2):
             self.tee.public_key.verify(
                 sig,
@@ -133,7 +135,13 @@ class TestTEEKeyManager(unittest.TestCase):
 
     def test_attestation_document_has_required_fields(self):
         doc = self.tee.get_attestation_document()
-        for field in ("public_key", "tee_id", "wallet_address", "timestamp", "enclave_info"):
+        for field in (
+            "public_key",
+            "tee_id",
+            "wallet_address",
+            "timestamp",
+            "enclave_info",
+        ):
             self.assertIn(field, doc, f"Missing required attestation field: {field!r}")
 
     def test_attestation_document_tee_id_has_0x_prefix(self):
@@ -306,29 +314,39 @@ class TestConvertMessages(unittest.TestCase):
         self.assertEqual(result[0].content, "Sure!")
 
     def test_tool_result_message(self):
-        result = convert_messages([{
-            "role": "tool",
-            "content": '{"temperature": 72}',
-            "tool_call_id": "call_abc123",
-        }])
+        result = convert_messages(
+            [
+                {
+                    "role": "tool",
+                    "content": '{"temperature": 72}',
+                    "tool_call_id": "call_abc123",
+                }
+            ]
+        )
         self.assertIsInstance(result[0], ToolMessage)
         self.assertEqual(result[0].tool_call_id, "call_abc123")
         self.assertEqual(result[0].content, '{"temperature": 72}')
 
     def test_assistant_message_with_tool_calls(self):
         """Tool call arguments must be JSON-parsed from the string form."""
-        result = convert_messages([{
-            "role": "assistant",
-            "content": "",
-            "tool_calls": [{
-                "id": "call_1",
-                "type": "function",
-                "function": {
-                    "name": "get_weather",
-                    "arguments": '{"location": "San Francisco"}',
-                },
-            }],
-        }])
+        result = convert_messages(
+            [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "get_weather",
+                                "arguments": '{"location": "San Francisco"}',
+                            },
+                        }
+                    ],
+                }
+            ]
+        )
         self.assertIsInstance(result[0], AIMessage)
         self.assertEqual(len(result[0].tool_calls), 1)
         tc = result[0].tool_calls[0]
@@ -350,13 +368,17 @@ class TestConvertMessages(unittest.TestCase):
 
     def test_user_content_as_list_of_parts(self):
         """Multimodal content parts should be concatenated into a single string."""
-        result = convert_messages([{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "Hello "},
-                {"type": "text", "text": "world"},
-            ],
-        }])
+        result = convert_messages(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Hello "},
+                        {"type": "text", "text": "world"},
+                    ],
+                }
+            ]
+        )
         self.assertIsInstance(result[0], HumanMessage)
         self.assertEqual(result[0].content, "Hello world")
 
@@ -367,11 +389,16 @@ class TestConvertMessages(unittest.TestCase):
             {
                 "role": "assistant",
                 "content": "",
-                "tool_calls": [{
-                    "id": "call_xyz",
-                    "type": "function",
-                    "function": {"name": "get_weather", "arguments": '{"city": "NYC"}'},
-                }],
+                "tool_calls": [
+                    {
+                        "id": "call_xyz",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"city": "NYC"}',
+                        },
+                    }
+                ],
             },
             {"role": "tool", "content": '{"temp": 68}', "tool_call_id": "call_xyz"},
         ]
@@ -394,9 +421,17 @@ class TestExtractUsage(unittest.TestCase):
     under- or over-charging."""
 
     def test_extracts_all_token_counts(self):
-        mock_resp = type("R", (), {
-            "usage_metadata": {"input_tokens": 10, "output_tokens": 20, "total_tokens": 30}
-        })()
+        mock_resp = type(
+            "R",
+            (),
+            {
+                "usage_metadata": {
+                    "input_tokens": 10,
+                    "output_tokens": 20,
+                    "total_tokens": 30,
+                }
+            },
+        )()
         usage = extract_usage(mock_resp)
         self.assertEqual(usage["prompt_tokens"], 10)
         self.assertEqual(usage["completion_tokens"], 20)

@@ -82,6 +82,14 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
                     tools_list.append(tool)
             model = model.bind_tools(tools_list)
 
+        # Bind response_format if provided (json_object or json_schema)
+        if chat_request.response_format:
+            rf = chat_request.response_format
+            rf_type = rf.get("type", "text") if isinstance(rf, dict) else getattr(rf, "type", "text")
+            if rf_type != "text":
+                rf_dict = rf if isinstance(rf, dict) else {"type": rf_type}
+                model = model.bind(response_format=rf_dict)
+
         langchain_messages = convert_messages(chat_request.messages)
         response = model.invoke(langchain_messages)
 
@@ -195,6 +203,14 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                 else:
                     tools_list.append(tool)
             model = model.bind_tools(tools_list)
+
+        # Bind response_format if provided (json_object or json_schema)
+        if chat_request.response_format:
+            rf = chat_request.response_format
+            rf_type = rf.get("type", "text") if isinstance(rf, dict) else getattr(rf, "type", "text")
+            if rf_type != "text":
+                rf_dict = rf if isinstance(rf, dict) else {"type": rf_type}
+                model = model.bind(response_format=rf_dict)
 
         langchain_messages = convert_messages(chat_request.messages)
         tee_keys = get_tee_keys()
@@ -481,6 +497,8 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
             if isinstance(chat_request.tools, list)
             else list(chat_request.tools)
         )
+    if chat_request.response_format:
+        d["response_format"] = chat_request.response_format
     return d
 
 

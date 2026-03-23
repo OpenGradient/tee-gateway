@@ -81,7 +81,7 @@ TEE instances with valid PCR measurements can be registered in the TEE registry 
 
 Third-party operators can reproduce the PCR values locally by building the image themselves and comparing against `measurements.txt` — this is how anyone can independently verify what code a registered TEE is running.
 
-> **Note:** Instructions for registering a TEE instance into the OG registry are currently private. This process is in active use but not yet publicly documented.
+Registration is managed via the TEE management CLI at [`og-evm/scripts/tee-mgmt-cli`](https://github.com/OpenGradient/og-evm/tree/main/scripts/tee-mgmt-cli). The CLI registers a TEE against a set of expected PCR values and submits the instance's TLS certificate and signing key as part of the on-chain registration.
 
 ---
 

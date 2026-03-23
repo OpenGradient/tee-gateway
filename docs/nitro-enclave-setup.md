@@ -79,6 +79,14 @@ make image   # Build reproducible Docker image
 make run     # Build EIF and launch enclave
 ```
 
+After `make run` completes, `measurements.txt` is updated with the PCR measurements of the built EIF image. These measurements cryptographically fingerprint the exact enclave image and are used to verify what code is running inside the TEE.
+
+### Registering on the OG Network
+
+TEE instances with valid PCR measurements can be registered in the TEE registry on the OpenGradient blockchain. Once registered, the instance is visible at [explorer.opengradient.ai/tee-registry](https://explorer.opengradient.ai/tee-registry) and is eligible to participate in the decentralized inference network.
+
+Third-party operators can reproduce the PCR values locally by building the image themselves and comparing against `measurements.txt` — this is how anyone can independently verify what code a registered TEE is running.
+
 ---
 
 ## Managing Enclaves

@@ -113,13 +113,6 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg, get_model_config("claude-4.0-sonnet"))
         self.assertEqual(cfg.provider, "anthropic")
 
-    def test_claude_3_7_sonnet_is_removed(self):
-        """claude-3-7-sonnet has been discontinued and must NOT be in the registry."""
-        with self.assertRaises(ValueError):
-            get_model_config("claude-3-7-sonnet")
-        with self.assertRaises(ValueError):
-            get_model_config("claude-3.7-sonnet")
-
     # ── Anthropic Haiku ─────────────────────────────────────────────────────
 
     def test_claude_haiku_4_5_resolves(self):

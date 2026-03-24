@@ -108,16 +108,17 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.output_price_usd, Decimal("0.000015"))
 
     def test_claude_sonnet_4_0_hyphen_resolves(self):
-        """claude-sonnet-4-0 (Anthropic convention) must resolve."""
+        """claude-sonnet-4-0 (legacy) must still resolve for older SDK versions."""
         cfg = get_model_config("claude-sonnet-4-0")
         self.assertEqual(cfg, get_model_config("claude-4.0-sonnet"))
         self.assertEqual(cfg.provider, "anthropic")
 
-    def test_claude_3_7_sonnet_hyphen_resolves(self):
-        """claude-3-7-sonnet (Anthropic hyphen convention) must resolve."""
-        cfg = get_model_config("claude-3-7-sonnet")
-        self.assertEqual(cfg, get_model_config("claude-3.7-sonnet"))
-        self.assertEqual(cfg.provider, "anthropic")
+    def test_claude_3_7_sonnet_is_removed(self):
+        """claude-3-7-sonnet has been discontinued and must NOT be in the registry."""
+        with self.assertRaises(ValueError):
+            get_model_config("claude-3-7-sonnet")
+        with self.assertRaises(ValueError):
+            get_model_config("claude-3.7-sonnet")
 
     # ── Anthropic Haiku ─────────────────────────────────────────────────────
 
@@ -285,20 +286,12 @@ class TestDynamicSessionCostCalculatorOPG(unittest.TestCase):
         self.assertEqual(cost, self._calc("claude-sonnet-4-5", 1000, 500))
 
     def test_claude_sonnet_4_0_cost(self):
-        """claude-sonnet-4-0 (Anthropic naming) must produce correct pricing."""
+        """claude-sonnet-4-0 (legacy) must produce correct pricing."""
         cost = self._calc("claude-sonnet-4-0", 1000, 500)
         expected = _expected_cost_opg("claude-sonnet-4-0", 1000, 500)
         self.assertEqual(cost, expected)
         # Same price tier as claude-sonnet-4-5
         self.assertEqual(cost, 10_500_000_000_000_000)
-
-    def test_claude_3_7_sonnet_hyphen_cost(self):
-        """claude-3-7-sonnet (Anthropic hyphen convention) must produce correct pricing."""
-        cost_hyphen = self._calc("claude-3-7-sonnet", 1000, 500)
-        cost_dot = self._calc("claude-3.7-sonnet", 1000, 500)
-        self.assertEqual(cost_hyphen, cost_dot)
-        expected = _expected_cost_opg("claude-3-7-sonnet", 1000, 500)
-        self.assertEqual(cost_hyphen, expected)
 
     # ── Anthropic Haiku ─────────────────────────────────────────────────────
 
@@ -530,14 +523,6 @@ class TestDynamicSessionCostCalculatorEdgeCases(unittest.TestCase):
             _ctx("claude-sonnet-4-0", 1000, 500)
         )
         cost_dot = dynamic_session_cost_calculator(_ctx("claude-4.0-sonnet", 1000, 500))
-        self.assertEqual(cost_hyphen, cost_dot)
-
-    def test_claude_3_7_sonnet_hyphen_vs_dot_same_cost(self):
-        """claude-3-7-sonnet and claude-3.7-sonnet are the same model."""
-        cost_hyphen = dynamic_session_cost_calculator(
-            _ctx("claude-3-7-sonnet", 1000, 500)
-        )
-        cost_dot = dynamic_session_cost_calculator(_ctx("claude-3.7-sonnet", 1000, 500))
         self.assertEqual(cost_hyphen, cost_dot)
 
     def test_claude_3_5_haiku_hyphen_vs_dot_same_cost(self):

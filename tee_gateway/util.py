@@ -157,7 +157,6 @@ def _deserialize_dict(data, boxed_type):
 
 from tee_gateway.definitions import (  # noqa: E402
     ASSET_DECIMALS_BY_ADDRESS,
-    DEFAULT_ASSET_DECIMALS,
 )
 from tee_gateway.model_registry import get_model_config  # noqa: E402
 
@@ -254,9 +253,7 @@ def _extract_usage_tokens(
     prompt_tokens = usage.get("prompt_tokens", usage.get("input_tokens"))
     completion_tokens = usage.get("completion_tokens", usage.get("output_tokens"))
     if prompt_tokens is None or completion_tokens is None:
-        raise ValueError(
-            f"usage dict is missing token counts: {usage!r}"
-        )
+        raise ValueError(f"usage dict is missing token counts: {usage!r}")
 
     try:
         return max(0, int(prompt_tokens)), max(0, int(completion_tokens))

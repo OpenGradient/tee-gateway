@@ -10,14 +10,11 @@ Tests verify that:
 
 import unittest
 from decimal import Decimal
-from unittest.mock import patch
 
 from tee_gateway.definitions import BASE_OPG_ADDRESS, USDC_ADDRESS
 from tee_gateway.model_registry import (
-    SupportedModel,
     _MODEL_LOOKUP,
     get_model_config,
-    get_rate_card,
 )
 from tee_gateway.util import dynamic_session_cost_calculator
 
@@ -25,6 +22,7 @@ from tee_gateway.util import dynamic_session_cost_calculator
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _opg_requirements() -> dict:
     """Fake PaymentRequirements dict for OPG (18 decimals)."""
@@ -55,22 +53,31 @@ def _ctx(model: str, input_tokens: int, output_tokens: int, requirements=None) -
 def _expected_cost_opg(model: str, input_tokens: int, output_tokens: int) -> int:
     """Compute expected cost in OPG smallest units (18 decimals, ROUND_CEILING)."""
     from decimal import ROUND_CEILING
+
     cfg = get_model_config(model)
-    total_usd = Decimal(input_tokens) * cfg.input_price_usd + Decimal(output_tokens) * cfg.output_price_usd
-    return int((total_usd * Decimal(10 ** 18)).to_integral_value(rounding=ROUND_CEILING))
+    total_usd = (
+        Decimal(input_tokens) * cfg.input_price_usd
+        + Decimal(output_tokens) * cfg.output_price_usd
+    )
+    return int((total_usd * Decimal(10**18)).to_integral_value(rounding=ROUND_CEILING))
 
 
 def _expected_cost_usdc(model: str, input_tokens: int, output_tokens: int) -> int:
     """Compute expected cost in USDC smallest units (6 decimals, ROUND_CEILING)."""
     from decimal import ROUND_CEILING
+
     cfg = get_model_config(model)
-    total_usd = Decimal(input_tokens) * cfg.input_price_usd + Decimal(output_tokens) * cfg.output_price_usd
-    return int((total_usd * Decimal(10 ** 6)).to_integral_value(rounding=ROUND_CEILING))
+    total_usd = (
+        Decimal(input_tokens) * cfg.input_price_usd
+        + Decimal(output_tokens) * cfg.output_price_usd
+    )
+    return int((total_usd * Decimal(10**6)).to_integral_value(rounding=ROUND_CEILING))
 
 
 # ---------------------------------------------------------------------------
 # Model registry tests
 # ---------------------------------------------------------------------------
+
 
 class TestModelRegistry(unittest.TestCase):
     """All user-facing model names must resolve without error."""
@@ -233,6 +240,7 @@ class TestModelRegistry(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Pricing calculation tests
 # ---------------------------------------------------------------------------
+
 
 class TestDynamicSessionCostCalculatorOPG(unittest.TestCase):
     """dynamic_session_cost_calculator with OPG (18 decimals)."""
@@ -440,9 +448,7 @@ class TestDynamicSessionCostCalculatorEdgeCases(unittest.TestCase):
     """Edge cases for dynamic_session_cost_calculator."""
 
     def test_zero_tokens_returns_zero(self):
-        cost = dynamic_session_cost_calculator(
-            _ctx("claude-sonnet-4-5", 0, 0)
-        )
+        cost = dynamic_session_cost_calculator(_ctx("claude-sonnet-4-5", 0, 0))
         self.assertEqual(cost, 0)
 
     def test_missing_usage_raises(self):
@@ -474,7 +480,10 @@ class TestDynamicSessionCostCalculatorEdgeCases(unittest.TestCase):
     def test_missing_request_json_raises_value_error(self):
         ctx = {
             "request_json": None,
-            "response_json": {"model": "claude-sonnet-4-5", "usage": {"prompt_tokens": 100, "completion_tokens": 100}},
+            "response_json": {
+                "model": "claude-sonnet-4-5",
+                "usage": {"prompt_tokens": 100, "completion_tokens": 100},
+            },
             "payment_requirements": _opg_requirements(),
         }
         with self.assertRaises(ValueError):
@@ -507,25 +516,35 @@ class TestDynamicSessionCostCalculatorEdgeCases(unittest.TestCase):
 
     def test_model_name_case_insensitive(self):
         """Model names are normalized to lowercase before lookup."""
-        cost_lower = dynamic_session_cost_calculator(_ctx("claude-sonnet-4-5", 100, 100))
-        cost_upper = dynamic_session_cost_calculator(_ctx("CLAUDE-SONNET-4-5", 100, 100))
+        cost_lower = dynamic_session_cost_calculator(
+            _ctx("claude-sonnet-4-5", 100, 100)
+        )
+        cost_upper = dynamic_session_cost_calculator(
+            _ctx("CLAUDE-SONNET-4-5", 100, 100)
+        )
         self.assertEqual(cost_lower, cost_upper)
 
     def test_sonnet_4_0_hyphen_vs_dot_same_cost(self):
         """claude-sonnet-4-0 and claude-4.0-sonnet are the same model."""
-        cost_hyphen = dynamic_session_cost_calculator(_ctx("claude-sonnet-4-0", 1000, 500))
+        cost_hyphen = dynamic_session_cost_calculator(
+            _ctx("claude-sonnet-4-0", 1000, 500)
+        )
         cost_dot = dynamic_session_cost_calculator(_ctx("claude-4.0-sonnet", 1000, 500))
         self.assertEqual(cost_hyphen, cost_dot)
 
     def test_claude_3_7_sonnet_hyphen_vs_dot_same_cost(self):
         """claude-3-7-sonnet and claude-3.7-sonnet are the same model."""
-        cost_hyphen = dynamic_session_cost_calculator(_ctx("claude-3-7-sonnet", 1000, 500))
+        cost_hyphen = dynamic_session_cost_calculator(
+            _ctx("claude-3-7-sonnet", 1000, 500)
+        )
         cost_dot = dynamic_session_cost_calculator(_ctx("claude-3.7-sonnet", 1000, 500))
         self.assertEqual(cost_hyphen, cost_dot)
 
     def test_claude_3_5_haiku_hyphen_vs_dot_same_cost(self):
         """claude-3-5-haiku and claude-3.5-haiku are the same model."""
-        cost_hyphen = dynamic_session_cost_calculator(_ctx("claude-3-5-haiku", 1000, 500))
+        cost_hyphen = dynamic_session_cost_calculator(
+            _ctx("claude-3-5-haiku", 1000, 500)
+        )
         cost_dot = dynamic_session_cost_calculator(_ctx("claude-3.5-haiku", 1000, 500))
         self.assertEqual(cost_hyphen, cost_dot)
 

@@ -202,8 +202,14 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "claude-haiku-4-5": SupportedModel.CLAUDE_HAIKU_4_5,
     "claude-opus-4-5": SupportedModel.CLAUDE_OPUS_4_5,
     "claude-opus-4-6": SupportedModel.CLAUDE_OPUS_4_6,
+    # claude-3-7-sonnet: Anthropic uses hyphens (3-7), not dots (3.7)
+    "claude-3-7-sonnet": SupportedModel.CLAUDE_3_7_SONNET,
     "claude-3.7-sonnet": SupportedModel.CLAUDE_3_7_SONNET,
+    # claude-3-5-haiku: Anthropic uses hyphens (3-5), not dots (3.5)
+    "claude-3-5-haiku": SupportedModel.CLAUDE_3_5_HAIKU,
     "claude-3.5-haiku": SupportedModel.CLAUDE_3_5_HAIKU,
+    # claude-sonnet-4-0: Anthropic's newer naming puts family before version
+    "claude-sonnet-4-0": SupportedModel.CLAUDE_4_0_SONNET,
     "claude-4.0-sonnet": SupportedModel.CLAUDE_4_0_SONNET,
     # Google
     "gemini-2.5-flash": SupportedModel.GEMINI_2_5_FLASH,

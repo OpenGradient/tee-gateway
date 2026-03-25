@@ -150,12 +150,6 @@ class SupportedModel(Enum):
     )
 
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──
-    CLAUDE_3_5_HAIKU = ModelConfig(
-        provider="anthropic",
-        api_name="claude-3-5-haiku-latest",
-        input_price_usd=Decimal("0.000001"),
-        output_price_usd=Decimal("0.000005"),
-    )
     CLAUDE_4_0_SONNET = ModelConfig(
         provider="anthropic",
         api_name="claude-sonnet-4-0",
@@ -173,12 +167,6 @@ class SupportedModel(Enum):
         api_name="grok-3-latest",
         input_price_usd=Decimal("0.000003"),
         output_price_usd=Decimal("0.000015"),
-    )
-    GROK_2 = ModelConfig(
-        provider="x-ai",
-        api_name="grok-2-latest",
-        input_price_usd=Decimal("0.000002"),
-        output_price_usd=Decimal("0.00001"),
     )
 
 
@@ -211,16 +199,12 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "grok-4.1-fast": SupportedModel.GROK_4_1_FAST,
     "grok-4-1-fast-non-reasoning": SupportedModel.GROK_4_1_FAST_NON_REASONING,
     # Legacy — not in current SDK, retained for older SDK versions
-    "claude-3-5-haiku": SupportedModel.CLAUDE_3_5_HAIKU,
-    "claude-3.5-haiku": SupportedModel.CLAUDE_3_5_HAIKU,  # alternate dot notation
     "claude-sonnet-4-0": SupportedModel.CLAUDE_4_0_SONNET,
     "claude-4.0-sonnet": SupportedModel.CLAUDE_4_0_SONNET,  # alternate dot notation
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
     "grok-3-mini": SupportedModel.GROK_3_MINI,
     "grok-3-beta": SupportedModel.GROK_3,  # old beta alias
     "grok-3": SupportedModel.GROK_3,
-    "grok-2-1212": SupportedModel.GROK_2,  # versioned alias
-    "grok-2": SupportedModel.GROK_2,
 }
 
 # Build the rate card automatically from the enum (for backward compat with util.py)

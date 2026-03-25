@@ -71,8 +71,8 @@ DEFAULT_ASSET_DECIMALS: int = 18
 # /v1/chat/completions — 0.01 OUSDC precheck (6 decimals: 10_000 = $0.01)
 CHAT_COMPLETIONS_USDC_AMOUNT: str = "10000"
 
-# /v1/chat/completions — 0.05 OPG precheck (18 decimals)
-CHAT_COMPLETIONS_OPG_AMOUNT: str = "50000000000000000"
+# /v1/chat/completions — 0.1 OPG precheck (18 decimals)
+CHAT_COMPLETIONS_OPG_AMOUNT: str = "100000000000000000"
 
 # /v1/completions — 0.01 USDC precheck (6 decimals: 10_000 = $0.01)
 COMPLETIONS_USDC_AMOUNT: str = "10000"

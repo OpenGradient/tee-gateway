@@ -110,12 +110,6 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.0000004"),
         thinking_budget=0,
     )
-    GEMINI_3_PRO_PREVIEW = ModelConfig(
-        provider="google",
-        api_name="gemini-3-pro-preview",
-        input_price_usd=Decimal("0.000002"),
-        output_price_usd=Decimal("0.000012"),
-    )
     GEMINI_3_FLASH_PREVIEW = ModelConfig(
         provider="google",
         api_name="gemini-3-flash-preview",
@@ -190,7 +184,6 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-2.5-flash": SupportedModel.GEMINI_2_5_FLASH,
     "gemini-2.5-pro": SupportedModel.GEMINI_2_5_PRO,
     "gemini-2.5-flash-lite": SupportedModel.GEMINI_2_5_FLASH_LITE,
-    "gemini-3-pro-preview": SupportedModel.GEMINI_3_PRO_PREVIEW,
     "gemini-3-flash-preview": SupportedModel.GEMINI_3_FLASH_PREVIEW,
     # xAI
     "grok-4": SupportedModel.GROK_4,

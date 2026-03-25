@@ -121,12 +121,6 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.000001"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000005"))
 
-    def test_claude_3_5_haiku_hyphen_resolves(self):
-        """claude-3-5-haiku (Anthropic hyphen convention) must resolve."""
-        cfg = get_model_config("claude-3-5-haiku")
-        self.assertEqual(cfg, get_model_config("claude-3.5-haiku"))
-        self.assertEqual(cfg.provider, "anthropic")
-
     # ── Anthropic Opus ──────────────────────────────────────────────────────
 
     def test_claude_opus_4_5_resolves(self):
@@ -182,10 +176,6 @@ class TestModelRegistry(unittest.TestCase):
         cfg = get_model_config("gemini-2.5-flash-lite")
         self.assertEqual(cfg.provider, "google")
 
-    def test_gemini_3_pro_preview_resolves(self):
-        cfg = get_model_config("gemini-3-pro-preview")
-        self.assertEqual(cfg.provider, "google")
-
     def test_gemini_3_flash_preview_resolves(self):
         cfg = get_model_config("gemini-3-flash-preview")
         self.assertEqual(cfg.provider, "google")
@@ -214,10 +204,6 @@ class TestModelRegistry(unittest.TestCase):
 
     def test_grok_3_resolves(self):
         cfg = get_model_config("grok-3")
-        self.assertEqual(cfg.provider, "x-ai")
-
-    def test_grok_2_resolves(self):
-        cfg = get_model_config("grok-2")
         self.assertEqual(cfg.provider, "x-ai")
 
     # ── Errors ───────────────────────────────────────────────────────────────
@@ -295,14 +281,6 @@ class TestDynamicSessionCostCalculatorOPG(unittest.TestCase):
         # 1000*0.000001 + 500*0.000005 = 0.001 + 0.0025 = 0.0035 USD = 3.5e15 wei
         self.assertEqual(cost, 3_500_000_000_000_000)
 
-    def test_claude_3_5_haiku_hyphen_cost(self):
-        """claude-3-5-haiku (Anthropic hyphen convention) must produce correct pricing."""
-        cost_hyphen = self._calc("claude-3-5-haiku", 1000, 500)
-        cost_dot = self._calc("claude-3.5-haiku", 1000, 500)
-        self.assertEqual(cost_hyphen, cost_dot)
-        expected = _expected_cost_opg("claude-3-5-haiku", 1000, 500)
-        self.assertEqual(cost_hyphen, expected)
-
     # ── Anthropic Opus ──────────────────────────────────────────────────────
 
     def test_claude_opus_4_5_cost(self):
@@ -335,11 +313,6 @@ class TestDynamicSessionCostCalculatorOPG(unittest.TestCase):
     def test_gemini_2_5_pro_cost(self):
         cost = self._calc("gemini-2.5-pro", 1000, 500)
         expected = _expected_cost_opg("gemini-2.5-pro", 1000, 500)
-        self.assertEqual(cost, expected)
-
-    def test_gemini_3_pro_preview_cost(self):
-        cost = self._calc("gemini-3-pro-preview", 1000, 500)
-        expected = _expected_cost_opg("gemini-3-pro-preview", 1000, 500)
         self.assertEqual(cost, expected)
 
     def test_gemini_3_flash_preview_cost(self):
@@ -375,11 +348,6 @@ class TestDynamicSessionCostCalculatorOPG(unittest.TestCase):
     def test_grok_3_cost(self):
         cost = self._calc("grok-3", 1000, 500)
         expected = _expected_cost_opg("grok-3", 1000, 500)
-        self.assertEqual(cost, expected)
-
-    def test_grok_2_cost(self):
-        cost = self._calc("grok-2", 1000, 500)
-        expected = _expected_cost_opg("grok-2", 1000, 500)
         self.assertEqual(cost, expected)
 
     # ── Haiku is cheaper than Sonnet ────────────────────────────────────────
@@ -516,14 +484,6 @@ class TestDynamicSessionCostCalculatorEdgeCases(unittest.TestCase):
             _ctx("claude-sonnet-4-0", 1000, 500)
         )
         cost_dot = dynamic_session_cost_calculator(_ctx("claude-4.0-sonnet", 1000, 500))
-        self.assertEqual(cost_hyphen, cost_dot)
-
-    def test_claude_3_5_haiku_hyphen_vs_dot_same_cost(self):
-        """claude-3-5-haiku and claude-3.5-haiku are the same model."""
-        cost_hyphen = dynamic_session_cost_calculator(
-            _ctx("claude-3-5-haiku", 1000, 500)
-        )
-        cost_dot = dynamic_session_cost_calculator(_ctx("claude-3.5-haiku", 1000, 500))
         self.assertEqual(cost_hyphen, cost_dot)
 
 

@@ -85,7 +85,10 @@ class TestResponseFormatInHashDict(unittest.TestCase):
             "type": "json_schema",
             "json_schema": {
                 "name": "math_answer",
-                "schema": {"type": "object", "properties": {"answer": {"type": "number"}}},
+                "schema": {
+                    "type": "object",
+                    "properties": {"answer": {"type": "number"}},
+                },
             },
         }
         req = self._make_request(response_format=rf)
@@ -114,8 +117,12 @@ class TestResponseFormatModelBinding(unittest.TestCase):
     @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
     @patch("tee_gateway.controllers.chat_controller.convert_messages")
     @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
-    def test_json_object_binds_to_model(self, mock_get_model, mock_convert, mock_tee_keys, mock_hash):
-        from tee_gateway.controllers.chat_controller import _create_non_streaming_response
+    def test_json_object_binds_to_model(
+        self, mock_get_model, mock_convert, mock_tee_keys, mock_hash
+    ):
+        from tee_gateway.controllers.chat_controller import (
+            _create_non_streaming_response,
+        )
 
         mock_model = MagicMock()
         mock_bound = MagicMock()
@@ -150,8 +157,12 @@ class TestResponseFormatModelBinding(unittest.TestCase):
     @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
     @patch("tee_gateway.controllers.chat_controller.convert_messages")
     @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
-    def test_text_format_does_not_bind(self, mock_get_model, mock_convert, mock_tee_keys, mock_hash):
-        from tee_gateway.controllers.chat_controller import _create_non_streaming_response
+    def test_text_format_does_not_bind(
+        self, mock_get_model, mock_convert, mock_tee_keys, mock_hash
+    ):
+        from tee_gateway.controllers.chat_controller import (
+            _create_non_streaming_response,
+        )
 
         mock_model = MagicMock()
         mock_get_model.return_value = mock_model
@@ -184,8 +195,12 @@ class TestResponseFormatModelBinding(unittest.TestCase):
     @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
     @patch("tee_gateway.controllers.chat_controller.convert_messages")
     @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
-    def test_no_format_does_not_bind(self, mock_get_model, mock_convert, mock_tee_keys, mock_hash):
-        from tee_gateway.controllers.chat_controller import _create_non_streaming_response
+    def test_no_format_does_not_bind(
+        self, mock_get_model, mock_convert, mock_tee_keys, mock_hash
+    ):
+        from tee_gateway.controllers.chat_controller import (
+            _create_non_streaming_response,
+        )
 
         mock_model = MagicMock()
         mock_get_model.return_value = mock_model
@@ -216,8 +231,12 @@ class TestResponseFormatModelBinding(unittest.TestCase):
     @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
     @patch("tee_gateway.controllers.chat_controller.convert_messages")
     @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
-    def test_json_schema_binds_full_schema(self, mock_get_model, mock_convert, mock_tee_keys, mock_hash):
-        from tee_gateway.controllers.chat_controller import _create_non_streaming_response
+    def test_json_schema_binds_full_schema(
+        self, mock_get_model, mock_convert, mock_tee_keys, mock_hash
+    ):
+        from tee_gateway.controllers.chat_controller import (
+            _create_non_streaming_response,
+        )
 
         mock_model = MagicMock()
         mock_bound = MagicMock()
@@ -272,8 +291,12 @@ class TestResponseFormatWithTools(unittest.TestCase):
     @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
     @patch("tee_gateway.controllers.chat_controller.convert_messages")
     @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
-    def test_tools_and_response_format_both_bind(self, mock_get_model, mock_convert, mock_tee_keys, mock_hash):
-        from tee_gateway.controllers.chat_controller import _create_non_streaming_response
+    def test_tools_and_response_format_both_bind(
+        self, mock_get_model, mock_convert, mock_tee_keys, mock_hash
+    ):
+        from tee_gateway.controllers.chat_controller import (
+            _create_non_streaming_response,
+        )
 
         mock_model = MagicMock()
         mock_after_tools = MagicMock()
@@ -298,14 +321,18 @@ class TestResponseFormatWithTools(unittest.TestCase):
             model="gpt-4o",
             messages=[],
             temperature=1.0,
-            tools=[{"type": "function", "function": {"name": "calc", "parameters": {}}}],
+            tools=[
+                {"type": "function", "function": {"name": "calc", "parameters": {}}}
+            ],
             response_format={"type": "json_object"},
         )
 
         _create_non_streaming_response(req)
 
         mock_model.bind_tools.assert_called_once()
-        mock_after_tools.bind.assert_called_once_with(response_format={"type": "json_object"})
+        mock_after_tools.bind.assert_called_once_with(
+            response_format={"type": "json_object"}
+        )
         mock_after_format.invoke.assert_called_once()
 
 

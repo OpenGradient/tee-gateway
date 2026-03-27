@@ -85,7 +85,11 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         # Bind response_format if provided (json_object or json_schema)
         if chat_request.response_format:
             rf = chat_request.response_format
-            rf_type = rf.get("type", "text") if isinstance(rf, dict) else getattr(rf, "type", "text")
+            rf_type = (
+                rf.get("type", "text")
+                if isinstance(rf, dict)
+                else getattr(rf, "type", "text")
+            )
             if rf_type != "text":
                 rf_dict = rf if isinstance(rf, dict) else {"type": rf_type}
                 model = model.bind(response_format=rf_dict)
@@ -207,7 +211,11 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
         # Bind response_format if provided (json_object or json_schema)
         if chat_request.response_format:
             rf = chat_request.response_format
-            rf_type = rf.get("type", "text") if isinstance(rf, dict) else getattr(rf, "type", "text")
+            rf_type = (
+                rf.get("type", "text")
+                if isinstance(rf, dict)
+                else getattr(rf, "type", "text")
+            )
             if rf_type != "text":
                 rf_dict = rf if isinstance(rf, dict) else {"type": rf_type}
                 model = model.bind(response_format=rf_dict)

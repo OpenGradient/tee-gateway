@@ -4,7 +4,7 @@ Unit tests for dynamic pricing / cost calculation across all supported models.
 Tests verify that:
   - Every user-facing model name resolves to the correct ModelConfig
   - dynamic_session_cost_calculator produces the right amount in token
-    smallest-units for each provider and token currency (OPG / USDC)
+    smallest-units for supported models and token currencies (OPG / USDC)
   - Edge cases (no usage, unknown model, bad context) are handled correctly
 """
 

@@ -41,7 +41,7 @@ from .definitions import (
     USDC_ADDRESS,
     BASE_OPG_ADDRESS,
     CHAT_COMPLETIONS_USDC_AMOUNT,
-    CHAT_COMPLETIONS_OPG_AMOUNT,
+    CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
     COMPLETIONS_USDC_AMOUNT,
     FACILITATOR_URL,
 )
@@ -137,7 +137,7 @@ routes = {
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
-                    amount=CHAT_COMPLETIONS_OPG_AMOUNT,
+                    amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
                     asset=BASE_OPG_ADDRESS,
                     extra={
                         "name": "OPG",

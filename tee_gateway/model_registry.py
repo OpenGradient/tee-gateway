@@ -87,24 +87,6 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.000005"),
         output_price_usd=Decimal("0.000025"),
     )
-    CLAUDE_3_7_SONNET = ModelConfig(
-        provider="anthropic",
-        api_name="claude-3-7-sonnet-latest",
-        input_price_usd=Decimal("0.000003"),
-        output_price_usd=Decimal("0.000015"),
-    )
-    CLAUDE_3_5_HAIKU = ModelConfig(
-        provider="anthropic",
-        api_name="claude-3-5-haiku-latest",
-        input_price_usd=Decimal("0.000001"),
-        output_price_usd=Decimal("0.000005"),
-    )
-    CLAUDE_4_0_SONNET = ModelConfig(
-        provider="anthropic",
-        api_name="claude-sonnet-4-0",
-        input_price_usd=Decimal("0.000003"),
-        output_price_usd=Decimal("0.000015"),
-    )
 
     # ── Google Gemini ───────────────────────────────────────────────────
     GEMINI_2_5_FLASH = ModelConfig(
@@ -127,12 +109,6 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000001"),
         output_price_usd=Decimal("0.0000004"),
         thinking_budget=0,
-    )
-    GEMINI_3_PRO_PREVIEW = ModelConfig(
-        provider="google",
-        api_name="gemini-3-pro-preview",
-        input_price_usd=Decimal("0.000002"),
-        output_price_usd=Decimal("0.000012"),
     )
     GEMINI_3_FLASH_PREVIEW = ModelConfig(
         provider="google",
@@ -166,6 +142,14 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000002"),
         output_price_usd=Decimal("0.0000005"),
     )
+
+    # ── Legacy models (not in current SDK — retained for older SDK versions) ──
+    CLAUDE_4_0_SONNET = ModelConfig(
+        provider="anthropic",
+        api_name="claude-sonnet-4-0",
+        input_price_usd=Decimal("0.000003"),
+        output_price_usd=Decimal("0.000015"),
+    )
     GROK_3_MINI = ModelConfig(
         provider="x-ai",
         api_name="grok-3-mini",
@@ -177,12 +161,6 @@ class SupportedModel(Enum):
         api_name="grok-3-latest",
         input_price_usd=Decimal("0.000003"),
         output_price_usd=Decimal("0.000015"),
-    )
-    GROK_2 = ModelConfig(
-        provider="x-ai",
-        api_name="grok-2-latest",
-        input_price_usd=Decimal("0.000002"),
-        output_price_usd=Decimal("0.00001"),
     )
 
 
@@ -202,14 +180,10 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "claude-haiku-4-5": SupportedModel.CLAUDE_HAIKU_4_5,
     "claude-opus-4-5": SupportedModel.CLAUDE_OPUS_4_5,
     "claude-opus-4-6": SupportedModel.CLAUDE_OPUS_4_6,
-    "claude-3.7-sonnet": SupportedModel.CLAUDE_3_7_SONNET,
-    "claude-3.5-haiku": SupportedModel.CLAUDE_3_5_HAIKU,
-    "claude-4.0-sonnet": SupportedModel.CLAUDE_4_0_SONNET,
     # Google
     "gemini-2.5-flash": SupportedModel.GEMINI_2_5_FLASH,
     "gemini-2.5-pro": SupportedModel.GEMINI_2_5_PRO,
     "gemini-2.5-flash-lite": SupportedModel.GEMINI_2_5_FLASH_LITE,
-    "gemini-3-pro-preview": SupportedModel.GEMINI_3_PRO_PREVIEW,
     "gemini-3-flash-preview": SupportedModel.GEMINI_3_FLASH_PREVIEW,
     # xAI
     "grok-4": SupportedModel.GROK_4,
@@ -217,12 +191,13 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "grok-4-1-fast": SupportedModel.GROK_4_1_FAST,
     "grok-4.1-fast": SupportedModel.GROK_4_1_FAST,
     "grok-4-1-fast-non-reasoning": SupportedModel.GROK_4_1_FAST_NON_REASONING,
-    "grok-3-mini-beta": SupportedModel.GROK_3_MINI,
+    # Legacy — not in current SDK, retained for older SDK versions
+    "claude-sonnet-4-0": SupportedModel.CLAUDE_4_0_SONNET,
+    "claude-4.0-sonnet": SupportedModel.CLAUDE_4_0_SONNET,  # alternate dot notation
+    "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
     "grok-3-mini": SupportedModel.GROK_3_MINI,
-    "grok-3-beta": SupportedModel.GROK_3,
+    "grok-3-beta": SupportedModel.GROK_3,  # old beta alias
     "grok-3": SupportedModel.GROK_3,
-    "grok-2-1212": SupportedModel.GROK_2,
-    "grok-2": SupportedModel.GROK_2,
 }
 
 # Build the rate card automatically from the enum (for backward compat with util.py)

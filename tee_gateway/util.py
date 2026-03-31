@@ -157,7 +157,6 @@ def _deserialize_dict(data, boxed_type):
 
 from tee_gateway.definitions import (  # noqa: E402
     ASSET_DECIMALS_BY_ADDRESS,
-    DEFAULT_ASSET_DECIMALS,
 )
 from tee_gateway.model_registry import get_model_config  # noqa: E402
 
@@ -238,31 +237,49 @@ def _normalize_model_name(model: str | None) -> str | None:
 
 def _extract_usage_tokens(
     response_json: dict[str, Any] | None,
-) -> tuple[int, int] | None:
+) -> tuple[int, int]:
+    """Extract (input_tokens, output_tokens) from response JSON.
+
+    Raises ValueError if usage data is missing or malformed — no silent fallback.
+    """
     if not isinstance(response_json, dict):
-        return None
+        raise ValueError("response_json is not a dict; cannot extract usage tokens")
     usage = response_json.get("usage")
     if not isinstance(usage, dict):
-        return None
+        raise ValueError(
+            "response_json has no 'usage' dict; cannot extract usage tokens"
+        )
 
     prompt_tokens = usage.get("prompt_tokens", usage.get("input_tokens"))
     completion_tokens = usage.get("completion_tokens", usage.get("output_tokens"))
     if prompt_tokens is None or completion_tokens is None:
-        return None
+        raise ValueError(f"usage dict is missing token counts: {usage!r}")
 
     try:
         return max(0, int(prompt_tokens)), max(0, int(completion_tokens))
-    except (TypeError, ValueError):
-        return None
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Could not parse token counts from usage: {usage!r}") from exc
 
 
 def _extract_model_from_context(
     request_json: dict[str, Any] | None,
     response_json: dict[str, Any] | None,
-) -> str | None:
-    req_model = request_json.get("model") if isinstance(request_json, dict) else None
-    resp_model = response_json.get("model") if isinstance(response_json, dict) else None
-    return _normalize_model_name(req_model or resp_model)
+) -> str:
+    """Extract and normalize model name from request JSON.
+
+    Uses only the request model name — the response model field is ignored
+    because providers may return a versioned alias that differs from the
+    user-facing name.  Raises ValueError if the model name is absent.
+    """
+    if not isinstance(request_json, dict):
+        raise ValueError("request_json is not a dict; cannot extract model name")
+    req_model = request_json.get("model")
+    if not req_model:
+        raise ValueError("request_json has no 'model' field")
+    normalized = _normalize_model_name(req_model)
+    if not normalized:
+        raise ValueError(f"model name normalizes to empty string: {req_model!r}")
+    return normalized
 
 
 def _extract_asset_decimals_from_requirements(payment_requirements: Any) -> int:
@@ -272,15 +289,25 @@ def _extract_asset_decimals_from_requirements(payment_requirements: Any) -> int:
     if not asset and isinstance(req.get("price"), dict):
         asset = req["price"].get("asset")
 
-    if isinstance(asset, str):
-        return ASSET_DECIMALS_BY_ADDRESS.get(asset.lower(), DEFAULT_ASSET_DECIMALS)
-    return DEFAULT_ASSET_DECIMALS
+    if not isinstance(asset, str) or not asset:
+        raise ValueError(
+            f"payment_requirements has no recognizable asset address; "
+            f"cannot determine token decimals: {req!r}"
+        )
+
+    asset_lower = asset.lower()
+    if asset_lower not in ASSET_DECIMALS_BY_ADDRESS:
+        raise ValueError(
+            f"Unknown asset address {asset!r}; not in ASSET_DECIMALS_BY_ADDRESS. "
+            f"Add it to definitions.py before accepting payments with this token."
+        )
+    return ASSET_DECIMALS_BY_ADDRESS[asset_lower]
 
 
 def dynamic_session_cost_calculator(context: dict[str, Any]) -> int:
     """Compute UPTO per-request cost in token smallest units from actual usage.
 
-    Raises ValueError if the model is not in the registry (no silent fallback).
+    Raises ValueError on any missing or unrecognised input — no silent fallback.
     """
     request_json = context.get("request_json")
     response_json = context.get("response_json")
@@ -291,18 +318,11 @@ def dynamic_session_cost_calculator(context: dict[str, Any]) -> int:
         )
 
     model = _extract_model_from_context(request_json, response_json)
-    if not model:
-        raise ValueError("Could not extract model name from request/response")
 
     # get_model_config raises ValueError for unknown models — no fallback
     cfg = get_model_config(model)
 
-    usage_tokens = _extract_usage_tokens(response_json)
-    if not usage_tokens:
-        logger.warning("No usage tokens in response for model=%s; charging zero", model)
-        return 0
-
-    input_tokens, output_tokens = usage_tokens
+    input_tokens, output_tokens = _extract_usage_tokens(response_json)
 
     input_rate = cfg.input_price_usd
     output_rate = cfg.output_price_usd

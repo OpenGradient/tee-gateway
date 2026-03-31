@@ -29,7 +29,6 @@ def _opg_requirements() -> dict:
     return {"asset": BASE_OPG_ADDRESS, "amount": "50000000000000000"}
 
 
-
 def _ctx(model: str, input_tokens: int, output_tokens: int, requirements=None) -> dict:
     """Build a minimal calculator context."""
     return {
@@ -56,7 +55,6 @@ def _expected_cost_opg(model: str, input_tokens: int, output_tokens: int) -> int
         + Decimal(output_tokens) * cfg.output_price_usd
     )
     return int((total_usd * Decimal(10**18)).to_integral_value(rounding=ROUND_CEILING))
-
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +349,6 @@ class TestDynamicSessionCostCalculatorOPG(unittest.TestCase):
         fast = self._calc("grok-4-fast", 1000, 1000)
         full = self._calc("grok-4", 1000, 1000)
         self.assertLess(fast, full)
-
 
 
 class TestDynamicSessionCostCalculatorEdgeCases(unittest.TestCase):

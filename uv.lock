@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = "==3.12.*"
 
 [options]
@@ -1244,15 +1244,15 @@ wheels = [
 
 [[package]]
 name = "og-x402"
-version = "0.0.1.dev2"
+version = "0.0.1.dev6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1e/75/40c43cd44aa394e68acc98f8d5b8376f3a5e3b9eddf55b1c0c34616c340b/og_x402-0.0.1.dev2.tar.gz", hash = "sha256:bf5d4484ece5a371358a336fcc79fe5678be611044c55ade45c4be9d19d7691b", size = 899662, upload-time = "2026-03-17T06:35:36.587Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/70/aa/2b616b9be6dfa4dfee98bde3ed20dd41cb446d0569e0069c1d6c11faa032/og_x402-0.0.1.dev6.tar.gz", hash = "sha256:140c4b725f372e81f4a3c2caf392f58b6fcf242bc51a1c3a6417f58e3ef9e347", size = 900115, upload-time = "2026-03-30T07:13:25.623Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4c/79/8c7543c2e647508e04ad0983e9a3a7b861f388ec591ccdc42c69a3128d42/og_x402-0.0.1.dev2-py3-none-any.whl", hash = "sha256:65e7d3bbb3c7f51e51dad974f6c405a230693816f72d874cf0d6d705a8eec271", size = 952331, upload-time = "2026-03-17T06:35:34.695Z" },
+    { url = "https://files.pythonhosted.org/packages/03/5e/a64de6f29eb80bb180288297882d5aba2a894363622d4f94417b420cf0b5/og_x402-0.0.1.dev6-py3-none-any.whl", hash = "sha256:2a1f962fa2a50d02f28421199027245d5c5f013f36a143ec2f184a546325f1bd", size = 952670, upload-time = "2026-03-30T07:13:00.408Z" },
 ]
 
 [package.optional-dependencies]
@@ -1881,7 +1881,7 @@ requires-dist = [
     { name = "langchain-google-genai", specifier = ">=4.2.0" },
     { name = "langchain-openai", specifier = ">=0.3.35" },
     { name = "langchain-xai", specifier = ">=0.2.5" },
-    { name = "og-x402", extras = ["evm"], specifier = "==0.0.1.dev2" },
+    { name = "og-x402", extras = ["evm"], specifier = "==0.0.1.dev6" },
     { name = "openai", specifier = ">=2.15.0" },
     { name = "psutil", specifier = ">=7.2.1" },
     { name = "pydantic", specifier = ">=2.12.5" },

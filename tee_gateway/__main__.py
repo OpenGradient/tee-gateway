@@ -388,6 +388,29 @@ _payment_mw = payment_middleware(
     session_cost_calculator=dynamic_session_cost_calculator,
 )
 
+# ---------------------------------------------------------------------------
+# Strict cost-resolution patch
+#
+# Why this exists
+# ---------------
+# The upstream x402 PaymentMiddleware._resolve_session_request_cost wraps the
+# call to the session_cost_calculator in a broad try/except.  If the calculator
+# raises (e.g. ValueError for an unrecognised model name, KeyError for missing
+# usage data), the exception is swallowed and the middleware silently falls back
+# to the static session maximum (CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND /
+# CHAT_COMPLETIONS_USDC_AMOUNT).  That silent fallback means:
+#   • The client is charged the full pre-check cap instead of actual usage.
+#   • The server has no visible indication that pricing failed.
+#
+# The fix
+# -------
+# We replace _resolve_session_request_cost with our own implementation that is
+# identical to upstream, except the cost-calculator call is NOT wrapped in a
+# try/except.  Any exception from dynamic_session_cost_calculator() therefore
+# propagates up through the middleware and Flask, producing a proper HTTP 500
+# response to the client instead of an incorrect silent charge.
+# ---------------------------------------------------------------------------
+
 
 def _strict_resolve_session_request_cost(
     self,

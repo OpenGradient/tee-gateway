@@ -38,6 +38,7 @@ from .definitions import (
     EVM_PAYMENT_ADDRESS,
     BASE_OPG_ADDRESS,
     CHAT_COMPLETIONS_OPG_AMOUNT,
+    COMPLETIONS_OPG_AMOUNT,
     FACILITATOR_URL,
 )
 
@@ -129,6 +130,26 @@ routes = {
         ],
         mime_type="application/json",
         description="Chat completion",
+    ),
+    "POST /v1/completions": RouteConfig(
+        accepts=[
+            PaymentOption(
+                scheme="upto",
+                pay_to=EVM_PAYMENT_ADDRESS,
+                price=AssetAmount(
+                    amount=COMPLETIONS_OPG_AMOUNT,
+                    asset=BASE_OPG_ADDRESS,
+                    extra={
+                        "name": "OPG",
+                        "version": "2",
+                        "assetTransferMethod": "permit2",
+                    },
+                ),
+                network=BASE_TESTNET_NETWORK,
+            ),
+        ],
+        mime_type="application/json",
+        description="Completion",
     ),
 }
 

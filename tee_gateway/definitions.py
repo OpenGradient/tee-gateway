@@ -63,3 +63,6 @@ DEFAULT_ASSET_DECIMALS: int = 18
 
 # /v1/chat/completions — 0.05 OPG precheck (18 decimals)
 CHAT_COMPLETIONS_OPG_AMOUNT: str = "50000000000000000"
+
+# /v1/completions — 0.05 OPG precheck (18 decimals)
+COMPLETIONS_OPG_AMOUNT: str = "50000000000000000"

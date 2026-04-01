@@ -39,7 +39,9 @@ from .definitions import (
     BASE_TESTNET_NETWORK,
     EVM_PAYMENT_ADDRESS,
     USDC_ADDRESS,
-    BASE_OPG_ADDRESS,
+    BASE_TESTNET_OPG_ADDRESS,
+    BASE_MAINNET_NETWORK,
+    BASE_MAINNET_OPG_ADDRESS,
     CHAT_COMPLETIONS_USDC_AMOUNT,
     CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
     COMPLETIONS_USDC_AMOUNT,
@@ -138,7 +140,7 @@ routes = {
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
                     amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
-                    asset=BASE_OPG_ADDRESS,
+                    asset=BASE_TESTNET_OPG_ADDRESS,
                     extra={
                         "name": "OPG",
                         "version": "2",
@@ -146,6 +148,20 @@ routes = {
                     },
                 ),
                 network=BASE_TESTNET_NETWORK,
+            ),
+            PaymentOption(
+                scheme="upto",
+                pay_to=EVM_PAYMENT_ADDRESS,
+                price=AssetAmount(
+                    amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
+                    asset=BASE_MAINNET_OPG_ADDRESS,
+                    extra={
+                        "name": "OPG",
+                        "version": "2",
+                        "assetTransferMethod": "permit2",
+                    },
+                ),
+                network=BASE_MAINNET_NETWORK,
             ),
         ],
         mime_type="application/json",

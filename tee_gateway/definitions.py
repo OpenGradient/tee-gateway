@@ -25,6 +25,9 @@ EVM_NETWORK: str = "eip155:10740"
 # Base Testnet — where OPG payments are accepted
 BASE_TESTNET_NETWORK: str = "eip155:84532"
 
+# Base Mainnet — where OPG payments are accepted
+BASE_MAINNET_NETWORK: str = "eip155:8453"
+
 # ---------------------------------------------------------------------------
 # Payment recipient
 # ---------------------------------------------------------------------------
@@ -45,7 +48,10 @@ EVM_PAYMENT_ADDRESS: str = os.getenv(
 USDC_ADDRESS: str = "0x094E464A23B90A71a0894D5D1e5D470FfDD074e1"
 
 # OpenGradient token (OPG) on Base Testnet
-BASE_OPG_ADDRESS: str = "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
+BASE_TESTNET_OPG_ADDRESS: str = "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
+
+# OpenGradient token (OPG) on Base Mainnet
+BASE_MAINNET_OPG_ADDRESS: str = "0x5feCcD17C393CaF1001D18164236A37E731FCb9d"
 
 # ---------------------------------------------------------------------------
 # Token decimal places
@@ -54,7 +60,8 @@ BASE_OPG_ADDRESS: str = "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
 # Maps lowercase contract address → number of decimals for unit conversion.
 ASSET_DECIMALS_BY_ADDRESS: dict[str, int] = {
     USDC_ADDRESS.lower(): 6,  # USDC / OUSDC standard: 6 decimals
-    BASE_OPG_ADDRESS.lower(): 18,  # OPG: 18 decimals (ERC-20 standard)
+    BASE_TESTNET_OPG_ADDRESS.lower(): 18,  # OPG: 18 decimals (ERC-20 standard)
+    BASE_MAINNET_OPG_ADDRESS.lower(): 18,  # OPG: 18 decimals (ERC-20 standard)
 }
 
 # Fallback for any asset not explicitly listed above

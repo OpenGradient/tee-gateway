@@ -38,8 +38,8 @@ from .definitions import (
     BASE_TESTNET_NETWORK,
     EVM_PAYMENT_ADDRESS,
     BASE_OPG_ADDRESS,
-    CHAT_COMPLETIONS_OPG_AMOUNT,
-    COMPLETIONS_OPG_AMOUNT,
+    CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
+    COMPLETIONS_OPG_SESSION_MAX_SPEND,
     FACILITATOR_URL,
 )
 
@@ -118,7 +118,7 @@ routes = {
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
-                    amount=CHAT_COMPLETIONS_OPG_AMOUNT,
+                    amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
                     asset=BASE_OPG_ADDRESS,
                     extra={
                         "name": "OPG",
@@ -138,7 +138,7 @@ routes = {
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
-                    amount=COMPLETIONS_OPG_AMOUNT,
+                    amount=COMPLETIONS_OPG_SESSION_MAX_SPEND,
                     asset=BASE_OPG_ADDRESS,
                     extra={
                         "name": "OPG",

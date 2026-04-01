@@ -54,3 +54,4 @@ exclude = [".claude/worktrees"]
 [tool.uv]
 # Pre-release needed for og-test-v2-x402==0.0.11.dev5
 prerelease = "allow"
+exclude-newer = "2026-03-25T00:00:00Z"

@@ -538,7 +538,6 @@ class TestStreamingResponseFormatBinding(unittest.TestCase):
     ):
         """Anthropic models never call model.bind() — structured output goes via with_structured_output."""
         from tee_gateway.controllers.chat_controller import _create_streaming_response
-        from langchain_core.messages import AIMessage
 
         mock_provider.return_value = "anthropic"
         mock_model = MagicMock()

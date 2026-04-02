@@ -52,6 +52,15 @@ def create_chat_completion(body):
         return _create_non_streaming_response(chat_request)
 
 
+def _normalize_response_format(rf) -> dict:
+    """Coerce response_format to a plain dict, preserving all fields including json_schema."""
+    if isinstance(rf, dict):
+        return rf
+    if hasattr(rf, "model_dump"):
+        return rf.model_dump()
+    return vars(rf)
+
+
 def _invoke_anthropic_structured(
     model, rf: dict, langchain_messages: list
 ) -> AIMessage:
@@ -131,14 +140,9 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         # Anthropic native equivalent and raises a clear error).
         rf_dict: dict | None = None
         if chat_request.response_format:
-            rf = chat_request.response_format
-            rf_type = (
-                rf.get("type", "text")
-                if isinstance(rf, dict)
-                else getattr(rf, "type", "text")
-            )
-            if rf_type != "text":
-                rf_dict = rf if isinstance(rf, dict) else {"type": rf_type}
+            rf = _normalize_response_format(chat_request.response_format)
+            if rf.get("type", "text") != "text":
+                rf_dict = rf
                 if get_provider_from_model(chat_request.model) != "anthropic":
                     model = model.bind(response_format=rf_dict)
 
@@ -265,18 +269,12 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
         # Anthropic native equivalent and raises a clear error).
         anthropic_structured_rf: dict | None = None
         if chat_request.response_format:
-            rf = chat_request.response_format
-            rf_type = (
-                rf.get("type", "text")
-                if isinstance(rf, dict)
-                else getattr(rf, "type", "text")
-            )
-            if rf_type != "text":
-                rf_dict = rf if isinstance(rf, dict) else {"type": rf_type}
+            rf = _normalize_response_format(chat_request.response_format)
+            if rf.get("type", "text") != "text":
                 if provider == "anthropic":
-                    anthropic_structured_rf = rf_dict
+                    anthropic_structured_rf = rf
                 else:
-                    model = model.bind(response_format=rf_dict)
+                    model = model.bind(response_format=rf)
 
         langchain_messages = convert_messages(chat_request.messages)
         tee_keys = get_tee_keys()
@@ -598,7 +596,7 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
             else list(chat_request.tools)
         )
     if chat_request.response_format:
-        d["response_format"] = chat_request.response_format
+        d["response_format"] = _normalize_response_format(chat_request.response_format)
     return d
 
 

@@ -686,7 +686,11 @@ class TestStreamingAnthropicStructuredOutput(unittest.TestCase):
         mock_structured.invoke.return_value = {
             "raw": _AIMessage(
                 content='{"name": "Alice", "age": 30}',
-                usage_metadata={"input_tokens": 50, "output_tokens": 20, "total_tokens": 70},
+                usage_metadata={
+                    "input_tokens": 50,
+                    "output_tokens": 20,
+                    "total_tokens": 70,
+                },
             ),
             "parsed": {"name": "Alice", "age": 30},
             "parsing_error": None,
@@ -798,7 +802,9 @@ class TestJsonObjectKeywordInjection(unittest.TestCase):
     system instruction when no message satisfies this requirement.
     """
 
-    def _setup_non_streaming(self, mock_get_model, mock_convert, mock_tee_keys, mock_hash):
+    def _setup_non_streaming(
+        self, mock_get_model, mock_convert, mock_tee_keys, mock_hash
+    ):
         """Return (mock_model, mock_bound) wired for a minimal non-streaming response."""
         mock_model = MagicMock()
         mock_bound = MagicMock()
@@ -827,13 +833,17 @@ class TestJsonObjectKeywordInjection(unittest.TestCase):
         self, mock_get_model, mock_convert, mock_tee_keys, mock_hash
     ):
         """SystemMessage 'Respond in JSON format.' is prepended when no message contains 'json'."""
-        from tee_gateway.controllers.chat_controller import _create_non_streaming_response
+        from tee_gateway.controllers.chat_controller import (
+            _create_non_streaming_response,
+        )
         from langchain_core.messages import HumanMessage, SystemMessage
 
         mock_model, mock_bound = self._setup_non_streaming(
             mock_get_model, mock_convert, mock_tee_keys, mock_hash
         )
-        mock_convert.return_value = [HumanMessage(content="Tell me about a fictional person.")]
+        mock_convert.return_value = [
+            HumanMessage(content="Tell me about a fictional person.")
+        ]
 
         req = CreateChatCompletionRequest(
             model="gpt-4.1",
@@ -855,7 +865,9 @@ class TestJsonObjectKeywordInjection(unittest.TestCase):
         self, mock_get_model, mock_convert, mock_tee_keys, mock_hash
     ):
         """No injection when a user message already contains the word 'json'."""
-        from tee_gateway.controllers.chat_controller import _create_non_streaming_response
+        from tee_gateway.controllers.chat_controller import (
+            _create_non_streaming_response,
+        )
         from langchain_core.messages import HumanMessage, SystemMessage
 
         mock_model, mock_bound = self._setup_non_streaming(
@@ -867,7 +879,9 @@ class TestJsonObjectKeywordInjection(unittest.TestCase):
 
         req = CreateChatCompletionRequest(
             model="gpt-4.1",
-            messages=[{"role": "user", "content": "Reply with json data about a person."}],
+            messages=[
+                {"role": "user", "content": "Reply with json data about a person."}
+            ],
             temperature=1.0,
             response_format={"type": "json_object"},
         )
@@ -885,7 +899,9 @@ class TestJsonObjectKeywordInjection(unittest.TestCase):
         self, mock_get_model, mock_convert, mock_tee_keys, mock_hash
     ):
         """'JSON' (uppercase) in an existing message suppresses injection."""
-        from tee_gateway.controllers.chat_controller import _create_non_streaming_response
+        from tee_gateway.controllers.chat_controller import (
+            _create_non_streaming_response,
+        )
         from langchain_core.messages import HumanMessage, SystemMessage
 
         mock_model, mock_bound = self._setup_non_streaming(
@@ -912,7 +928,9 @@ class TestJsonObjectKeywordInjection(unittest.TestCase):
         self, mock_get_model, mock_convert, mock_tee_keys, mock_hash
     ):
         """json_schema mode never triggers keyword injection."""
-        from tee_gateway.controllers.chat_controller import _create_non_streaming_response
+        from tee_gateway.controllers.chat_controller import (
+            _create_non_streaming_response,
+        )
         from langchain_core.messages import HumanMessage, SystemMessage
 
         mock_model, mock_bound = self._setup_non_streaming(
@@ -959,7 +977,9 @@ class TestJsonObjectKeywordInjection(unittest.TestCase):
         mock_model.bind.return_value = mock_bound
         mock_get_model.return_value = mock_model
 
-        mock_convert.return_value = [HumanMessage(content="Tell me about a fictional person.")]
+        mock_convert.return_value = [
+            HumanMessage(content="Tell me about a fictional person.")
+        ]
 
         mock_hash.return_value = (b"hash", "in_hex", "out_hex")
         mock_keys = MagicMock()
@@ -971,7 +991,11 @@ class TestJsonObjectKeywordInjection(unittest.TestCase):
         mock_chunk = MagicMock()
         mock_chunk.content = '{"ok": true}'
         mock_chunk.tool_call_chunks = []
-        mock_chunk.usage_metadata = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+        mock_chunk.usage_metadata = {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "total_tokens": 15,
+        }
         mock_bound.stream.return_value = iter([mock_chunk])
 
         req = CreateChatCompletionRequest(
@@ -1004,7 +1028,11 @@ class TestAnthropicUsageMetadataPreservation(unittest.TestCase):
 
         raw_msg = AIMessage(
             content='{"name": "Alice", "age": 30}',
-            usage_metadata={"input_tokens": 42, "output_tokens": 17, "total_tokens": 59},
+            usage_metadata={
+                "input_tokens": 42,
+                "output_tokens": 17,
+                "total_tokens": 59,
+            },
         )
 
         mock_model = MagicMock()
@@ -1022,7 +1050,10 @@ class TestAnthropicUsageMetadataPreservation(unittest.TestCase):
                 "name": "person",
                 "schema": {
                     "type": "object",
-                    "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+                    "properties": {
+                        "name": {"type": "string"},
+                        "age": {"type": "integer"},
+                    },
                 },
             },
         }
@@ -1067,7 +1098,9 @@ class TestAnthropicUsageMetadataPreservation(unittest.TestCase):
         self, mock_get_model, mock_provider, mock_convert, mock_tee_keys, mock_hash
     ):
         """The non-streaming response body contains a 'usage' dict when Anthropic returns token counts."""
-        from tee_gateway.controllers.chat_controller import _create_non_streaming_response
+        from tee_gateway.controllers.chat_controller import (
+            _create_non_streaming_response,
+        )
         from langchain_core.messages import AIMessage
 
         mock_provider.return_value = "anthropic"
@@ -1077,7 +1110,11 @@ class TestAnthropicUsageMetadataPreservation(unittest.TestCase):
 
         raw_msg = AIMessage(
             content='{"name": "Bob", "age": 25}',
-            usage_metadata={"input_tokens": 50, "output_tokens": 20, "total_tokens": 70},
+            usage_metadata={
+                "input_tokens": 50,
+                "output_tokens": 20,
+                "total_tokens": 70,
+            },
         )
         mock_structured.invoke.return_value = {
             "raw": raw_msg,
@@ -1099,7 +1136,10 @@ class TestAnthropicUsageMetadataPreservation(unittest.TestCase):
                 "name": "person",
                 "schema": {
                     "type": "object",
-                    "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+                    "properties": {
+                        "name": {"type": "string"},
+                        "age": {"type": "integer"},
+                    },
                     "required": ["name", "age"],
                     "additionalProperties": False,
                 },
@@ -1174,7 +1214,9 @@ class TestGeminiStreamingUsageAccumulation(unittest.TestCase):
         # Gemini-style: first chunk has prompt tokens, later ones have only output tokens
         chunks = [
             self._make_chunk("Hello"),
-            self._make_chunk(" world", input_tokens=10, output_tokens=1, total_tokens=11),
+            self._make_chunk(
+                " world", input_tokens=10, output_tokens=1, total_tokens=11
+            ),
             self._make_chunk("!", input_tokens=0, output_tokens=1, total_tokens=1),
             self._make_chunk("", input_tokens=0, output_tokens=1, total_tokens=1),
         ]

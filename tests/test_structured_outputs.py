@@ -667,6 +667,76 @@ class TestStreamingAnthropicStructuredOutput(unittest.TestCase):
     @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
     @patch("tee_gateway.controllers.chat_controller.convert_messages")
     @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
+    def test_anthropic_streaming_final_chunk_contains_usage(
+        self, mock_get_model, mock_convert, mock_tee_keys, mock_hash, mock_provider
+    ):
+        """The final SSE chunk includes 'usage' so the x402 cost calculator can charge.
+
+        Without this, _invoke_anthropic_structured bypasses the normal streaming
+        loop (chunks_iter=[]) and final_usage stays None, causing a ValueError
+        in the x402 middleware after the response is sent.
+        """
+        from tee_gateway.controllers.chat_controller import _create_streaming_response
+        from langchain_core.messages import AIMessage as _AIMessage
+
+        mock_provider.return_value = "anthropic"
+        mock_model = MagicMock()
+        mock_structured = MagicMock()
+        mock_model.with_structured_output.return_value = mock_structured
+        mock_structured.invoke.return_value = {
+            "raw": _AIMessage(
+                content='{"name": "Alice", "age": 30}',
+                usage_metadata={"input_tokens": 50, "output_tokens": 20, "total_tokens": 70},
+            ),
+            "parsed": {"name": "Alice", "age": 30},
+            "parsing_error": None,
+        }
+        mock_get_model.return_value = mock_model
+        mock_convert.return_value = []
+
+        mock_hash.return_value = (b"hash", "input_hex", "output_hex")
+        mock_keys = MagicMock()
+        mock_keys.sign_data.return_value = "sig"
+        mock_keys.get_tee_id.return_value = "abc"
+        mock_tee_keys.return_value = mock_keys
+
+        rf = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "person",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "age": {"type": "integer"},
+                    },
+                    "required": ["name", "age"],
+                    "additionalProperties": False,
+                },
+            },
+        }
+        req = CreateChatCompletionRequest(
+            model="claude-sonnet-4-5",
+            messages=[],
+            temperature=1.0,
+            stream=True,
+            response_format=rf,
+        )
+
+        resp = _create_streaming_response(req)
+        events = self._consume_sse(resp)
+
+        final_chunk = events[-1]
+        self.assertIn("usage", final_chunk)
+        self.assertEqual(final_chunk["usage"]["prompt_tokens"], 50)
+        self.assertEqual(final_chunk["usage"]["completion_tokens"], 20)
+        self.assertEqual(final_chunk["usage"]["total_tokens"], 70)
+
+    @patch("tee_gateway.controllers.chat_controller.get_provider_from_model")
+    @patch("tee_gateway.controllers.chat_controller.compute_tee_msg_hash")
+    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
+    @patch("tee_gateway.controllers.chat_controller.convert_messages")
+    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
     def test_anthropic_structured_output_in_tee_hash(
         self, mock_get_model, mock_convert, mock_tee_keys, mock_hash, mock_provider
     ):

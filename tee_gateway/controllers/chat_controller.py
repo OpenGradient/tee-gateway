@@ -335,8 +335,16 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                 if isinstance(ai_msg.content, str)
                 else json.dumps(ai_msg.content)
             )
+            # Capture usage now — the streaming loop never runs for this path,
+            # so final_usage would otherwise stay None and x402 cannot charge.
+            anthropic_structured_usage: dict | None = (
+                ai_msg.usage_metadata
+                if hasattr(ai_msg, "usage_metadata") and ai_msg.usage_metadata
+                else None
+            )
         else:
             anthropic_structured_content = None
+            anthropic_structured_usage = None
 
         def generate():
             full_content = ""
@@ -346,8 +354,11 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
 
             try:
                 if anthropic_structured_content is not None:
-                    # Emit the pre-computed structured result as a single chunk
+                    # Emit the pre-computed structured result as a single chunk.
+                    # Seed final_usage from the synchronous invoke so the final
+                    # SSE chunk carries a 'usage' dict for the x402 cost calculator.
                     full_content = anthropic_structured_content
+                    final_usage = anthropic_structured_usage
                     data = {
                         "choices": [
                             {

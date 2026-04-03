@@ -21,7 +21,7 @@ from tee_gateway.models import (
     ChatCompletionRequestFunctionMessage,
 )
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, SystemMessage
 
 from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
 from tee_gateway.llm_backend import (
@@ -94,12 +94,25 @@ def _invoke_anthropic_structured(
         schema_def = {**schema_def, "title": name}
 
     structured = model.with_structured_output(
-        schema_def, method="json_schema", strict=strict
+        schema_def, method="json_schema", strict=strict, include_raw=True
     )
     result = structured.invoke(langchain_messages)
 
-    content_str = json.dumps(result) if isinstance(result, dict) else str(result)
-    return AIMessage(content=content_str)
+    # include_raw=True returns {"raw": AIMessage, "parsed": dict, "parsing_error": ...}
+    raw_msg = result.get("raw") if isinstance(result, dict) else None
+    parsed = result.get("parsed") if isinstance(result, dict) else result
+    content_str = json.dumps(parsed) if isinstance(parsed, dict) else str(parsed)
+
+    # Preserve usage_metadata from the raw Anthropic response so the x402
+    # cost calculator can extract token counts from the final response body.
+    msg = AIMessage(content=content_str)
+    if (
+        raw_msg is not None
+        and hasattr(raw_msg, "usage_metadata")
+        and raw_msg.usage_metadata
+    ):
+        msg.usage_metadata = raw_msg.usage_metadata
+    return msg
 
 
 def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
@@ -147,6 +160,20 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
                     model = model.bind(response_format=rf_dict)
 
         langchain_messages = convert_messages(chat_request.messages)
+
+        # OpenAI (and compatible providers) require the word "json" to appear
+        # somewhere in the messages when response_format.type == "json_object".
+        # Inject a brief system instruction if none of the messages satisfy this.
+        if rf_dict and rf_dict.get("type") == "json_object":
+            has_json_word = any(
+                "json" in (getattr(m, "content", "") or "").lower()
+                for m in langchain_messages
+            )
+            if not has_json_word:
+                langchain_messages = [
+                    SystemMessage(content="Respond in JSON format.")
+                ] + langchain_messages
+
         if rf_dict and get_provider_from_model(chat_request.model) == "anthropic":
             response = _invoke_anthropic_structured(model, rf_dict, langchain_messages)
         else:
@@ -277,6 +304,22 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     model = model.bind(response_format=rf)
 
         langchain_messages = convert_messages(chat_request.messages)
+
+        # OpenAI (and compatible providers) require the word "json" to appear
+        # somewhere in the messages when response_format.type == "json_object".
+        # Inject a brief system instruction if none of the messages satisfy this.
+        if chat_request.response_format:
+            _rf = _normalize_response_format(chat_request.response_format)
+            if _rf.get("type") == "json_object":
+                has_json_word = any(
+                    "json" in (getattr(m, "content", "") or "").lower()
+                    for m in langchain_messages
+                )
+                if not has_json_word:
+                    langchain_messages = [
+                        SystemMessage(content="Respond in JSON format.")
+                    ] + langchain_messages
+
         tee_keys = get_tee_keys()
 
         # For Anthropic structured output, with_structured_output() invokes

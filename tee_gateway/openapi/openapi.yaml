@@ -18214,7 +18214,6 @@ components:
           type: boolean
       required:
       - name
-      - type
       title: ResponseFormatJsonSchema_json_schema
       type: object
     RunObject_required_action_submit_tool_outputs:

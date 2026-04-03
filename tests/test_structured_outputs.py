@@ -1119,5 +1119,173 @@ class TestAnthropicUsageMetadataPreservation(unittest.TestCase):
         self.assertEqual(response["usage"]["total_tokens"], 70)
 
 
+class TestGeminiStreamingUsageAccumulation(unittest.TestCase):
+    """Tests that streaming usage metadata is accumulated (not replaced) across chunks.
+
+    Gemini returns cumulative usageMetadata on every chunk; LangChain's subtract_usage()
+    emits deltas — input_tokens only appears non-zero in the FIRST chunk carrying usage
+    and is 0 in all subsequent ones.  The fix accumulates across chunks so prompt_tokens
+    is not lost when the final chunk overwrites with 0.
+    """
+
+    def _consume_sse(self, response) -> list[dict]:
+        events = []
+        for line in response.response:
+            if isinstance(line, bytes):
+                line = line.decode()
+            line = line.strip()
+            if line.startswith("data: "):
+                payload = line[6:]
+                if payload != "[DONE]":
+                    events.append(json.loads(payload))
+        return events
+
+    def _make_chunk(self, content="", input_tokens=0, output_tokens=0, total_tokens=0):
+        """Build a minimal streaming chunk mock."""
+        chunk = MagicMock()
+        chunk.content = content
+        chunk.tool_call_chunks = []
+        if input_tokens or output_tokens or total_tokens:
+            chunk.usage_metadata = {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens,
+            }
+        else:
+            chunk.usage_metadata = None
+        return chunk
+
+    @patch("tee_gateway.controllers.chat_controller.get_provider_from_model")
+    @patch("tee_gateway.controllers.chat_controller.compute_tee_msg_hash")
+    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
+    @patch("tee_gateway.controllers.chat_controller.convert_messages")
+    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
+    def test_prompt_tokens_preserved_from_first_chunk(
+        self, mock_get_model, mock_convert, mock_tee_keys, mock_hash, mock_provider
+    ):
+        """input_tokens from the first usage chunk is not lost when later chunks have 0."""
+        from tee_gateway.controllers.chat_controller import _create_streaming_response
+
+        mock_provider.return_value = "google"
+        mock_model = MagicMock()
+        mock_get_model.return_value = mock_model
+        mock_convert.return_value = []
+
+        # Gemini-style: first chunk has prompt tokens, later ones have only output tokens
+        chunks = [
+            self._make_chunk("Hello"),
+            self._make_chunk(" world", input_tokens=10, output_tokens=1, total_tokens=11),
+            self._make_chunk("!", input_tokens=0, output_tokens=1, total_tokens=1),
+            self._make_chunk("", input_tokens=0, output_tokens=1, total_tokens=1),
+        ]
+        mock_model.stream.return_value = iter(chunks)
+
+        mock_hash.return_value = (b"hash", "input_hex", "output_hex")
+        mock_keys = MagicMock()
+        mock_keys.sign_data.return_value = "sig"
+        mock_keys.get_tee_id.return_value = "abc"
+        mock_tee_keys.return_value = mock_keys
+
+        req = CreateChatCompletionRequest(
+            model="gemini-2.5-flash",
+            messages=[],
+            temperature=1.0,
+            stream=True,
+        )
+        resp = _create_streaming_response(req)
+        events = self._consume_sse(resp)
+
+        final_chunk = events[-1]
+        self.assertIn("usage", final_chunk)
+        # prompt_tokens must be 10 (from first usage chunk), not 0
+        self.assertEqual(final_chunk["usage"]["prompt_tokens"], 10)
+        # completion_tokens = 1+1+1 = 3
+        self.assertEqual(final_chunk["usage"]["completion_tokens"], 3)
+
+    @patch("tee_gateway.controllers.chat_controller.get_provider_from_model")
+    @patch("tee_gateway.controllers.chat_controller.compute_tee_msg_hash")
+    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
+    @patch("tee_gateway.controllers.chat_controller.convert_messages")
+    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
+    def test_replace_behaviour_would_lose_prompt_tokens(
+        self, mock_get_model, mock_convert, mock_tee_keys, mock_hash, mock_provider
+    ):
+        """Sanity check: without accumulation the old replace logic gives prompt=0."""
+        # This test documents the bug that was fixed. It passes with the accumulation fix
+        # and would fail if the code reverted to `final_usage = chunk.usage_metadata`.
+        from tee_gateway.controllers.chat_controller import _create_streaming_response
+
+        mock_provider.return_value = "google"
+        mock_model = MagicMock()
+        mock_get_model.return_value = mock_model
+        mock_convert.return_value = []
+
+        # Two chunks: first carries prompt tokens, second zeros them out (Gemini delta pattern)
+        chunks = [
+            self._make_chunk("A", input_tokens=25, output_tokens=1, total_tokens=26),
+            self._make_chunk("B", input_tokens=0, output_tokens=1, total_tokens=1),
+        ]
+        mock_model.stream.return_value = iter(chunks)
+
+        mock_hash.return_value = (b"hash", "input_hex", "output_hex")
+        mock_keys = MagicMock()
+        mock_keys.sign_data.return_value = "sig"
+        mock_keys.get_tee_id.return_value = "abc"
+        mock_tee_keys.return_value = mock_keys
+
+        req = CreateChatCompletionRequest(
+            model="gemini-2.5-flash",
+            messages=[],
+            temperature=1.0,
+            stream=True,
+        )
+        resp = _create_streaming_response(req)
+        events = self._consume_sse(resp)
+
+        final_chunk = events[-1]
+        self.assertIn("usage", final_chunk)
+        # With accumulation: 25 + 0 = 25 (correct)
+        self.assertEqual(final_chunk["usage"]["prompt_tokens"], 25)
+        # completion_tokens: 1 + 1 = 2
+        self.assertEqual(final_chunk["usage"]["completion_tokens"], 2)
+
+    @patch("tee_gateway.controllers.chat_controller.get_provider_from_model")
+    @patch("tee_gateway.controllers.chat_controller.compute_tee_msg_hash")
+    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
+    @patch("tee_gateway.controllers.chat_controller.convert_messages")
+    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
+    def test_no_usage_chunks_gives_no_usage_in_final(
+        self, mock_get_model, mock_convert, mock_tee_keys, mock_hash, mock_provider
+    ):
+        """If no chunk carries usage_metadata, the final SSE chunk omits the usage key."""
+        from tee_gateway.controllers.chat_controller import _create_streaming_response
+
+        mock_provider.return_value = "google"
+        mock_model = MagicMock()
+        mock_get_model.return_value = mock_model
+        mock_convert.return_value = []
+
+        chunks = [self._make_chunk("Hello"), self._make_chunk(" world")]
+        mock_model.stream.return_value = iter(chunks)
+
+        mock_hash.return_value = (b"hash", "input_hex", "output_hex")
+        mock_keys = MagicMock()
+        mock_keys.sign_data.return_value = "sig"
+        mock_keys.get_tee_id.return_value = "abc"
+        mock_tee_keys.return_value = mock_keys
+
+        req = CreateChatCompletionRequest(
+            model="gemini-2.5-flash",
+            messages=[],
+            temperature=1.0,
+            stream=True,
+        )
+        resp = _create_streaming_response(req)
+        events = self._consume_sse(resp)
+
+        final_chunk = events[-1]
+        self.assertNotIn("usage", final_chunk)
+
+
 if __name__ == "__main__":
     unittest.main()

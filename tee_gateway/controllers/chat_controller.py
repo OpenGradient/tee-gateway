@@ -489,8 +489,17 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                                 yield f"data: {json.dumps(data)}\n\n"
 
                     # --- Usage metadata ---
+                    # Accumulate deltas rather than replacing: Gemini returns cumulative
+                    # usageMetadata on every chunk and LangChain emits deltas via
+                    # subtract_usage(), so input_tokens only appears non-zero in the
+                    # *first* chunk carrying usage. Replacing on each chunk would
+                    # overwrite that value with 0 from all subsequent chunks.
                     if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
-                        final_usage = chunk.usage_metadata
+                        if final_usage is None:
+                            final_usage = {}
+                        for k, v in chunk.usage_metadata.items():
+                            if isinstance(v, (int, float)):
+                                final_usage[k] = final_usage.get(k, 0) + v
 
                 # Flush buffered tool calls for OpenAI/Anthropic
                 if buffer_tool_calls and buffered_tool_calls:

@@ -49,7 +49,14 @@ test = [
 ]
 
 [tool.ruff]
-exclude = [".claude/worktrees"]
+exclude = [
+    ".claude/worktrees",
+    ".venv",
+    "venv",
+    "env",
+    "scripts/attestation",
+    "**/site-packages",
+]
 
 [tool.uv]
 # Pre-release needed for og-test-v2-x402==0.0.11.dev5

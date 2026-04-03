@@ -868,7 +868,7 @@ class TestJsonObjectKeywordInjection(unittest.TestCase):
         from tee_gateway.controllers.chat_controller import (
             _create_non_streaming_response,
         )
-        from langchain_core.messages import HumanMessage, SystemMessage
+        from langchain_core.messages import HumanMessage
 
         mock_model, mock_bound = self._setup_non_streaming(
             mock_get_model, mock_convert, mock_tee_keys, mock_hash
@@ -902,7 +902,7 @@ class TestJsonObjectKeywordInjection(unittest.TestCase):
         from tee_gateway.controllers.chat_controller import (
             _create_non_streaming_response,
         )
-        from langchain_core.messages import HumanMessage, SystemMessage
+        from langchain_core.messages import HumanMessage
 
         mock_model, mock_bound = self._setup_non_streaming(
             mock_get_model, mock_convert, mock_tee_keys, mock_hash
@@ -931,7 +931,7 @@ class TestJsonObjectKeywordInjection(unittest.TestCase):
         from tee_gateway.controllers.chat_controller import (
             _create_non_streaming_response,
         )
-        from langchain_core.messages import HumanMessage, SystemMessage
+        from langchain_core.messages import HumanMessage
 
         mock_model, mock_bound = self._setup_non_streaming(
             mock_get_model, mock_convert, mock_tee_keys, mock_hash

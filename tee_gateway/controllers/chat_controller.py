@@ -337,11 +337,16 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
             )
             # Capture usage now — the streaming loop never runs for this path,
             # so final_usage would otherwise stay None and x402 cannot charge.
-            anthropic_structured_usage: dict | None = (
-                ai_msg.usage_metadata
-                if hasattr(ai_msg, "usage_metadata") and ai_msg.usage_metadata
-                else None
-            )
+            anthropic_structured_usage: dict[str, int] | None = None
+
+            if hasattr(ai_msg, "usage_metadata") and ai_msg.usage_metadata:
+                um = ai_msg.usage_metadata
+
+                anthropic_structured_usage = {
+                    "input_tokens": getattr(um, "input_tokens", 0),
+                    "output_tokens": getattr(um, "output_tokens", 0),
+                    "total_tokens": getattr(um, "total_tokens", 0),
+                }
         else:
             anthropic_structured_content = None
             anthropic_structured_usage = None

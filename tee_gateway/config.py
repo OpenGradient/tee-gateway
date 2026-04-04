@@ -12,7 +12,7 @@ from typing import Optional
 # Heartbeat defaults
 DEFAULT_HEARTBEAT_INTERVAL = 900  # 15 minutes
 DEFAULT_HEARTBEAT_BUFFER = (
-    300  # 5 minutes — subtracted from time.time() to compensate for enclave clock drift
+    300  # 5 minutes -- subtracted from time.time() to compensate for enclave clock drift
 )
 DEFAULT_FACILITATOR_TIMEOUT = 20  # seconds
 HEARTBEAT_MAX_RETRIES = 3

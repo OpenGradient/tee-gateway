@@ -99,6 +99,8 @@ def _invoke_anthropic_structured(
     result = structured.invoke(langchain_messages)
 
     # include_raw=True returns {"raw": AIMessage, "parsed": dict, "parsing_error": ...}
+    if isinstance(result, dict) and result.get("parsing_error"):
+        raise ValueError(f"Structured output parsing failed: {result['parsing_error']}")
     raw_msg = result.get("raw") if isinstance(result, dict) else None
     parsed = result.get("parsed") if isinstance(result, dict) else result
     content_str = json.dumps(parsed) if isinstance(parsed, dict) else str(parsed)
@@ -113,6 +115,24 @@ def _invoke_anthropic_structured(
     ):
         msg.usage_metadata = raw_msg.usage_metadata
     return msg
+
+
+def _messages_contain_json_word(messages: list) -> bool:
+    """Return True if any message content contains the word 'json' (case-insensitive).
+
+    Handles both plain-string content and list-of-parts content (multimodal messages).
+    """
+    for m in messages:
+        content = getattr(m, "content", "")
+        if isinstance(content, str):
+            if "json" in content.lower():
+                return True
+        elif isinstance(content, list):
+            for part in content:
+                text = part.get("text", "") if isinstance(part, dict) else str(part)
+                if "json" in text.lower():
+                    return True
+    return False
 
 
 def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
@@ -165,11 +185,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         # somewhere in the messages when response_format.type == "json_object".
         # Inject a brief system instruction if none of the messages satisfy this.
         if rf_dict and rf_dict.get("type") == "json_object":
-            has_json_word = any(
-                "json" in (getattr(m, "content", "") or "").lower()
-                for m in langchain_messages
-            )
-            if not has_json_word:
+            if not _messages_contain_json_word(langchain_messages):
                 langchain_messages = [
                     SystemMessage(content="Respond in JSON format.")
                 ] + langchain_messages
@@ -308,17 +324,17 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
         # OpenAI (and compatible providers) require the word "json" to appear
         # somewhere in the messages when response_format.type == "json_object".
         # Inject a brief system instruction if none of the messages satisfy this.
-        if chat_request.response_format:
-            _rf = _normalize_response_format(chat_request.response_format)
-            if _rf.get("type") == "json_object":
-                has_json_word = any(
-                    "json" in (getattr(m, "content", "") or "").lower()
-                    for m in langchain_messages
-                )
-                if not has_json_word:
-                    langchain_messages = [
-                        SystemMessage(content="Respond in JSON format.")
-                    ] + langchain_messages
+        # `rf` is defined inside the `if chat_request.response_format` block above;
+        # guard with the same condition before accessing it.
+        if (
+            chat_request.response_format
+            and anthropic_structured_rf is None
+            and rf.get("type") == "json_object"
+        ):
+            if not _messages_contain_json_word(langchain_messages):
+                langchain_messages = [
+                    SystemMessage(content="Respond in JSON format.")
+                ] + langchain_messages
 
         tee_keys = get_tee_keys()
 

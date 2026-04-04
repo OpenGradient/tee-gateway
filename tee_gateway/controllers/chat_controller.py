@@ -343,9 +343,9 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                 um = ai_msg.usage_metadata
 
                 anthropic_structured_usage = {
-                    "input_tokens": getattr(um, "input_tokens", 0),
-                    "output_tokens": getattr(um, "output_tokens", 0),
-                    "total_tokens": getattr(um, "total_tokens", 0),
+                    "input_tokens": um.get("input_tokens", 0),
+                    "output_tokens": um.get("output_tokens", 0),
+                    "total_tokens": um.get("total_tokens", 0),
                 }
         else:
             anthropic_structured_content = None

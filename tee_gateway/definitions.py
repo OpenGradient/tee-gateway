@@ -37,7 +37,7 @@ BASE_MAINNET_NETWORK: str = "eip155:8453"
 # your own instance.
 EVM_PAYMENT_ADDRESS: str = os.getenv(
     "EVM_PAYMENT_ADDRESS",
-    "0x40eFb45552EDfB2502D90A657a8ab41F03ec460d",
+    "0x9deEBB5D1b22e4a6e027977CeAd13893A7E4cC1a",
 )
 
 # ---------------------------------------------------------------------------

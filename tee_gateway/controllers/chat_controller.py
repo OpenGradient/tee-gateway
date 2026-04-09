@@ -21,6 +21,8 @@ from tee_gateway.models import (
     ChatCompletionRequestFunctionMessage,
 )
 
+from langchain_core.messages import AIMessage
+
 from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
 from tee_gateway.llm_backend import (
     get_provider_from_model,
@@ -48,6 +50,56 @@ def create_chat_completion(body):
         return _create_streaming_response(chat_request)
     else:
         return _create_non_streaming_response(chat_request)
+
+
+def _normalize_response_format(rf) -> dict:
+    """Coerce response_format to a plain dict, preserving all fields including json_schema."""
+    if isinstance(rf, dict):
+        return rf
+    if hasattr(rf, "model_dump"):
+        return rf.model_dump()
+    return vars(rf)
+
+
+def _invoke_anthropic_structured(
+    model, rf: dict, langchain_messages: list
+) -> AIMessage:
+    """
+    Use LangChain's with_structured_output() for Anthropic structured output.
+
+    Anthropic does not support response_format via bind(). For json_schema, we use
+    with_structured_output(schema, method="json_schema") which calls Anthropic's
+    native structured output API. The parsed dict result is re-wrapped as an AIMessage
+    so all downstream signing/response-building code stays unchanged.
+
+    json_object (no schema) has no Anthropic native equivalent — callers should use
+    json_schema with an explicit schema instead.
+    """
+    rf_type = rf.get("type", "text")
+    if rf_type != "json_schema":
+        raise ValueError(
+            f"response_format type '{rf_type}' is not natively supported by Anthropic. "
+            "Use json_schema with an explicit schema instead."
+        )
+
+    schema_obj = rf.get("json_schema", {})
+    schema_def = schema_obj.get("schema", {})
+    name = schema_obj.get("name", "output")
+    strict = schema_obj.get("strict", False)
+
+    # LangChain-Anthropic derives the tool function name from the schema's "title" key.
+    # The OpenAI-compatible json_schema wrapper puts this as "name" one level up, so
+    # we inject it into the schema dict if it isn't already there.
+    if "title" not in schema_def:
+        schema_def = {**schema_def, "title": name}
+
+    structured = model.with_structured_output(
+        schema_def, method="json_schema", strict=strict
+    )
+    result = structured.invoke(langchain_messages)
+
+    content_str = json.dumps(result) if isinstance(result, dict) else str(result)
+    return AIMessage(content=content_str)
 
 
 def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
@@ -82,8 +134,23 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
                     tools_list.append(tool)
             model = model.bind_tools(tools_list)
 
+        # Bind response_format if provided (json_object or json_schema).
+        # Anthropic does not support response_format via bind(); use
+        # with_structured_output() for json_schema instead (json_object has no
+        # Anthropic native equivalent and raises a clear error).
+        rf_dict: dict | None = None
+        if chat_request.response_format:
+            rf = _normalize_response_format(chat_request.response_format)
+            if rf.get("type", "text") != "text":
+                rf_dict = rf
+                if get_provider_from_model(chat_request.model) != "anthropic":
+                    model = model.bind(response_format=rf_dict)
+
         langchain_messages = convert_messages(chat_request.messages)
-        response = model.invoke(langchain_messages)
+        if rf_dict and get_provider_from_model(chat_request.model) == "anthropic":
+            response = _invoke_anthropic_structured(model, rf_dict, langchain_messages)
+        else:
+            response = model.invoke(langchain_messages)
 
         # Normalize content (Gemini may return a list of content parts)
         if isinstance(response.content, list):
@@ -196,8 +263,37 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     tools_list.append(tool)
             model = model.bind_tools(tools_list)
 
+        # Bind response_format if provided (json_object or json_schema).
+        # Anthropic does not support response_format via bind(); use
+        # with_structured_output() for json_schema instead (json_object has no
+        # Anthropic native equivalent and raises a clear error).
+        anthropic_structured_rf: dict | None = None
+        if chat_request.response_format:
+            rf = _normalize_response_format(chat_request.response_format)
+            if rf.get("type", "text") != "text":
+                if provider == "anthropic":
+                    anthropic_structured_rf = rf
+                else:
+                    model = model.bind(response_format=rf)
+
         langchain_messages = convert_messages(chat_request.messages)
         tee_keys = get_tee_keys()
+
+        # For Anthropic structured output, with_structured_output() invokes
+        # synchronously and returns a complete dict — streaming partial JSON is
+        # not meaningful for schema-validated output. We invoke once and emit the
+        # full result as a single content chunk inside the SSE stream.
+        if anthropic_structured_rf is not None:
+            ai_msg = _invoke_anthropic_structured(
+                model, anthropic_structured_rf, langchain_messages
+            )
+            anthropic_structured_content: str | None = (
+                ai_msg.content
+                if isinstance(ai_msg.content, str)
+                else json.dumps(ai_msg.content)
+            )
+        else:
+            anthropic_structured_content = None
 
         def generate():
             full_content = ""
@@ -206,7 +302,25 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
             finish_reason = "stop"
 
             try:
-                for chunk in model.stream(langchain_messages):
+                if anthropic_structured_content is not None:
+                    # Emit the pre-computed structured result as a single chunk
+                    full_content = anthropic_structured_content
+                    data = {
+                        "choices": [
+                            {
+                                "delta": {"content": full_content, "role": "assistant"},
+                                "index": 0,
+                                "finish_reason": None,
+                            }
+                        ],
+                        "model": chat_request.model,
+                    }
+                    yield f"data: {json.dumps(data)}\n\n"
+                    chunks_iter: list = []
+                else:
+                    chunks_iter = model.stream(langchain_messages)  # type: ignore[assignment]
+
+                for chunk in chunks_iter:
                     # --- Text content ---
                     if chunk.content:
                         if isinstance(chunk.content, str):
@@ -481,6 +595,8 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
             if isinstance(chat_request.tools, list)
             else list(chat_request.tools)
         )
+    if chat_request.response_format:
+        d["response_format"] = _normalize_response_format(chat_request.response_format)
     return d
 
 

@@ -27,24 +27,22 @@ from x402.http.middleware.flask import payment_middleware
 from x402.http.types import RouteConfig
 from x402.mechanisms.evm.exact import ExactEvmServerScheme
 from x402.mechanisms.evm.upto import UptoEvmServerScheme
+from x402.extensions.eip2612_gas_sponsoring import declare_eip2612_gas_sponsoring_extension
+from x402.extensions.erc20_approval_gas_sponsoring import declare_erc20_approval_gas_sponsoring_extension
 from x402.schemas import AssetAmount
 from x402.server import x402ResourceServerSync
 from x402.session import SessionStore
-import types as _types
 import x402.http.middleware.flask as x402_flask
+import types as _types
 
 from .util import dynamic_session_cost_calculator
 from .definitions import (
-    EVM_NETWORK,
     BASE_TESTNET_NETWORK,
     EVM_PAYMENT_ADDRESS,
-    USDC_ADDRESS,
     BASE_TESTNET_OPG_ADDRESS,
     BASE_MAINNET_NETWORK,
     BASE_MAINNET_OPG_ADDRESS,
-    CHAT_COMPLETIONS_USDC_AMOUNT,
     CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
-    COMPLETIONS_USDC_AMOUNT,
     FACILITATOR_URL,
 )
 
@@ -113,10 +111,12 @@ facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=FACILITATOR_URL))
 server = x402ResourceServerSync(facilitator)
 store = SessionStore()
 
-server.register(EVM_NETWORK, ExactEvmServerScheme())
 server.register(BASE_TESTNET_NETWORK, ExactEvmServerScheme())
-server.register(EVM_NETWORK, UptoEvmServerScheme())
+server.register(BASE_MAINNET_NETWORK, ExactEvmServerScheme())
+
+# Upto scheme registrations (permit2-based, variable settlement)
 server.register(BASE_TESTNET_NETWORK, UptoEvmServerScheme())
+server.register(BASE_MAINNET_NETWORK, UptoEvmServerScheme())
 
 routes = {
     "POST /v1/chat/completions": RouteConfig(
@@ -125,25 +125,11 @@ routes = {
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
-                    amount=CHAT_COMPLETIONS_USDC_AMOUNT,
-                    asset=USDC_ADDRESS,
-                    extra={
-                        "name": "OUSDC",
-                        "version": "2",
-                        "assetTransferMethod": "permit2",
-                    },
-                ),
-                network=EVM_NETWORK,
-            ),
-            PaymentOption(
-                scheme="upto",
-                pay_to=EVM_PAYMENT_ADDRESS,
-                price=AssetAmount(
                     amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
                     asset=BASE_TESTNET_OPG_ADDRESS,
                     extra={
-                        "name": "OPG",
-                        "version": "2",
+                        "name": "OpenGradient",
+                        "version": "1",
                         "assetTransferMethod": "permit2",
                     },
                 ),
@@ -156,14 +142,18 @@ routes = {
                     amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
                     asset=BASE_MAINNET_OPG_ADDRESS,
                     extra={
-                        "name": "OPG",
-                        "version": "2",
+                        "name": "OpenGradient",
+                        "version": "1",
                         "assetTransferMethod": "permit2",
                     },
                 ),
                 network=BASE_MAINNET_NETWORK,
             ),
         ],
+        extensions={
+            **declare_eip2612_gas_sponsoring_extension(),
+            **declare_erc20_approval_gas_sponsoring_extension(),
+        },
         mime_type="application/json",
         description="Chat completion",
     ),
@@ -173,13 +163,35 @@ routes = {
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
-                    amount=COMPLETIONS_USDC_AMOUNT,
-                    asset=USDC_ADDRESS,
-                    extra={"name": "USDC", "version": "2"},
+                    amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
+                    asset=BASE_TESTNET_OPG_ADDRESS,
+                    extra={
+                        "name": "OpenGradient",
+                        "version": "1",
+                        "assetTransferMethod": "permit2",
+                    },
                 ),
-                network=EVM_NETWORK,
+                network=BASE_TESTNET_NETWORK,
             ),
+            PaymentOption(
+                scheme="upto",
+                pay_to=EVM_PAYMENT_ADDRESS,
+                price=AssetAmount(
+                    amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
+                    asset=BASE_MAINNET_OPG_ADDRESS,
+                    extra={
+                        "name": "OpenGradient",
+                        "version": "1",
+                        "assetTransferMethod": "permit2",
+                    },
+                ),
+                network=BASE_MAINNET_NETWORK,
+           ),
         ],
+        extensions={
+            **declare_eip2612_gas_sponsoring_extension(),
+            **declare_erc20_approval_gas_sponsoring_extension(),
+        },
         mime_type="application/json",
         description="Completion",
     ),

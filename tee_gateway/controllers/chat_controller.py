@@ -21,7 +21,7 @@ from tee_gateway.models import (
     ChatCompletionRequestFunctionMessage,
 )
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, SystemMessage
 
 from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
 from tee_gateway.llm_backend import (
@@ -94,12 +94,45 @@ def _invoke_anthropic_structured(
         schema_def = {**schema_def, "title": name}
 
     structured = model.with_structured_output(
-        schema_def, method="json_schema", strict=strict
+        schema_def, method="json_schema", strict=strict, include_raw=True
     )
     result = structured.invoke(langchain_messages)
 
-    content_str = json.dumps(result) if isinstance(result, dict) else str(result)
-    return AIMessage(content=content_str)
+    # include_raw=True returns {"raw": AIMessage, "parsed": dict, "parsing_error": ...}
+    if isinstance(result, dict) and result.get("parsing_error"):
+        raise ValueError(f"Structured output parsing failed: {result['parsing_error']}")
+    raw_msg = result.get("raw") if isinstance(result, dict) else None
+    parsed = result.get("parsed") if isinstance(result, dict) else result
+    content_str = json.dumps(parsed) if isinstance(parsed, dict) else str(parsed)
+
+    # Preserve usage_metadata from the raw Anthropic response so the x402
+    # cost calculator can extract token counts from the final response body.
+    msg = AIMessage(content=content_str)
+    if (
+        raw_msg is not None
+        and hasattr(raw_msg, "usage_metadata")
+        and raw_msg.usage_metadata
+    ):
+        msg.usage_metadata = raw_msg.usage_metadata
+    return msg
+
+
+def _messages_contain_json_word(messages: list) -> bool:
+    """Return True if any message content contains the word 'json' (case-insensitive).
+
+    Handles both plain-string content and list-of-parts content (multimodal messages).
+    """
+    for m in messages:
+        content = getattr(m, "content", "")
+        if isinstance(content, str):
+            if "json" in content.lower():
+                return True
+        elif isinstance(content, list):
+            for part in content:
+                text = part.get("text", "") if isinstance(part, dict) else str(part)
+                if "json" in text.lower():
+                    return True
+    return False
 
 
 def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
@@ -147,6 +180,16 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
                     model = model.bind(response_format=rf_dict)
 
         langchain_messages = convert_messages(chat_request.messages)
+
+        # OpenAI (and compatible providers) require the word "json" to appear
+        # somewhere in the messages when response_format.type == "json_object".
+        # Inject a brief system instruction if none of the messages satisfy this.
+        if rf_dict and rf_dict.get("type") == "json_object":
+            if not _messages_contain_json_word(langchain_messages):
+                langchain_messages = [
+                    SystemMessage(content="Respond in JSON format.")
+                ] + langchain_messages
+
         if rf_dict and get_provider_from_model(chat_request.model) == "anthropic":
             response = _invoke_anthropic_structured(model, rf_dict, langchain_messages)
         else:
@@ -277,6 +320,22 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     model = model.bind(response_format=rf)
 
         langchain_messages = convert_messages(chat_request.messages)
+
+        # OpenAI (and compatible providers) require the word "json" to appear
+        # somewhere in the messages when response_format.type == "json_object".
+        # Inject a brief system instruction if none of the messages satisfy this.
+        # `rf` is defined inside the `if chat_request.response_format` block above;
+        # guard with the same condition before accessing it.
+        if (
+            chat_request.response_format
+            and anthropic_structured_rf is None
+            and rf.get("type") == "json_object"
+        ):
+            if not _messages_contain_json_word(langchain_messages):
+                langchain_messages = [
+                    SystemMessage(content="Respond in JSON format.")
+                ] + langchain_messages
+
         tee_keys = get_tee_keys()
 
         # For Anthropic structured output, with_structured_output() invokes
@@ -292,8 +351,21 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                 if isinstance(ai_msg.content, str)
                 else json.dumps(ai_msg.content)
             )
+            # Capture usage now — the streaming loop never runs for this path,
+            # so final_usage would otherwise stay None and x402 cannot charge.
+            anthropic_structured_usage: dict[str, int] | None = None
+
+            if hasattr(ai_msg, "usage_metadata") and ai_msg.usage_metadata:
+                um = ai_msg.usage_metadata
+
+                anthropic_structured_usage = {
+                    "input_tokens": um.get("input_tokens", 0),
+                    "output_tokens": um.get("output_tokens", 0),
+                    "total_tokens": um.get("total_tokens", 0),
+                }
         else:
             anthropic_structured_content = None
+            anthropic_structured_usage = None
 
         def generate():
             full_content = ""
@@ -303,8 +375,11 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
 
             try:
                 if anthropic_structured_content is not None:
-                    # Emit the pre-computed structured result as a single chunk
+                    # Emit the pre-computed structured result as a single chunk.
+                    # Seed final_usage from the synchronous invoke so the final
+                    # SSE chunk carries a 'usage' dict for the x402 cost calculator.
                     full_content = anthropic_structured_content
+                    final_usage = anthropic_structured_usage
                     data = {
                         "choices": [
                             {
@@ -435,8 +510,17 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                                 yield f"data: {json.dumps(data)}\n\n"
 
                     # --- Usage metadata ---
+                    # Accumulate deltas rather than replacing: Gemini returns cumulative
+                    # usageMetadata on every chunk and LangChain emits deltas via
+                    # subtract_usage(), so input_tokens only appears non-zero in the
+                    # *first* chunk carrying usage. Replacing on each chunk would
+                    # overwrite that value with 0 from all subsequent chunks.
                     if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
-                        final_usage = chunk.usage_metadata
+                        if final_usage is None:
+                            final_usage = {}
+                        for k, v in chunk.usage_metadata.items():
+                            if isinstance(v, (int, float)):
+                                final_usage[k] = final_usage.get(k, 0) + v
 
                 # Flush buffered tool calls for OpenAI/Anthropic
                 if buffer_tool_calls and buffered_tool_calls:

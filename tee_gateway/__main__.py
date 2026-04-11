@@ -35,14 +35,11 @@ import x402.http.middleware.flask as x402_flask
 
 from .util import dynamic_session_cost_calculator
 from .definitions import (
-    EVM_NETWORK,
     BASE_TESTNET_NETWORK,
     EVM_PAYMENT_ADDRESS,
-    USDC_ADDRESS,
     BASE_OPG_ADDRESS,
-    CHAT_COMPLETIONS_USDC_AMOUNT,
     CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
-    COMPLETIONS_USDC_AMOUNT,
+    COMPLETIONS_OPG_SESSION_MAX_SPEND,
     FACILITATOR_URL,
 )
 
@@ -111,28 +108,12 @@ facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=FACILITATOR_URL))
 server = x402ResourceServerSync(facilitator)
 store = SessionStore()
 
-server.register(EVM_NETWORK, ExactEvmServerScheme())
 server.register(BASE_TESTNET_NETWORK, ExactEvmServerScheme())
-server.register(EVM_NETWORK, UptoEvmServerScheme())
 server.register(BASE_TESTNET_NETWORK, UptoEvmServerScheme())
 
 routes = {
     "POST /v1/chat/completions": RouteConfig(
         accepts=[
-            PaymentOption(
-                scheme="upto",
-                pay_to=EVM_PAYMENT_ADDRESS,
-                price=AssetAmount(
-                    amount=CHAT_COMPLETIONS_USDC_AMOUNT,
-                    asset=USDC_ADDRESS,
-                    extra={
-                        "name": "OUSDC",
-                        "version": "2",
-                        "assetTransferMethod": "permit2",
-                    },
-                ),
-                network=EVM_NETWORK,
-            ),
             PaymentOption(
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
@@ -157,11 +138,15 @@ routes = {
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
-                    amount=COMPLETIONS_USDC_AMOUNT,
-                    asset=USDC_ADDRESS,
-                    extra={"name": "USDC", "version": "2"},
+                    amount=COMPLETIONS_OPG_SESSION_MAX_SPEND,
+                    asset=BASE_OPG_ADDRESS,
+                    extra={
+                        "name": "OPG",
+                        "version": "2",
+                        "assetTransferMethod": "permit2",
+                    },
                 ),
-                network=EVM_NETWORK,
+                network=BASE_TESTNET_NETWORK,
             ),
         ],
         mime_type="application/json",

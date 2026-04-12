@@ -3,8 +3,8 @@ Unit tests for dynamic pricing / cost calculation across all supported models.
 
 Tests verify that:
   - Every user-facing model name resolves to the correct ModelConfig
-  - dynamic_session_cost_calculator produces the right amount in token
-    smallest-units for supported models and token currencies (OPG / USDC)
+  - dynamic_session_cost_calculator produces the right amount in OPG token
+    smallest-units for supported models
   - Edge cases (no usage, unknown model, bad context) are handled correctly
 """
 
@@ -27,11 +27,6 @@ from tee_gateway.util import dynamic_session_cost_calculator
 def _opg_requirements() -> dict:
     """Fake PaymentRequirements dict for OPG (18 decimals)."""
     return {"asset": BASE_TESTNET_OPG_ADDRESS, "amount": "50000000000000000"}
-
-
-def _usdc_requirements() -> dict:
-    """Fake PaymentRequirements dict for USDC (6 decimals)."""
-    return {"asset": USDC_ADDRESS, "amount": "10000"}
 
 
 def _ctx(model: str, input_tokens: int, output_tokens: int, requirements=None) -> dict:
@@ -60,18 +55,6 @@ def _expected_cost_opg(model: str, input_tokens: int, output_tokens: int) -> int
         + Decimal(output_tokens) * cfg.output_price_usd
     )
     return int((total_usd * Decimal(10**18)).to_integral_value(rounding=ROUND_CEILING))
-
-
-def _expected_cost_usdc(model: str, input_tokens: int, output_tokens: int) -> int:
-    """Compute expected cost in USDC smallest units (6 decimals, ROUND_CEILING)."""
-    from decimal import ROUND_CEILING
-
-    cfg = get_model_config(model)
-    total_usd = (
-        Decimal(input_tokens) * cfg.input_price_usd
-        + Decimal(output_tokens) * cfg.output_price_usd
-    )
-    return int((total_usd * Decimal(10**6)).to_integral_value(rounding=ROUND_CEILING))
 
 
 # ---------------------------------------------------------------------------
@@ -366,36 +349,6 @@ class TestDynamicSessionCostCalculatorOPG(unittest.TestCase):
         fast = self._calc("grok-4-fast", 1000, 1000)
         full = self._calc("grok-4", 1000, 1000)
         self.assertLess(fast, full)
-
-
-class TestDynamicSessionCostCalculatorUSDC(unittest.TestCase):
-    """dynamic_session_cost_calculator with USDC (6 decimals)."""
-
-    def _calc(self, model, input_tokens, output_tokens):
-        return dynamic_session_cost_calculator(
-            _ctx(model, input_tokens, output_tokens, _usdc_requirements())
-        )
-
-    def test_gpt_4_1_usdc_cost(self):
-        cost = self._calc("gpt-4.1", 1000, 500)
-        expected = _expected_cost_usdc("gpt-4.1", 1000, 500)
-        self.assertEqual(cost, expected)
-        # 0.006 USD in USDC (6 decimals) = 6000 units
-        self.assertEqual(cost, 6000)
-
-    def test_claude_sonnet_4_5_usdc_cost(self):
-        cost = self._calc("claude-sonnet-4-5", 1000, 500)
-        expected = _expected_cost_usdc("claude-sonnet-4-5", 1000, 500)
-        self.assertEqual(cost, expected)
-        # 0.0105 USD = 10500 units
-        self.assertEqual(cost, 10500)
-
-    def test_gemini_flash_lite_usdc_cost(self):
-        cost = self._calc("gemini-2.5-flash-lite", 1000, 500)
-        expected = _expected_cost_usdc("gemini-2.5-flash-lite", 1000, 500)
-        self.assertEqual(cost, expected)
-        # 0.0003 USD = 300 units
-        self.assertEqual(cost, 300)
 
 
 class TestDynamicSessionCostCalculatorEdgeCases(unittest.TestCase):

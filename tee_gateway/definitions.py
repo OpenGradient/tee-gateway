@@ -19,9 +19,6 @@ FACILITATOR_URL = os.getenv("FACILITATOR_URL", "https://facilitator.memchat.io")
 # Network IDs (EIP-155 chain identifiers)
 # ---------------------------------------------------------------------------
 
-# OG EVM — where USDC payments are accepted
-EVM_NETWORK: str = "eip155:10740"
-
 # Base Testnet — where OPG payments are accepted
 BASE_TESTNET_NETWORK: str = "eip155:84532"
 
@@ -43,9 +40,6 @@ EVM_PAYMENT_ADDRESS: str = os.getenv(
 # ---------------------------------------------------------------------------
 # ERC-20 token contract addresses
 # ---------------------------------------------------------------------------
-
-# USDC Address
-USDC_ADDRESS: str = "0x094E464A23B90A71a0894D5D1e5D470FfDD074e1"
 
 # OpenGradient token (OPG) on Base Testnet
 BASE_TESTNET_OPG_ADDRESS: str = "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
@@ -75,9 +69,6 @@ DEFAULT_ASSET_DECIMALS: int = 18
 # by dynamic_session_cost_calculator() in util.py.
 # ---------------------------------------------------------------------------
 
-# /v1/chat/completions — 0.01 OUSDC precheck (6 decimals: 10_000 = $0.01)
-CHAT_COMPLETIONS_USDC_AMOUNT: str = "10000"
-
 # /v1/chat/completions — maximum OPG spend per session (18 decimals: 100000000000000000 = 0.1 OPG).
 # This is the upper-bound amount presented to the client during the x402 pre-check handshake.
 # The x402 "upto" scheme allows the actual charge to be any value up to this cap;
@@ -85,5 +76,9 @@ CHAT_COMPLETIONS_USDC_AMOUNT: str = "10000"
 # based on actual token usage, so clients are never overcharged beyond what they consumed.
 CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"
 
-# /v1/completions — 0.01 USDC precheck (6 decimals: 10_000 = $0.01)
-COMPLETIONS_USDC_AMOUNT: str = "10000"
+# /v1/completions — maximum OPG spend per session (18 decimals: 100000000000000000 = 0.1 OPG).
+# This is the upper-bound amount presented to the client during the x402 pre-check handshake.
+# The x402 "upto" scheme allows the actual charge to be any value up to this cap;
+# the real per-request cost is settled dynamically by dynamic_session_cost_calculator() in util.py
+# based on actual token usage, so clients are never overcharged beyond what they consumed.
+COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"

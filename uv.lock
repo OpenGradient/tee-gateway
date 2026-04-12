@@ -1891,7 +1891,7 @@ requires-dist = [
     { name = "langchain-google-genai", specifier = ">=4.2.1" },
     { name = "langchain-openai", specifier = ">=1.1.12" },
     { name = "langchain-xai", specifier = ">=1.2.2" },
-    { name = "og-x402", extras = ["evm"], specifier = "==0.0.1.dev9" },
+    { name = "og-x402", extras = ["evm"], specifier = ">=0.0.1.dev9" },
     { name = "openai", specifier = ">=2.15.0" },
     { name = "psutil", specifier = ">=7.2.1" },
     { name = "pydantic", specifier = ">=2.12.5" },

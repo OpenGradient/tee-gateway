@@ -11,7 +11,7 @@ Tests verify that:
 import unittest
 from decimal import Decimal
 
-from tee_gateway.definitions import BASE_TESTNET_OPG_ADDRESS, USDC_ADDRESS
+from tee_gateway.definitions import BASE_TESTNET_OPG_ADDRESS
 from tee_gateway.model_registry import (
     _MODEL_LOOKUP,
     get_model_config,

@@ -51,7 +51,7 @@ USDC_ADDRESS: str = "0x094E464A23B90A71a0894D5D1e5D470FfDD074e1"
 BASE_TESTNET_OPG_ADDRESS: str = "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
 
 # OpenGradient token (OPG) on Base Mainnet
-BASE_MAINNET_OPG_ADDRESS: str = "0x5feCcD17C393CaF1001D18164236A37E731FCb9d"
+BASE_MAINNET_OPG_ADDRESS: str = "0xFbC2051AE2265686a469421b2C5A2D5462FbF5eB"
 
 # ---------------------------------------------------------------------------
 # Token decimal places

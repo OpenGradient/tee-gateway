@@ -27,9 +27,6 @@ from x402.http.middleware.flask import payment_middleware
 from x402.http.types import RouteConfig
 from x402.mechanisms.evm.exact import ExactEvmServerScheme
 from x402.mechanisms.evm.upto import UptoEvmServerScheme
-from x402.extensions.eip2612_gas_sponsoring import (
-    declare_eip2612_gas_sponsoring_extension,
-)
 from x402.extensions.erc20_approval_gas_sponsoring import (
     declare_erc20_approval_gas_sponsoring_extension,
 )
@@ -155,7 +152,6 @@ routes = {
             ),
         ],
         extensions={
-            **declare_eip2612_gas_sponsoring_extension(),
             **declare_erc20_approval_gas_sponsoring_extension(),
         },
         mime_type="application/json",
@@ -193,7 +189,6 @@ routes = {
             ),
         ],
         extensions={
-            **declare_eip2612_gas_sponsoring_extension(),
             **declare_erc20_approval_gas_sponsoring_extension(),
         },
         mime_type="application/json",

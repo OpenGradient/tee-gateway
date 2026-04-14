@@ -31,7 +31,7 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 |----------|--------|
 | OpenAI | gpt-4.1, gpt-5, gpt-5-mini, o4-mini |
 | Anthropic | claude-sonnet-4-5, claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-5, claude-opus-4-6 |
-| Google | gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview |
+| Google | gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-flash-preview |
 | xAI | grok-4, grok-4-fast, grok-4-1-fast, grok-4-1-fast-non-reasoning |
 
 ## Quick Start
@@ -40,7 +40,7 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 
 ```bash
 # Install dependencies
-pip install -r requirements.txt
+pip install .
 
 # Set API keys
 export OPENAI_API_KEY=sk-...
@@ -79,7 +79,7 @@ curl -X POST http://127.0.0.1:8000/v1/chat/completions \
 curl -X POST http://127.0.0.1:8000/v1/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-3.7-sonnet",
+    "model": "claude-sonnet-4-5",
     "prompt": "Explain quantum computing in one sentence"
   }'
 ```

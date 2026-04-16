@@ -95,10 +95,9 @@ class TestFetchOPGPrice(unittest.TestCase):
         """Succeeds on the final attempt after earlier failures."""
         from tee_gateway.config import OPG_PRICE_FETCH_RETRIES
 
-        mock_urlopen.side_effect = (
-            [OSError("timeout")] * (OPG_PRICE_FETCH_RETRIES - 1)
-            + [_make_urlopen_response(3000.0)]
-        )
+        mock_urlopen.side_effect = [OSError("timeout")] * (
+            OPG_PRICE_FETCH_RETRIES - 1
+        ) + [_make_urlopen_response(3000.0)]
         price = _fetch_opg_price_usd()
         self.assertEqual(price, Decimal("3000.0"))
         self.assertEqual(mock_urlopen.call_count, OPG_PRICE_FETCH_RETRIES)

@@ -18,6 +18,10 @@ from typing import Optional
 # the free-tier limit (30/min).
 OPG_PRICE_CACHE_TTL_SECONDS: int = 120
 
+# Number of times to retry a failed CoinGecko fetch before giving up.
+# Each attempt uses the same 5-second timeout; retries are immediate (no backoff).
+OPG_PRICE_FETCH_RETRIES: int = 3
+
 # CoinGecko coin ID used as the OPG price proxy until OPG is listed.
 # Switch this to the CoinGecko slug for OPG once the token launches.
 OPG_PRICE_COINGECKO_ID: str = "ethereum"

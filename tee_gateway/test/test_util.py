@@ -90,6 +90,29 @@ class TestFetchOPGPrice(unittest.TestCase):
         with self.assertRaises(Exception):
             _fetch_opg_price_usd()
 
+    @patch("tee_gateway.util.urllib.request.urlopen")
+    def test_retries_on_failure_then_succeeds(self, mock_urlopen):
+        """Succeeds on the final attempt after earlier failures."""
+        from tee_gateway.config import OPG_PRICE_FETCH_RETRIES
+
+        mock_urlopen.side_effect = (
+            [OSError("timeout")] * (OPG_PRICE_FETCH_RETRIES - 1)
+            + [_make_urlopen_response(3000.0)]
+        )
+        price = _fetch_opg_price_usd()
+        self.assertEqual(price, Decimal("3000.0"))
+        self.assertEqual(mock_urlopen.call_count, OPG_PRICE_FETCH_RETRIES)
+
+    @patch("tee_gateway.util.urllib.request.urlopen")
+    def test_raises_after_all_retries_exhausted(self, mock_urlopen):
+        """Raises the last exception once all retry attempts are used up."""
+        from tee_gateway.config import OPG_PRICE_FETCH_RETRIES
+
+        mock_urlopen.side_effect = OSError("connection refused")
+        with self.assertRaises(OSError):
+            _fetch_opg_price_usd()
+        self.assertEqual(mock_urlopen.call_count, OPG_PRICE_FETCH_RETRIES)
+
 
 # ---------------------------------------------------------------------------
 # get_token_a_price_usd — caching behaviour

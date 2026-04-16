@@ -161,6 +161,7 @@ import urllib.request  # noqa: E402
 from tee_gateway.config import (  # noqa: E402
     OPG_PRICE_CACHE_TTL_SECONDS,
     OPG_PRICE_COINGECKO_ID,
+    OPG_PRICE_FETCH_RETRIES,
     OPG_PRICE_HARD_FALLBACK_USD,
 )
 from tee_gateway.definitions import (  # noqa: E402
@@ -181,24 +182,37 @@ _token_price_lock = threading.Lock()
 
 
 def _fetch_opg_price_usd() -> Decimal:
-    """Fetch the OPG/USD price from CoinGecko.
+    """Fetch the OPG/USD price from CoinGecko, retrying up to OPG_PRICE_FETCH_RETRIES times.
 
     The token queried is controlled by OPG_PRICE_COINGECKO_ID in config.py.
     Update that value to the CoinGecko slug for OPG once the token is listed.
+    Raises the last exception if all attempts fail.
     """
     url = (
         f"https://api.coingecko.com/api/v3/simple/price"
         f"?ids={OPG_PRICE_COINGECKO_ID}&vs_currencies=usd"
     )
-    req = urllib.request.Request(url, headers={"User-Agent": "tee-gateway/1.0"})
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        data: dict[str, Any] = json.loads(resp.read())
-    price = Decimal(str(data[OPG_PRICE_COINGECKO_ID]["usd"]))
-    if price <= 0:
-        raise ValueError(
-            f"CoinGecko returned non-positive price for '{OPG_PRICE_COINGECKO_ID}': {price}"
-        )
-    return price
+    last_exc: Exception = RuntimeError("no attempts made")
+    for attempt in range(1, OPG_PRICE_FETCH_RETRIES + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "tee-gateway/1.0"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data: dict[str, Any] = json.loads(resp.read())
+            price = Decimal(str(data[OPG_PRICE_COINGECKO_ID]["usd"]))
+            if price <= 0:
+                raise ValueError(
+                    f"CoinGecko returned non-positive price for '{OPG_PRICE_COINGECKO_ID}': {price}"
+                )
+            return price
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                "CoinGecko price fetch attempt %d/%d failed: %s",
+                attempt,
+                OPG_PRICE_FETCH_RETRIES,
+                exc,
+            )
+    raise last_exc
 
 
 def get_token_a_price_usd() -> Decimal:

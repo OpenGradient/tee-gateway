@@ -34,7 +34,6 @@ from x402.schemas import AssetAmount
 from x402.server import x402ResourceServerSync
 from x402.session import SessionStore
 import x402.http.middleware.flask as x402_flask
-import types as _types
 
 from .util import dynamic_session_cost_calculator
 from .definitions import (

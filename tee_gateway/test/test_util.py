@@ -12,6 +12,7 @@ from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 from tee_gateway import util
+from tee_gateway.config import OPG_PRICE_COINGECKO_ID
 from tee_gateway.util import (
     _fetch_opg_price_usd,
     _token_price_cache,
@@ -27,7 +28,7 @@ from tee_gateway.util import (
 
 def _make_urlopen_response(price: float) -> MagicMock:
     """Return a mock context-manager that urlopen returns with a CoinGecko payload."""
-    body = json.dumps({"ethereum": {"usd": price}}).encode()
+    body = json.dumps({OPG_PRICE_COINGECKO_ID: {"usd": price}}).encode()
     mock_resp = MagicMock()
     mock_resp.read.return_value = body
     mock_resp.__enter__ = lambda s: s
@@ -66,7 +67,7 @@ class TestFetchOPGPrice(unittest.TestCase):
         call_args = mock_urlopen.call_args
         # First positional arg is the Request object
         req = call_args[0][0]
-        self.assertIn("ethereum", req.full_url)
+        self.assertIn(OPG_PRICE_COINGECKO_ID, req.full_url)
 
     @patch("tee_gateway.util.urllib.request.urlopen")
     def test_raises_on_non_positive_price(self, mock_urlopen):
@@ -218,12 +219,12 @@ class TestDynamicSessionCostCalculator(unittest.TestCase):
 
     @patch("tee_gateway.util.urllib.request.urlopen")
     def test_cost_scales_correctly(self, mock_urlopen):
-        """Spot-check the math for gpt-4.1 at a known ETH price.
+        """Spot-check the math for gpt-4.1 at a known token price of $3 000.
 
         gpt-4.1 input: $0.000002/token, output: $0.000008/token
         100 input + 50 output = $0.0002 + $0.0004 = $0.0006 USD
-        At ETH = $3 000: 0.0006 / 3000 = 0.0000002 ETH
-        In wei (10^18): 200 000 000 000 = 200_000_000_000
+        At token price = $3 000: 0.0006 / 3000 = 0.0000002 tokens
+        In smallest units (10^18 decimals): 200_000_000_000
         """
         mock_urlopen.return_value = _make_urlopen_response(3000.0)
         cost = dynamic_session_cost_calculator(

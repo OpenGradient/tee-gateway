@@ -183,9 +183,8 @@ _token_price_lock = threading.Lock()
 def _fetch_opg_price_usd() -> Decimal:
     """Fetch the OPG/USD price from CoinGecko.
 
-    OPG has not launched yet, so we proxy it with ETH/USD until OPG is listed.
-    Swap the CoinGecko coin ID to ``opg-token`` (or whatever slug CoinGecko
-    assigns) once OPG is live.
+    The token queried is controlled by OPG_PRICE_COINGECKO_ID in config.py.
+    Update that value to the CoinGecko slug for OPG once the token is listed.
     """
     url = (
         f"https://api.coingecko.com/api/v3/simple/price"
@@ -196,7 +195,7 @@ def _fetch_opg_price_usd() -> Decimal:
         data: dict[str, Any] = json.loads(resp.read())
     price = Decimal(str(data[OPG_PRICE_COINGECKO_ID]["usd"]))
     if price <= 0:
-        raise ValueError(f"CoinGecko returned non-positive ETH price: {price}")
+        raise ValueError(f"CoinGecko returned non-positive price for '{OPG_PRICE_COINGECKO_ID}': {price}")
     return price
 
 
@@ -225,7 +224,7 @@ def get_token_a_price_usd() -> Decimal:
             value = _fetch_opg_price_usd()
             _token_price_cache["last_good"] = value
             _token_price_cache["updated_at"] = now
-            logger.info("OPG price refreshed: $%s (ETH proxy)", value)
+            logger.info("OPG price refreshed: $%s (via CoinGecko '%s')", value, OPG_PRICE_COINGECKO_ID)
             return value
         except Exception as exc:
             if last_good is not None:

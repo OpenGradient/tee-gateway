@@ -15,7 +15,7 @@ from decimal import Decimal
 
 @pytest.mark.integration
 class TestCoinGeckoPriceFeed:
-    """Verify the live OPG/ETH price fetch end-to-end."""
+    """Verify the live OPG price fetch end-to-end via the configured CoinGecko token."""
 
     def test_fetch_returns_positive_decimal(self):
         """_fetch_opg_price_usd must return a positive Decimal from CoinGecko."""
@@ -28,8 +28,8 @@ class TestCoinGeckoPriceFeed:
     def test_price_is_within_sanity_bounds(self):
         """Fetched price must fall within the configured sanity bounds.
 
-        Bounds live in config.py (OPG_PRICE_SANITY_MIN_USD / MAX_USD) so they
-        stay in sync automatically when switching from the ETH proxy to real OPG.
+        Bounds live in config.py (OPG_PRICE_SANITY_MIN_USD / MAX_USD) alongside
+        OPG_PRICE_COINGECKO_ID, so all three values stay in sync when the token changes.
         """
         from tee_gateway.config import OPG_PRICE_SANITY_MAX_USD, OPG_PRICE_SANITY_MIN_USD
         from tee_gateway.util import _fetch_opg_price_usd
@@ -58,7 +58,7 @@ class TestCoinGeckoPriceFeed:
         assert first > 0
 
     def test_dynamic_cost_uses_live_price(self):
-        """Full pipeline: token counts + live ETH price → positive on-chain units."""
+        """Full pipeline: token counts + live token price → positive on-chain units."""
         from tee_gateway.definitions import BASE_TESTNET_OPG_ADDRESS
         from tee_gateway.util import _token_price_cache, dynamic_session_cost_calculator, get_token_a_price_usd
 
@@ -81,8 +81,9 @@ class TestCoinGeckoPriceFeed:
         assert cost > 0
 
         # Sanity: cost should be far less than 1 full OPG (10^18 units)
-        # for a small request at any plausible ETH price
+        # for a small request at any plausible token price
         assert cost < 10 ** 18, f"Cost {cost} seems too large for a small request"
 
-        print(f"\nLive ETH price: ${live_price}")
+        from tee_gateway.config import OPG_PRICE_COINGECKO_ID
+        print(f"\nLive price ({OPG_PRICE_COINGECKO_ID}): ${live_price}")
         print(f"Cost for gpt-4.1 (1000 input + 500 output tokens): {cost} OPG units")

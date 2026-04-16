@@ -24,14 +24,14 @@ OPG_PRICE_COINGECKO_ID: str = "ethereum"
 
 # Fallback OPG/USD price used only when no successful fetch has ever been
 # made (e.g. network unavailable on the very first request).
-# Set to a conservative ETH ballpark; update when switching to real OPG.
+# Should be a rough USD value for the token identified by OPG_PRICE_COINGECKO_ID.
 OPG_PRICE_HARD_FALLBACK_USD: str = "2000"
 
 # Sanity bounds for the fetched token price.
 # These are used in integration tests to catch obviously wrong API responses
 # (wrong currency, zero, implausibly large value).
-# OPG may be worth very little per token, so the lower bound is intentionally
-# very small. Update both bounds when switching from ETH proxy to real OPG.
+# Set these to a plausible range for whatever token OPG_PRICE_COINGECKO_ID points to.
+# The lower bound is intentionally very small to accommodate a low-value token.
 OPG_PRICE_SANITY_MIN_USD: str = "0.000001"   # $0.000001 — rules out zero/negative
 OPG_PRICE_SANITY_MAX_USD: str = "1000000"    # $1 000 000 — rules out obviously corrupt data
 

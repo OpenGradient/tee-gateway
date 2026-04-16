@@ -195,7 +195,9 @@ def _fetch_opg_price_usd() -> Decimal:
         data: dict[str, Any] = json.loads(resp.read())
     price = Decimal(str(data[OPG_PRICE_COINGECKO_ID]["usd"]))
     if price <= 0:
-        raise ValueError(f"CoinGecko returned non-positive price for '{OPG_PRICE_COINGECKO_ID}': {price}")
+        raise ValueError(
+            f"CoinGecko returned non-positive price for '{OPG_PRICE_COINGECKO_ID}': {price}"
+        )
     return price
 
 
@@ -224,7 +226,11 @@ def get_token_a_price_usd() -> Decimal:
             value = _fetch_opg_price_usd()
             _token_price_cache["last_good"] = value
             _token_price_cache["updated_at"] = now
-            logger.info("OPG price refreshed: $%s (via CoinGecko '%s')", value, OPG_PRICE_COINGECKO_ID)
+            logger.info(
+                "OPG price refreshed: $%s (via CoinGecko '%s')",
+                value,
+                OPG_PRICE_COINGECKO_ID,
+            )
             return value
         except Exception as exc:
             if last_good is not None:

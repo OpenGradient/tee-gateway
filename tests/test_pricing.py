@@ -27,7 +27,9 @@ from tee_gateway.util import dynamic_session_cost_calculator
 # test_integration.py. A $1 pin keeps the hardcoded expected wei values valid
 # and makes the test suite fully deterministic and offline.
 # ---------------------------------------------------------------------------
-_price_patcher = patch("tee_gateway.util.get_token_a_price_usd", return_value=Decimal("1"))
+_price_patcher = patch(
+    "tee_gateway.util.get_token_a_price_usd", return_value=Decimal("1")
+)
 
 
 def setUpModule():

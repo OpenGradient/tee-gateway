@@ -32,8 +32,10 @@ OPG_PRICE_HARD_FALLBACK_USD: str = "2000"
 # (wrong currency, zero, implausibly large value).
 # Set these to a plausible range for whatever token OPG_PRICE_COINGECKO_ID points to.
 # The lower bound is intentionally very small to accommodate a low-value token.
-OPG_PRICE_SANITY_MIN_USD: str = "0.000001"   # $0.000001 — rules out zero/negative
-OPG_PRICE_SANITY_MAX_USD: str = "1000000"    # $1 000 000 — rules out obviously corrupt data
+OPG_PRICE_SANITY_MIN_USD: str = "0.000001"  # $0.000001 — rules out zero/negative
+OPG_PRICE_SANITY_MAX_USD: str = (
+    "1000000"  # $1 000 000 — rules out obviously corrupt data
+)
 
 # ---------------------------------------------------------------------------
 # Heartbeat defaults

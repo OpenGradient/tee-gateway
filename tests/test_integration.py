@@ -31,7 +31,10 @@ class TestCoinGeckoPriceFeed:
         Bounds live in config.py (OPG_PRICE_SANITY_MIN_USD / MAX_USD) alongside
         OPG_PRICE_COINGECKO_ID, so all three values stay in sync when the token changes.
         """
-        from tee_gateway.config import OPG_PRICE_SANITY_MAX_USD, OPG_PRICE_SANITY_MIN_USD
+        from tee_gateway.config import (
+            OPG_PRICE_SANITY_MAX_USD,
+            OPG_PRICE_SANITY_MIN_USD,
+        )
         from tee_gateway.util import _fetch_opg_price_usd
 
         price = _fetch_opg_price_usd()
@@ -60,7 +63,11 @@ class TestCoinGeckoPriceFeed:
     def test_dynamic_cost_uses_live_price(self):
         """Full pipeline: token counts + live token price → positive on-chain units."""
         from tee_gateway.definitions import BASE_TESTNET_OPG_ADDRESS
-        from tee_gateway.util import _token_price_cache, dynamic_session_cost_calculator, get_token_a_price_usd
+        from tee_gateway.util import (
+            _token_price_cache,
+            dynamic_session_cost_calculator,
+            get_token_a_price_usd,
+        )
 
         # Reset cache to force a live fetch
         _token_price_cache["last_good"] = None
@@ -82,8 +89,9 @@ class TestCoinGeckoPriceFeed:
 
         # Sanity: cost should be far less than 1 full OPG (10^18 units)
         # for a small request at any plausible token price
-        assert cost < 10 ** 18, f"Cost {cost} seems too large for a small request"
+        assert cost < 10**18, f"Cost {cost} seems too large for a small request"
 
         from tee_gateway.config import OPG_PRICE_COINGECKO_ID
+
         print(f"\nLive price ({OPG_PRICE_COINGECKO_ID}): ${live_price}")
         print(f"Cost for gpt-4.1 (1000 input + 500 output tokens): {cost} OPG units")

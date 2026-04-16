@@ -8,7 +8,6 @@ network call is ever made.
 import json
 import unittest
 from decimal import Decimal
-from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 from tee_gateway import util
@@ -125,6 +124,7 @@ class TestGetTokenAPriceUSD(unittest.TestCase):
 
         # Advance time past TTL
         from tee_gateway.config import OPG_PRICE_CACHE_TTL_SECONDS
+
         mock_time.time.return_value = 1_000_000.0 + OPG_PRICE_CACHE_TTL_SECONDS + 1
         mock_urlopen.return_value = _make_urlopen_response(3500.0)
         price = get_token_a_price_usd()
@@ -147,7 +147,9 @@ class TestGetTokenAPriceUSD(unittest.TestCase):
         self.assertEqual(second, Decimal("3000.0"))  # stale value returned
 
     @patch("tee_gateway.util.urllib.request.urlopen")
-    def test_hard_fallback_used_when_never_fetched_and_network_fails(self, mock_urlopen):
+    def test_hard_fallback_used_when_never_fetched_and_network_fails(
+        self, mock_urlopen
+    ):
         """With empty cache and a failing network, the hard fallback price is returned."""
         mock_urlopen.side_effect = OSError("network down")
         price = get_token_a_price_usd()
@@ -249,7 +251,9 @@ class TestDynamicSessionCostCalculator(unittest.TestCase):
         ctx = {
             "request_json": {"model": "gpt-4.1"},
             "response_json": {},
-            "payment_requirements": {"asset": "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"},
+            "payment_requirements": {
+                "asset": "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
+            },
         }
         with self.assertRaises(ValueError):
             dynamic_session_cost_calculator(ctx)
@@ -257,7 +261,11 @@ class TestDynamicSessionCostCalculator(unittest.TestCase):
     def test_raises_when_request_json_missing(self):
         with self.assertRaises(ValueError):
             dynamic_session_cost_calculator(
-                {"response_json": {"usage": {"prompt_tokens": 1, "completion_tokens": 1}}}
+                {
+                    "response_json": {
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1}
+                    }
+                }
             )
 
 

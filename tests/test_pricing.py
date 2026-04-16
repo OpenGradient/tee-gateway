@@ -10,6 +10,7 @@ Tests verify that:
 
 import unittest
 from decimal import Decimal
+from unittest.mock import patch
 
 from tee_gateway.definitions import BASE_MAINNET_OPG_ADDRESS
 from tee_gateway.model_registry import (
@@ -17,6 +18,24 @@ from tee_gateway.model_registry import (
     get_model_config,
 )
 from tee_gateway.util import dynamic_session_cost_calculator
+
+# ---------------------------------------------------------------------------
+# Pin token price to $1 for all unit tests in this file.
+#
+# test_pricing.py exists to verify the USD-per-token math for each model.
+# It should not depend on a live price feed — that is tested separately in
+# test_integration.py. A $1 pin keeps the hardcoded expected wei values valid
+# and makes the test suite fully deterministic and offline.
+# ---------------------------------------------------------------------------
+_price_patcher = patch("tee_gateway.util.get_token_a_price_usd", return_value=Decimal("1"))
+
+
+def setUpModule():
+    _price_patcher.start()
+
+
+def tearDownModule():
+    _price_patcher.stop()
 
 
 # ---------------------------------------------------------------------------

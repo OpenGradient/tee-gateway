@@ -155,47 +155,92 @@ def _deserialize_dict(data, boxed_type):
     return {k: _deserialize(v, boxed_type) for k, v in data.items()}
 
 
+import json  # noqa: E402
+import urllib.request  # noqa: E402
+
+from tee_gateway.config import (  # noqa: E402
+    OPG_PRICE_CACHE_TTL_SECONDS,
+    OPG_PRICE_COINGECKO_ID,
+    OPG_PRICE_HARD_FALLBACK_USD,
+)
 from tee_gateway.definitions import (  # noqa: E402
     ASSET_DECIMALS_BY_ADDRESS,
 )
 from tee_gateway.model_registry import get_model_config  # noqa: E402
 
-TOKEN_A_PRICE_CACHE_TTL_SECONDS = 60
+_PRICE_HARD_FALLBACK_USD = Decimal(OPG_PRICE_HARD_FALLBACK_USD)
 
+# Cache layout:
+#   "last_good"  – most recent successfully fetched price (Decimal | None)
+#   "updated_at" – epoch seconds of last successful fetch (float)
 _token_price_cache: dict[str, Any] = {
-    "value": Decimal("1"),
+    "last_good": None,
     "updated_at": 0.0,
 }
 _token_price_lock = threading.Lock()
 
 
-def _fetch_token_a_price_usd_mock() -> Decimal:
-    """Return the USD price of the payment token used for cost calculation.
+def _fetch_opg_price_usd() -> Decimal:
+    """Fetch the OPG/USD price from CoinGecko.
 
-    Currently returns a fixed 1:1 ratio, which is correct for USDC-denominated
-    payments (1 USDC ≈ $1 USD). For OPG-denominated payments, replace this
-    with a live price feed (e.g. a DEX oracle or CoinGecko API call) that
-    returns the current OPG/USD exchange rate so that token amounts are
-    calculated correctly against the model's USD pricing.
+    OPG has not launched yet, so we proxy it with ETH/USD until OPG is listed.
+    Swap the CoinGecko coin ID to ``opg-token`` (or whatever slug CoinGecko
+    assigns) once OPG is live.
     """
-    return Decimal("1")
+    url = (
+        f"https://api.coingecko.com/api/v3/simple/price"
+        f"?ids={OPG_PRICE_COINGECKO_ID}&vs_currencies=usd"
+    )
+    req = urllib.request.Request(url, headers={"User-Agent": "tee-gateway/1.0"})
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        data: dict[str, Any] = json.loads(resp.read())
+    price = Decimal(str(data[OPG_PRICE_COINGECKO_ID]["usd"]))
+    if price <= 0:
+        raise ValueError(f"CoinGecko returned non-positive ETH price: {price}")
+    return price
 
 
 def get_token_a_price_usd() -> Decimal:
+    """Return the current OPG/USD price, refreshing at most once per TTL window.
+
+    Strategy:
+    - Return cached price immediately if it was fetched within the TTL.
+    - On TTL expiry, attempt a fresh CoinGecko fetch.
+      - Success → update cache, return new price.
+      - Failure → log a warning, return the last known-good price (stale-cache
+        fallback), or the hard-coded fallback if no price has ever been fetched.
+    This means at most one network call every 5 minutes regardless of request
+    volume, and inference is never blocked by a network timeout beyond the first
+    call after a cache miss.
+    """
     now = time.time()
     with _token_price_lock:
-        cached_value = _token_price_cache.get("value")
+        last_good: Decimal | None = _token_price_cache.get("last_good")  # type: ignore[assignment]
         cached_at = float(_token_price_cache.get("updated_at") or 0.0)
-        if (
-            isinstance(cached_value, Decimal)
-            and (now - cached_at) < TOKEN_A_PRICE_CACHE_TTL_SECONDS
-        ):
-            return cached_value
 
-        value = _fetch_token_a_price_usd_mock()
-        _token_price_cache["value"] = value
-        _token_price_cache["updated_at"] = now
-        return value
+        if last_good is not None and (now - cached_at) < OPG_PRICE_CACHE_TTL_SECONDS:
+            return last_good
+
+        try:
+            value = _fetch_opg_price_usd()
+            _token_price_cache["last_good"] = value
+            _token_price_cache["updated_at"] = now
+            logger.info("OPG price refreshed: $%s (ETH proxy)", value)
+            return value
+        except Exception as exc:
+            if last_good is not None:
+                logger.warning(
+                    "Failed to refresh OPG price (%s); using last known value $%s",
+                    exc,
+                    last_good,
+                )
+                return last_good
+            logger.warning(
+                "Failed to fetch OPG price (%s); using hard fallback $%s",
+                exc,
+                _PRICE_HARD_FALLBACK_USD,
+            )
+            return _PRICE_HARD_FALLBACK_USD
 
 
 def _as_dict(value: Any) -> dict[str, Any] | None:

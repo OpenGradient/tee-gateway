@@ -9,7 +9,27 @@ as environment variables.
 from dataclasses import dataclass
 from typing import Optional
 
+# ---------------------------------------------------------------------------
+# OPG / token price feed
+# ---------------------------------------------------------------------------
+
+# How long (seconds) to reuse a cached price before fetching a fresh one.
+# At 120 s the gateway makes at most 30 CoinGecko calls/hour — well within
+# the free-tier limit (30/min).
+OPG_PRICE_CACHE_TTL_SECONDS: int = 120
+
+# CoinGecko coin ID used as the OPG price proxy until OPG is listed.
+# Switch this to the CoinGecko slug for OPG once the token launches.
+OPG_PRICE_COINGECKO_ID: str = "ethereum"
+
+# Fallback OPG/USD price used only when no successful fetch has ever been
+# made (e.g. network unavailable on the very first request).
+# Set to a conservative ETH ballpark; update when switching to real OPG.
+OPG_PRICE_HARD_FALLBACK_USD: str = "2000"
+
+# ---------------------------------------------------------------------------
 # Heartbeat defaults
+# ---------------------------------------------------------------------------
 DEFAULT_HEARTBEAT_INTERVAL = 900  # 15 minutes
 DEFAULT_HEARTBEAT_BUFFER = (
     300  # 5 minutes — subtracted from time.time() to compensate for enclave clock drift

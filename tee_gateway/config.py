@@ -27,6 +27,14 @@ OPG_PRICE_COINGECKO_ID: str = "ethereum"
 # Set to a conservative ETH ballpark; update when switching to real OPG.
 OPG_PRICE_HARD_FALLBACK_USD: str = "2000"
 
+# Sanity bounds for the fetched token price.
+# These are used in integration tests to catch obviously wrong API responses
+# (wrong currency, zero, implausibly large value).
+# OPG may be worth very little per token, so the lower bound is intentionally
+# very small. Update both bounds when switching from ETH proxy to real OPG.
+OPG_PRICE_SANITY_MIN_USD: str = "0.000001"   # $0.000001 — rules out zero/negative
+OPG_PRICE_SANITY_MAX_USD: str = "1000000"    # $1 000 000 — rules out obviously corrupt data
+
 # ---------------------------------------------------------------------------
 # Heartbeat defaults
 # ---------------------------------------------------------------------------

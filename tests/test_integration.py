@@ -25,18 +25,21 @@ class TestCoinGeckoPriceFeed:
         assert isinstance(price, Decimal)
         assert price > 0, f"Expected positive price, got {price}"
 
-    def test_price_is_plausible_eth_range(self):
-        """ETH price should be within a sanity range ($100–$100 000).
+    def test_price_is_within_sanity_bounds(self):
+        """Fetched price must fall within the configured sanity bounds.
 
-        This is a loose check that guards against obviously wrong responses
-        (e.g. CoinGecko returning a different currency or a zero value).
-        Update bounds if ETH moves outside this range for an extended period.
+        Bounds live in config.py (OPG_PRICE_SANITY_MIN_USD / MAX_USD) so they
+        stay in sync automatically when switching from the ETH proxy to real OPG.
         """
+        from tee_gateway.config import OPG_PRICE_SANITY_MAX_USD, OPG_PRICE_SANITY_MIN_USD
         from tee_gateway.util import _fetch_opg_price_usd
 
         price = _fetch_opg_price_usd()
-        assert Decimal("100") < price < Decimal("100000"), (
-            f"ETH price ${price} is outside the expected sanity range $100–$100 000"
+        min_price = Decimal(OPG_PRICE_SANITY_MIN_USD)
+        max_price = Decimal(OPG_PRICE_SANITY_MAX_USD)
+        assert min_price < price < max_price, (
+            f"Price ${price} is outside the configured sanity range "
+            f"${OPG_PRICE_SANITY_MIN_USD}–${OPG_PRICE_SANITY_MAX_USD}"
         )
 
     def test_get_token_a_price_usd_returns_cached_value(self):

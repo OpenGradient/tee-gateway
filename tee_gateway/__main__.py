@@ -38,9 +38,7 @@ import types as _types
 
 from .util import dynamic_session_cost_calculator
 from .definitions import (
-    BASE_TESTNET_NETWORK,
     EVM_PAYMENT_ADDRESS,
-    BASE_TESTNET_OPG_ADDRESS,
     BASE_MAINNET_NETWORK,
     BASE_MAINNET_OPG_ADDRESS,
     CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
@@ -112,30 +110,14 @@ facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=FACILITATOR_URL))
 server = x402ResourceServerSync(facilitator)
 store = SessionStore()
 
-server.register(BASE_TESTNET_NETWORK, ExactEvmServerScheme())
 server.register(BASE_MAINNET_NETWORK, ExactEvmServerScheme())
 
 # Upto scheme registrations (permit2-based, variable settlement)
-server.register(BASE_TESTNET_NETWORK, UptoEvmServerScheme())
 server.register(BASE_MAINNET_NETWORK, UptoEvmServerScheme())
 
 routes = {
     "POST /v1/chat/completions": RouteConfig(
         accepts=[
-            PaymentOption(
-                scheme="upto",
-                pay_to=EVM_PAYMENT_ADDRESS,
-                price=AssetAmount(
-                    amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
-                    asset=BASE_TESTNET_OPG_ADDRESS,
-                    extra={
-                        "name": "OpenGradient",
-                        "version": "1",
-                        "assetTransferMethod": "permit2",
-                    },
-                ),
-                network=BASE_TESTNET_NETWORK,
-            ),
             PaymentOption(
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
@@ -159,20 +141,6 @@ routes = {
     ),
     "POST /v1/completions": RouteConfig(
         accepts=[
-            PaymentOption(
-                scheme="upto",
-                pay_to=EVM_PAYMENT_ADDRESS,
-                price=AssetAmount(
-                    amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
-                    asset=BASE_TESTNET_OPG_ADDRESS,
-                    extra={
-                        "name": "OpenGradient",
-                        "version": "1",
-                        "assetTransferMethod": "permit2",
-                    },
-                ),
-                network=BASE_TESTNET_NETWORK,
-            ),
             PaymentOption(
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,

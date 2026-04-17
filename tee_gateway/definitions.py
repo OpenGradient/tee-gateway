@@ -19,8 +19,6 @@ FACILITATOR_URL = os.getenv("FACILITATOR_URL", "https://facilitator.memchat.io")
 # Network IDs (EIP-155 chain identifiers)
 # ---------------------------------------------------------------------------
 
-# Base Testnet — where OPG payments are accepted
-BASE_TESTNET_NETWORK: str = "eip155:84532"
 
 # Base Mainnet — where OPG payments are accepted
 BASE_MAINNET_NETWORK: str = "eip155:8453"
@@ -41,9 +39,6 @@ EVM_PAYMENT_ADDRESS: str = os.getenv(
 # ERC-20 token contract addresses
 # ---------------------------------------------------------------------------
 
-# OpenGradient token (OPG) on Base Testnet
-BASE_TESTNET_OPG_ADDRESS: str = "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
-
 # OpenGradient token (OPG) on Base Mainnet
 BASE_MAINNET_OPG_ADDRESS: str = "0xFbC2051AE2265686a469421b2C5A2D5462FbF5eB"
 
@@ -53,7 +48,6 @@ BASE_MAINNET_OPG_ADDRESS: str = "0xFbC2051AE2265686a469421b2C5A2D5462FbF5eB"
 
 # Maps lowercase contract address → number of decimals for unit conversion.
 ASSET_DECIMALS_BY_ADDRESS: dict[str, int] = {
-    BASE_TESTNET_OPG_ADDRESS.lower(): 18,  # OPG: 18 decimals (ERC-20 standard)
     BASE_MAINNET_OPG_ADDRESS.lower(): 18,  # OPG: 18 decimals (ERC-20 standard)
 }
 

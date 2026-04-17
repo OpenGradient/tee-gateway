@@ -11,7 +11,7 @@ Tests verify that:
 import unittest
 from decimal import Decimal
 
-from tee_gateway.definitions import BASE_TESTNET_OPG_ADDRESS
+from tee_gateway.definitions import BASE_MAINNET_OPG_ADDRESS
 from tee_gateway.model_registry import (
     _MODEL_LOOKUP,
     get_model_config,
@@ -26,7 +26,7 @@ from tee_gateway.util import dynamic_session_cost_calculator
 
 def _opg_requirements() -> dict:
     """Fake PaymentRequirements dict for OPG (18 decimals)."""
-    return {"asset": BASE_TESTNET_OPG_ADDRESS, "amount": "50000000000000000"}
+    return {"asset": BASE_MAINNET_OPG_ADDRESS, "amount": "50000000000000000"}
 
 
 def _ctx(model: str, input_tokens: int, output_tokens: int, requirements=None) -> dict:

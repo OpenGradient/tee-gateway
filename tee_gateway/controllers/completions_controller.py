@@ -10,6 +10,7 @@ from tee_gateway.models.create_completion_request import CreateCompletionRequest
 
 from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
 from tee_gateway.llm_backend import get_chat_model_cached, extract_usage
+from tee_gateway.util import validate_pricing_preflight
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,11 @@ def create_completion(body):
         body = CreateCompletionRequest.from_dict(connexion.request.get_json())
     else:
         return {"error": "Request must be application/json"}, 415
+
+    try:
+        validate_pricing_preflight(body.model)
+    except ValueError as exc:
+        return {"error": "Bad Request", "message": str(exc)}, 400
 
     try:
         request_dict = {

@@ -30,6 +30,7 @@ from tee_gateway.llm_backend import (
     convert_messages,
     extract_usage,
 )
+from tee_gateway.util import validate_pricing_preflight
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,11 @@ def create_chat_completion(body):
     chat_request: CreateChatCompletionRequest = _parse_chat_request(
         connexion.request.get_json()
     )
+
+    try:
+        validate_pricing_preflight(chat_request.model)
+    except ValueError as exc:
+        return {"error": "Bad Request", "message": str(exc)}, 400
 
     if chat_request.stream:
         return _create_streaming_response(chat_request)

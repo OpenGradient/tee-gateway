@@ -368,6 +368,25 @@ def _extract_asset_decimals_from_requirements(payment_requirements: Any) -> int:
     return ASSET_DECIMALS_BY_ADDRESS[asset_lower]
 
 
+def validate_pricing_preflight(model: str) -> None:
+    """Validate that this request can be priced before any LLM call is made.
+
+    Raises ValueError if the model is not in the registry, or if no token
+    price is available (price feed down and hard fallback somehow non-positive).
+
+    Call this at the top of each request handler so that a pricing failure
+    returns a proper error to the client rather than silently producing free
+    inference after the response has already been sent.
+    """
+    get_model_config(model)  # raises ValueError for unknown models
+
+    price = get_token_a_price_usd()
+    if price <= 0:
+        raise ValueError(
+            f"Token price is non-positive ({price}); cannot price inference request"
+        )
+
+
 def dynamic_session_cost_calculator(context: dict[str, Any]) -> int:
     """Compute UPTO per-request cost in token smallest units from actual usage.
 

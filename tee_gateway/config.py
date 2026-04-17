@@ -22,21 +22,14 @@ OPG_PRICE_CACHE_TTL_SECONDS: int = 120
 # Each attempt uses the same 5-second timeout; retries are immediate (no backoff).
 OPG_PRICE_FETCH_RETRIES: int = 3
 
-# CoinGecko coin ID used as the OPG price proxy until OPG is listed.
-# Switch this to the CoinGecko slug for OPG once the token launches.
-OPG_PRICE_COINGECKO_ID: str = "ethereum"
-
-# Fallback OPG/USD price used only when no successful fetch has ever been
-# made (e.g. network unavailable on the very first request).
-# Should be a rough USD value for the token identified by OPG_PRICE_COINGECKO_ID.
-OPG_PRICE_HARD_FALLBACK_USD: str = "2000"
+# CoinGecko coin ID for the OPG token.
+# https://www.coingecko.com/en/coins/opengradient
+OPG_PRICE_COINGECKO_ID: str = "opengradient"
 
 # Sanity bounds for the fetched token price.
-# These are used in integration tests to catch obviously wrong API responses
-# (wrong currency, zero, implausibly large value).
-# Set these to a plausible range for whatever token OPG_PRICE_COINGECKO_ID points to.
-# The lower bound is intentionally very small to accommodate a low-value token.
-OPG_PRICE_SANITY_MIN_USD: str = "0.000001"  # $0.000001 — rules out zero/negative
+# Used in integration tests to catch obviously wrong API responses
+# (wrong currency, implausibly large value).
+# Update when OPG establishes a trading range.
 OPG_PRICE_SANITY_MAX_USD: str = (
     "1000000"  # $1 000 000 — rules out obviously corrupt data
 )

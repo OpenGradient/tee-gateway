@@ -10,7 +10,6 @@ import unittest
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-from tee_gateway import util
 from tee_gateway.config import OPG_PRICE_COINGECKO_ID
 from tee_gateway.util import (
     _fetch_opg_price_usd,
@@ -91,6 +90,19 @@ class TestFetchOPGPrice(unittest.TestCase):
             _fetch_opg_price_usd()
 
     @patch("tee_gateway.util.urllib.request.urlopen")
+    def test_raises_when_coin_has_no_price(self, mock_urlopen):
+        """CoinGecko returns the coin but without a 'usd' key (no trading price yet)."""
+        body = json.dumps({OPG_PRICE_COINGECKO_ID: {}}).encode()
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = body
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+        with self.assertRaises(ValueError) as ctx:
+            _fetch_opg_price_usd()
+        self.assertIn("no price", str(ctx.exception))
+
+    @patch("tee_gateway.util.urllib.request.urlopen")
     def test_retries_on_failure_then_succeeds(self, mock_urlopen):
         """Succeeds on the final attempt after earlier failures."""
         from tee_gateway.config import OPG_PRICE_FETCH_RETRIES
@@ -155,28 +167,23 @@ class TestGetTokenAPriceUSD(unittest.TestCase):
         self.assertEqual(price, Decimal("3500.0"))
 
     @patch("tee_gateway.util.urllib.request.urlopen")
-    def test_stale_cache_used_on_refresh_failure(self, mock_urlopen):
-        """If the cache is populated but a refresh fails, the last good price is returned."""
+    def test_raises_on_refresh_failure(self, mock_urlopen):
+        """If the cache is expired and a refresh fails, the error is raised immediately."""
         mock_urlopen.return_value = _make_urlopen_response(3000.0)
-        first = get_token_a_price_usd()
-        self.assertEqual(first, Decimal("3000.0"))
+        get_token_a_price_usd()  # populate cache
 
         # Force cache to appear expired then make the refresh fail
         _token_price_cache["updated_at"] = 0.0
         mock_urlopen.side_effect = OSError("network down")
-        second = get_token_a_price_usd()
-
-        self.assertEqual(second, Decimal("3000.0"))  # stale value returned
+        with self.assertRaises(OSError):
+            get_token_a_price_usd()
 
     @patch("tee_gateway.util.urllib.request.urlopen")
-    def test_hard_fallback_used_when_never_fetched_and_network_fails(
-        self, mock_urlopen
-    ):
-        """With empty cache and a failing network, the hard fallback price is returned."""
+    def test_raises_when_never_fetched_and_network_fails(self, mock_urlopen):
+        """With empty cache and a failing network, the exception propagates."""
         mock_urlopen.side_effect = OSError("network down")
-        price = get_token_a_price_usd()
-        self.assertEqual(price, util._PRICE_HARD_FALLBACK_USD)
-        self.assertGreater(price, 0)
+        with self.assertRaises(OSError):
+            get_token_a_price_usd()
 
 
 # ---------------------------------------------------------------------------

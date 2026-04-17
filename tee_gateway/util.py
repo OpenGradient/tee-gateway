@@ -162,14 +162,11 @@ from tee_gateway.config import (  # noqa: E402
     OPG_PRICE_CACHE_TTL_SECONDS,
     OPG_PRICE_COINGECKO_ID,
     OPG_PRICE_FETCH_RETRIES,
-    OPG_PRICE_HARD_FALLBACK_USD,
 )
 from tee_gateway.definitions import (  # noqa: E402
     ASSET_DECIMALS_BY_ADDRESS,
 )
 from tee_gateway.model_registry import get_model_config  # noqa: E402
-
-_PRICE_HARD_FALLBACK_USD = Decimal(OPG_PRICE_HARD_FALLBACK_USD)
 
 # Cache layout:
 #   "last_good"  – most recent successfully fetched price (Decimal | None)
@@ -185,8 +182,8 @@ def _fetch_opg_price_usd() -> Decimal:
     """Fetch the OPG/USD price from CoinGecko, retrying up to OPG_PRICE_FETCH_RETRIES times.
 
     The token queried is controlled by OPG_PRICE_COINGECKO_ID in config.py.
-    Update that value to the CoinGecko slug for OPG once the token is listed.
-    Raises the last exception if all attempts fail.
+    Raises ValueError if the token is listed but has no price data yet.
+    Raises the last exception if all network attempts fail.
     """
     url = (
         f"https://api.coingecko.com/api/v3/simple/price"
@@ -198,7 +195,13 @@ def _fetch_opg_price_usd() -> Decimal:
             req = urllib.request.Request(url, headers={"User-Agent": "tee-gateway/1.0"})
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data: dict[str, Any] = json.loads(resp.read())
-            price = Decimal(str(data[OPG_PRICE_COINGECKO_ID]["usd"]))
+            coin_data = data.get(OPG_PRICE_COINGECKO_ID)
+            if not isinstance(coin_data, dict) or "usd" not in coin_data:
+                raise ValueError(
+                    f"CoinGecko returned no price for '{OPG_PRICE_COINGECKO_ID}' — "
+                    f"token may not have a trading price yet: {data!r}"
+                )
+            price = Decimal(str(coin_data["usd"]))
             if price <= 0:
                 raise ValueError(
                     f"CoinGecko returned non-positive price for '{OPG_PRICE_COINGECKO_ID}': {price}"
@@ -222,11 +225,9 @@ def get_token_a_price_usd() -> Decimal:
     - Return cached price immediately if it was fetched within the TTL.
     - On TTL expiry, attempt a fresh CoinGecko fetch.
       - Success → update cache, return new price.
-      - Failure → log a warning, return the last known-good price (stale-cache
-        fallback), or the hard-coded fallback if no price has ever been fetched.
-    This means at most one network call every 5 minutes regardless of request
-    volume, and inference is never blocked by a network timeout beyond the first
-    call after a cache miss.
+      - Failure → raise immediately; no silent fallback.
+    This means at most one network call every TTL window regardless of request
+    volume, and inference is blocked (400 returned) if the price cannot be fetched.
     """
     now = time.time()
     with _token_price_lock:
@@ -236,30 +237,15 @@ def get_token_a_price_usd() -> Decimal:
         if last_good is not None and (now - cached_at) < OPG_PRICE_CACHE_TTL_SECONDS:
             return last_good
 
-        try:
-            value = _fetch_opg_price_usd()
-            _token_price_cache["last_good"] = value
-            _token_price_cache["updated_at"] = now
-            logger.info(
-                "OPG price refreshed: $%s (via CoinGecko '%s')",
-                value,
-                OPG_PRICE_COINGECKO_ID,
-            )
-            return value
-        except Exception as exc:
-            if last_good is not None:
-                logger.warning(
-                    "Failed to refresh OPG price (%s); using last known value $%s",
-                    exc,
-                    last_good,
-                )
-                return last_good
-            logger.warning(
-                "Failed to fetch OPG price (%s); using hard fallback $%s",
-                exc,
-                _PRICE_HARD_FALLBACK_USD,
-            )
-            return _PRICE_HARD_FALLBACK_USD
+        value = _fetch_opg_price_usd()
+        _token_price_cache["last_good"] = value
+        _token_price_cache["updated_at"] = now
+        logger.info(
+            "OPG price refreshed: $%s (via CoinGecko '%s')",
+            value,
+            OPG_PRICE_COINGECKO_ID,
+        )
+        return value
 
 
 def _as_dict(value: Any) -> dict[str, Any] | None:

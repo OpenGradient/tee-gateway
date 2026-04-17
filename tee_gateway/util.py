@@ -197,6 +197,9 @@ def _fetch_opg_price_usd() -> Decimal:
                 data: dict[str, Any] = json.loads(resp.read())
             coin_data = data.get(OPG_PRICE_COINGECKO_ID)
             if not isinstance(coin_data, dict) or "usd" not in coin_data:
+                # Deterministic failure — the coin is listed but has no price.
+                # Retrying won't help, so raise immediately without consuming
+                # the remaining retry budget.
                 raise ValueError(
                     f"CoinGecko returned no price for '{OPG_PRICE_COINGECKO_ID}' — "
                     f"token may not have a trading price yet: {data!r}"
@@ -207,6 +210,8 @@ def _fetch_opg_price_usd() -> Decimal:
                     f"CoinGecko returned non-positive price for '{OPG_PRICE_COINGECKO_ID}': {price}"
                 )
             return price
+        except ValueError:
+            raise
         except Exception as exc:
             last_exc = exc
             logger.warning(
@@ -357,20 +362,16 @@ def _extract_asset_decimals_from_requirements(payment_requirements: Any) -> int:
 def validate_pricing_preflight(model: str) -> None:
     """Validate that this request can be priced before any LLM call is made.
 
-    Raises ValueError if the model is not in the registry, or if no token
-    price is available (price feed down and hard fallback somehow non-positive).
+    Raises ValueError if the model is not in the registry.
+    Raises (propagates) whatever get_token_a_price_usd raises if the price
+    feed is unavailable — e.g. network down or token has no trading price yet.
 
     Call this at the top of each request handler so that a pricing failure
     returns a proper error to the client rather than silently producing free
     inference after the response has already been sent.
     """
     get_model_config(model)  # raises ValueError for unknown models
-
-    price = get_token_a_price_usd()
-    if price <= 0:
-        raise ValueError(
-            f"Token price is non-positive ({price}); cannot price inference request"
-        )
+    get_token_a_price_usd()  # raises if price is unavailable
 
 
 def dynamic_session_cost_calculator(context: dict[str, Any]) -> int:

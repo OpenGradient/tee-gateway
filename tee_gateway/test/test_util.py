@@ -91,7 +91,11 @@ class TestFetchOPGPrice(unittest.TestCase):
 
     @patch("tee_gateway.util.urllib.request.urlopen")
     def test_raises_when_coin_has_no_price(self, mock_urlopen):
-        """CoinGecko returns the coin but without a 'usd' key (no trading price yet)."""
+        """CoinGecko returns the coin but without a 'usd' key (no trading price yet).
+
+        This is a deterministic failure — retrying won't help, so it must raise
+        immediately after the first call without consuming the retry budget.
+        """
         body = json.dumps({OPG_PRICE_COINGECKO_ID: {}}).encode()
         mock_resp = MagicMock()
         mock_resp.read.return_value = body
@@ -101,6 +105,7 @@ class TestFetchOPGPrice(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             _fetch_opg_price_usd()
         self.assertIn("no price", str(ctx.exception))
+        self.assertEqual(mock_urlopen.call_count, 1)  # no retries for deterministic error
 
     @patch("tee_gateway.util.urllib.request.urlopen")
     def test_retries_on_failure_then_succeeds(self, mock_urlopen):

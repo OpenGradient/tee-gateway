@@ -105,7 +105,9 @@ class TestFetchOPGPrice(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             _fetch_opg_price_usd()
         self.assertIn("no price", str(ctx.exception))
-        self.assertEqual(mock_urlopen.call_count, 1)  # no retries for deterministic error
+        self.assertEqual(
+            mock_urlopen.call_count, 1
+        )  # no retries for deterministic error
 
     @patch("tee_gateway.util.urllib.request.urlopen")
     def test_retries_on_failure_then_succeeds(self, mock_urlopen):

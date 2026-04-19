@@ -209,7 +209,7 @@ class TestDynamicSessionCostCalculator(unittest.TestCase):
         model: str = "gpt-4.1",
         prompt_tokens: int = 100,
         completion_tokens: int = 50,
-        asset: str = "0x240b09731D96979f50B2C649C9CE10FcF9C7987F",  # OPG testnet
+        asset: str = "0xFbC2051AE2265686a469421b2C5A2D5462FbF5eB",  # OPG mainnet
     ) -> dict:
         return {
             "request_json": {"model": model},
@@ -288,7 +288,7 @@ class TestDynamicSessionCostCalculator(unittest.TestCase):
             "request_json": {"model": "gpt-4.1"},
             "response_json": {},
             "payment_requirements": {
-                "asset": "0x240b09731D96979f50B2C649C9CE10FcF9C7987F"
+                "asset": "0xFbC2051AE2265686a469421b2C5A2D5462FbF5eB"
             },
         }
         with self.assertRaises(ValueError):

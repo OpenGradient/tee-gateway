@@ -120,7 +120,7 @@ class TestCoinGeckoPriceFeed:
     @requires_opg_price
     def test_dynamic_cost_uses_live_price(self):
         """Full pipeline: token counts + live token price → positive on-chain units."""
-        from tee_gateway.definitions import BASE_TESTNET_OPG_ADDRESS
+        from tee_gateway.definitions import BASE_MAINNET_OPG_ADDRESS
         from tee_gateway.util import (
             _token_price_cache,
             dynamic_session_cost_calculator,
@@ -136,7 +136,7 @@ class TestCoinGeckoPriceFeed:
             "response_json": {
                 "usage": {"prompt_tokens": 1000, "completion_tokens": 500}
             },
-            "payment_requirements": {"asset": BASE_TESTNET_OPG_ADDRESS},
+            "payment_requirements": {"asset": BASE_MAINNET_OPG_ADDRESS},
         }
 
         cost = dynamic_session_cost_calculator(ctx)

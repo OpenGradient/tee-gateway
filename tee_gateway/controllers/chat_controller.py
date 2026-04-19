@@ -50,6 +50,7 @@ def create_chat_completion(body):
     try:
         validate_pricing_preflight(chat_request.model)
     except ValueError as exc:
+        logger.error("Pricing preflight failed for model %r: %s", chat_request.model, exc)
         return {"error": "Bad Request", "message": str(exc)}, 400
 
     if chat_request.stream:

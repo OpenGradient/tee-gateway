@@ -200,6 +200,11 @@ def _fetch_opg_price_usd() -> Decimal:
                 # Deterministic failure — the coin is listed but has no price.
                 # Retrying won't help, so raise immediately without consuming
                 # the remaining retry budget.
+                logger.error(
+                    "CoinGecko returned no USD price for '%s' — token may not have a trading price yet. Response: %r",
+                    OPG_PRICE_COINGECKO_ID,
+                    data,
+                )
                 raise ValueError(
                     f"CoinGecko returned no price for '{OPG_PRICE_COINGECKO_ID}' — "
                     f"token may not have a trading price yet: {data!r}"

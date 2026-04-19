@@ -25,6 +25,7 @@ def create_completion(body):
     try:
         validate_pricing_preflight(body.model)
     except ValueError as exc:
+        logger.error("Pricing preflight failed for model %r: %s", body.model, exc)
         return {"error": "Bad Request", "message": str(exc)}, 400
 
     try:

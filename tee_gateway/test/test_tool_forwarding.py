@@ -1,4 +1,5 @@
 import unittest
+from decimal import Decimal
 from unittest.mock import patch, Mock
 
 from tee_gateway.controllers.chat_controller import (
@@ -10,6 +11,21 @@ from tee_gateway.models import (
     ChatCompletionRequestToolMessage,
     ChatCompletionRequestFunctionMessage,
 )
+
+# Pin the token price for all integration-style tests in this file so they
+# never hit the real CoinGecko API.  The price feed is tested separately in
+# test_util.py and test_integration.py.
+_price_patcher = patch(
+    "tee_gateway.util.get_token_a_price_usd", return_value=Decimal("1")
+)
+
+
+def setUpModule():
+    _price_patcher.start()
+
+
+def tearDownModule():
+    _price_patcher.stop()
 
 
 # ---------------------------------------------------------------------------

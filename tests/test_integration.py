@@ -63,13 +63,22 @@ class TestCoinGeckoPriceFeed:
     def test_fetch_raises_clear_error_when_no_price(self):
         """When OPG has no trading price, _fetch_opg_price_usd must raise ValueError
         with a message indicating the price is unavailable — not a bare KeyError."""
+        import urllib.error
+
         if _opg_has_price():
             pytest.skip("OPG now has a price — this test is no longer applicable")
 
         from tee_gateway.util import _fetch_opg_price_usd
 
-        with pytest.raises(ValueError, match="no price"):
+        try:
             _fetch_opg_price_usd()
+            pytest.fail("Expected ValueError but no exception was raised")
+        except ValueError as exc:
+            assert "no price" in str(exc), f"Unexpected ValueError message: {exc}"
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                pytest.skip(f"CoinGecko rate-limited the integration test run: {exc}")
+            raise
 
     @requires_opg_price
     def test_fetch_returns_positive_decimal(self):

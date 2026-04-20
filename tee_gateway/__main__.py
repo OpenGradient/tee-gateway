@@ -415,7 +415,7 @@ _payment_mw = payment_middleware(
 # -------
 # We replace _resolve_session_request_cost with our own implementation that is
 # identical to upstream, except the cost-calculator call is NOT wrapped in a
-# try/except.  Any exception from dynamic_session_cost_calculator() therefore
+# try/except.  Any exception from _session_cost_calculator() therefore
 # propagates up through the middleware and Flask, producing a proper HTTP 500
 # response to the client instead of an incorrect silent charge.
 # ---------------------------------------------------------------------------
@@ -481,7 +481,7 @@ def _strict_resolve_session_request_cost(
     dynamic_cost = self._session_cost_calculator(callback_context)
     if dynamic_cost is None:
         raise ValueError(
-            f"dynamic_session_cost_calculator returned None for {method} {path}; "
+            f"_session_cost_calculator returned None for {method} {path}; "
             "cannot determine request cost"
         )
     return self._coerce_non_negative_int(dynamic_cost)

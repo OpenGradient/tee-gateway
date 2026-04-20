@@ -127,10 +127,14 @@ if [ -f "$ENV_FILE" ]; then
 
         if [ "$http_status" = "200" ]; then
             echo "[ec2] API keys injected successfully."
-            if [ -n "$HEARTBEAT_CONTRACT_ADDRESS" ] && [ -n "$FACILITATOR_URL" ]; then
-                echo "[ec2] Heartbeat service configured via facilitator relay (contract: ${HEARTBEAT_CONTRACT_ADDRESS})"
+            if [ -n "$HEARTBEAT_CONTRACT_ADDRESS" ]; then
+                if [ -n "$FACILITATOR_URL" ]; then
+                    echo "[ec2] Heartbeat service configured via facilitator relay (contract: ${HEARTBEAT_CONTRACT_ADDRESS})"
+                else
+                    echo "[ec2] Heartbeat service configured using enclave default facilitator URL (contract: ${HEARTBEAT_CONTRACT_ADDRESS})"
+                fi
             else
-                echo "[ec2] Heartbeat service not configured (missing env vars)."
+                echo "[ec2] Heartbeat service not configured (missing HEARTBEAT_CONTRACT_ADDRESS)."
             fi
         else
             echo "[ec2] Warning: Key injection returned HTTP $http_status. Check enclave logs."

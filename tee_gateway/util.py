@@ -2,8 +2,6 @@ import datetime
 
 from tee_gateway import typing_utils
 import logging
-import threading
-import time
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from typing import Any
 
@@ -160,42 +158,11 @@ from tee_gateway.definitions import (  # noqa: E402
 )
 from tee_gateway.model_registry import get_model_config  # noqa: E402
 
-TOKEN_A_PRICE_CACHE_TTL_SECONDS = 60
-
-_token_price_cache: dict[str, Any] = {
-    "value": Decimal("1"),
-    "updated_at": 0.0,
-}
-_token_price_lock = threading.Lock()
-
-
-def _fetch_token_a_price_usd_mock() -> Decimal:
-    """Return the USD price of the payment token used for cost calculation.
-
-    Currently returns a fixed 1:1 ratio, which is correct for USDC-denominated
-    payments (1 USDC ≈ $1 USD). For OPG-denominated payments, replace this
-    with a live price feed (e.g. a DEX oracle or CoinGecko API call) that
-    returns the current OPG/USD exchange rate so that token amounts are
-    calculated correctly against the model's USD pricing.
-    """
-    return Decimal("1")
-
 
 def get_token_a_price_usd() -> Decimal:
-    now = time.time()
-    with _token_price_lock:
-        cached_value = _token_price_cache.get("value")
-        cached_at = float(_token_price_cache.get("updated_at") or 0.0)
-        if (
-            isinstance(cached_value, Decimal)
-            and (now - cached_at) < TOKEN_A_PRICE_CACHE_TTL_SECONDS
-        ):
-            return cached_value
+    from tee_gateway.opg_price_feed import get_opg_price_usd  # noqa: PLC0415
 
-        value = _fetch_token_a_price_usd_mock()
-        _token_price_cache["value"] = value
-        _token_price_cache["updated_at"] = now
-        return value
+    return get_opg_price_usd()
 
 
 def _as_dict(value: Any) -> dict[str, Any] | None:

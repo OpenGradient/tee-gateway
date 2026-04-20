@@ -31,11 +31,16 @@ TGE_CUTOVER_UTC = datetime(2026, 4, 21, 12, 30, 0, tzinfo=timezone.utc)
 TGE_FALLBACK_PRICE_USD = Decimal("0.10")
 
 # ---------------------------------------------------------------------------
-# Stale-price warning threshold
+# Stale-price thresholds
 # ---------------------------------------------------------------------------
 # get_price() logs WARNING when last successful fetch is older than
 # STALE_WARNING_MULTIPLIER × refresh_interval seconds.
 STALE_WARNING_MULTIPLIER = 2
+
+# get_price() raises ValueError when last successful fetch is older than
+# STALE_PRICE_MAX_AGE seconds — at this point the cached price is considered
+# too outdated to use for billing.
+STALE_PRICE_MAX_AGE = 4 * 60 * 60  # 4 hours
 
 
 @dataclass(frozen=True)

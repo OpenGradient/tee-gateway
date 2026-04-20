@@ -269,6 +269,24 @@ class TestOPGPriceFeedGetPrice(unittest.TestCase):
         self.assertEqual(price, SAMPLE_PRICE)
         self.assertTrue(any("stale" in line.lower() for line in log_ctx.output))
 
+    @patch(f"{_FEED}.datetime")
+    @patch(f"{_FEED}.time.time")
+    @patch(f"{_FEED}.fetch_opg_price")
+    def test_raises_when_price_exceeds_max_age(self, mock_fetch, mock_time, mock_dt):
+        mock_dt.now.return_value = _POST_TGE
+        mock_fetch.return_value = SAMPLE_PRICE
+        feed = OPGPriceFeed(retry_delay=0)
+
+        mock_time.return_value = 0.0
+        feed._refresh_price()
+
+        # Advance past the 4-hour max age
+        mock_time.return_value = 4 * 60 * 60 + 1.0
+
+        with self.assertRaises(ValueError) as ctx:
+            feed.get_price()
+        self.assertIn("expired", str(ctx.exception))
+
     @patch(f"{_FEED}.time.time")
     @patch(f"{_FEED}.fetch_opg_price")
     def test_no_stale_warning_when_price_is_fresh(self, mock_fetch, mock_time):

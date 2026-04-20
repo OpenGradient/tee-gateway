@@ -272,9 +272,10 @@ def calculate_session_cost(
 
     ``get_price`` is called on every invocation to fetch the current OPG/USD
     price — pass ``price_feed.get_price`` so the latest cached value is used.
-    Raises ``ValueError`` on any missing/invalid data; the strict monkey-patch
-    in ``__main__.py`` propagates this as HTTP 500 rather than silently
-    charging the static fallback amount.
+    Raises ``ValueError`` on any missing/invalid data.  Predictable failures
+    (unavailable price, unknown model) are blocked before inference by the
+    pre-inference gate in ``__main__.py``; post-inference failures are logged
+    as CRITICAL by the caller and the client is not charged.
     """
     request_json = context.get("request_json")
     response_json = context.get("response_json")

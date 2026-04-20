@@ -487,7 +487,7 @@ def _strict_resolve_session_request_cost(
     return self._coerce_non_negative_int(dynamic_cost)
 
 
-_payment_mw._resolve_session_request_cost = _types.MethodType(  # type: ignore[method-assign]
+_payment_mw._resolve_session_request_cost = _types.MethodType(  # type: ignore[method-assign,attr-defined]
     _strict_resolve_session_request_cost, _payment_mw
 )
 

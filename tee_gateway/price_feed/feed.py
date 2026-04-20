@@ -25,24 +25,18 @@ from typing import Any, Optional
 import requests
 
 from tee_gateway.definitions import BASE_MAINNET_OPG_ADDRESS
+from tee_gateway.price_feed.config import (
+    COINGECKO_BASE_URL,
+    COINGECKO_PLATFORM,
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_REFRESH_INTERVAL,
+    DEFAULT_RETRY_DELAY,
+    FETCH_TIMEOUT,
+    STALE_WARNING_MULTIPLIER,
+    PriceFeedConfig,
+)
 
-logger = logging.getLogger("llm_server.opg_price_feed")
-
-COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
-COINGECKO_PLATFORM = "base"
-
-# How long to wait between background refreshes (seconds).
-DEFAULT_REFRESH_INTERVAL = 300  # 5 minutes — well within CoinGecko free-tier limits
-
-# Per-refresh retry settings.
-DEFAULT_MAX_RETRIES = 3
-DEFAULT_RETRY_DELAY = 10  # seconds between retry attempts within a single refresh cycle
-
-# HTTP request timeout for each CoinGecko call.
-FETCH_TIMEOUT = 10
-
-# Warn in get_price() when the last successful fetch is this many intervals old.
-STALE_WARNING_MULTIPLIER = 2
+logger = logging.getLogger("llm_server.price_feed")
 
 
 class OPGPriceFeed:
@@ -156,7 +150,7 @@ class OPGPriceFeed:
 
         for attempt in range(1, self._max_retries + 1):
             try:
-                price = _fetch_from_coingecko()
+                price = fetch_opg_price()
                 with self._lock:
                     self._price = price
                     self.last_success = time.time()
@@ -215,8 +209,8 @@ class OPGPriceFeed:
         )
 
 
-def _fetch_from_coingecko() -> Decimal:
-    """Single CoinGecko HTTP call.  Raises on any error."""
+def fetch_opg_price() -> Decimal:
+    """Fetch the current OPG/USD price from CoinGecko.  Raises on any error."""
     url = f"{COINGECKO_BASE_URL}/simple/token_price/{COINGECKO_PLATFORM}"
     params = {
         "contract_addresses": BASE_MAINNET_OPG_ADDRESS,
@@ -243,20 +237,17 @@ def _fetch_from_coingecko() -> Decimal:
 _feed: Optional[OPGPriceFeed] = None
 
 
-def start_price_feed(
-    refresh_interval: int = DEFAULT_REFRESH_INTERVAL,
-    max_retries: int = DEFAULT_MAX_RETRIES,
-    retry_delay: float = DEFAULT_RETRY_DELAY,
-) -> None:
+def start_price_feed(config: Optional[PriceFeedConfig] = None) -> None:
     """Create and start the global OPG price feed.  Call once at app startup."""
     global _feed
     if _feed is not None:
         logger.info("OPG price feed already running, skipping")
         return
+    cfg = config or PriceFeedConfig()
     _feed = OPGPriceFeed(
-        refresh_interval=refresh_interval,
-        max_retries=max_retries,
-        retry_delay=retry_delay,
+        refresh_interval=cfg.refresh_interval,
+        max_retries=cfg.max_retries,
+        retry_delay=cfg.retry_delay,
     )
     _feed.start()
 

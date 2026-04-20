@@ -37,7 +37,7 @@ import x402.http.middleware.flask as x402_flask
 import types as _types
 
 from .util import dynamic_session_cost_calculator
-from .opg_price_feed import start_price_feed
+from .price_feed import start_price_feed
 from .definitions import (
     EVM_PAYMENT_ADDRESS,
     BASE_MAINNET_NETWORK,

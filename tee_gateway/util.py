@@ -160,7 +160,7 @@ from tee_gateway.model_registry import get_model_config  # noqa: E402
 
 
 def get_token_a_price_usd() -> Decimal:
-    from tee_gateway.opg_price_feed import get_opg_price_usd  # noqa: PLC0415
+    from tee_gateway.price_feed import get_opg_price_usd  # noqa: PLC0415
 
     return get_opg_price_usd()
 

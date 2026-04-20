@@ -1,5 +1,5 @@
 """
-Unit tests for tee_gateway.price_feed and tee_gateway.util.make_cost_calculator.
+Unit tests for tee_gateway.price_feed and tee_gateway.util.calculate_session_cost.
 
 All external HTTP calls are mocked — no network access required.
 

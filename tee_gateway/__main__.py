@@ -107,6 +107,7 @@ def _shutdown_heartbeat():
 
 atexit.register(_shutdown_heartbeat)
 
+
 # ---------------------------------------------------------------------------
 # OPG price feed — start before x402 middleware so the first request can be
 # priced correctly.  Runs as a daemon thread; no cleanup needed on exit.
@@ -114,76 +115,142 @@ atexit.register(_shutdown_heartbeat)
 _price_feed = OPGPriceFeed()
 _price_feed.start()
 
-facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=FACILITATOR_URL))
-server = x402ResourceServerSync(facilitator)
-store = SessionStore()
 
-server.register(BASE_MAINNET_NETWORK, ExactEvmServerScheme())
+# ---------------------------------------------------------------------------
+# x402 read-body patch
+#
+# Ensures that non-payment 0-length requests can bypass the middleware without
+# errors. Applied at module load so it is in place before the middleware
+# instance is created at injection time.
+# ---------------------------------------------------------------------------
+_original_read_body_bytes = x402_flask._read_body_bytes
 
-# Upto scheme registrations (permit2-based, variable settlement)
-server.register(BASE_MAINNET_NETWORK, UptoEvmServerScheme())
 
-routes = {
-    "POST /v1/chat/completions": RouteConfig(
-        accepts=[
-            PaymentOption(
-                scheme="upto",
-                pay_to=EVM_PAYMENT_ADDRESS,
-                price=AssetAmount(
-                    amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
-                    asset=BASE_MAINNET_OPG_ADDRESS,
-                    extra={
-                        "name": "OpenGradient",
-                        "version": "1",
-                        "assetTransferMethod": "permit2",
-                    },
-                ),
-                network=BASE_MAINNET_NETWORK,
-            ),
-        ],
-        extensions={
-            **declare_erc20_approval_gas_sponsoring_extension(),
-        },
-        mime_type="application/json",
-        description="Chat completion",
-    ),
-    "POST /v1/completions": RouteConfig(
-        accepts=[
-            PaymentOption(
-                scheme="upto",
-                pay_to=EVM_PAYMENT_ADDRESS,
-                price=AssetAmount(
-                    amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
-                    asset=BASE_MAINNET_OPG_ADDRESS,
-                    extra={
-                        "name": "OpenGradient",
-                        "version": "1",
-                        "assetTransferMethod": "permit2",
-                    },
-                ),
-                network=BASE_MAINNET_NETWORK,
-            ),
-        ],
-        extensions={
-            **declare_erc20_approval_gas_sponsoring_extension(),
-        },
-        mime_type="application/json",
-        description="Completion",
-    ),
-}
+def _patched_read_body_bytes(environ):
+    try:
+        content_length = int(environ.get("CONTENT_LENGTH") or 0)
+    except (ValueError, TypeError):
+        content_length = 0
+
+    if content_length <= 0:
+        return b""
+
+    return _original_read_body_bytes(environ)
+
+
+x402_flask._read_body_bytes = _patched_read_body_bytes
+
+
+def _session_cost_calculator(ctx: dict) -> int:
+    # Post-inference cost calculation — response already sent to client.
+    # Predictable failures (unknown price, unknown model) are blocked by the
+    # pre-inference gate; any exception here indicates a provider-side error
+    # (e.g. missing usage field in the LLM response).  The x402 middleware
+    # swallows the exception in close(), so the client is not charged.
+    # Log CRITICAL so provider errors are never silently missed.
+    try:
+        return calculate_session_cost(ctx, _price_feed.get_price)
+    except Exception as exc:
+        logger.critical(
+            "Post-inference cost calculation failed (provider error) — "
+            "client was NOT charged: %s",
+            exc,
+            exc_info=True,
+        )
+        raise
 
 
 # ---------------------------------------------------------------------------
-# One-time provider key injection
+# One-time runtime configuration injection
 # ---------------------------------------------------------------------------
 _keys_initialized: bool = False
 _keys_lock = threading.Lock()
 
 
+def _init_payment_middleware(facilitator_url: str) -> None:
+    """Build and attach the x402 payment middleware to the running Flask app.
+
+    Called once from set_provider_keys() after the facilitator URL is known.
+    Swaps application.wsgi_app so all subsequent requests flow through it.
+    """
+    facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=facilitator_url))
+    server = x402ResourceServerSync(facilitator)
+    store = SessionStore()
+
+    server.register(BASE_MAINNET_NETWORK, ExactEvmServerScheme())
+    server.register(BASE_MAINNET_NETWORK, UptoEvmServerScheme())
+
+    routes = {
+        "POST /v1/chat/completions": RouteConfig(
+            accepts=[
+                PaymentOption(
+                    scheme="upto",
+                    pay_to=EVM_PAYMENT_ADDRESS,
+                    price=AssetAmount(
+                        amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
+                        asset=BASE_MAINNET_OPG_ADDRESS,
+                        extra={
+                            "name": "OpenGradient",
+                            "version": "1",
+                            "assetTransferMethod": "permit2",
+                        },
+                    ),
+                    network=BASE_MAINNET_NETWORK,
+                ),
+            ],
+            extensions={
+                **declare_erc20_approval_gas_sponsoring_extension(),
+            },
+            mime_type="application/json",
+            description="Chat completion",
+        ),
+        "POST /v1/completions": RouteConfig(
+            accepts=[
+                PaymentOption(
+                    scheme="upto",
+                    pay_to=EVM_PAYMENT_ADDRESS,
+                    price=AssetAmount(
+                        amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
+                        asset=BASE_MAINNET_OPG_ADDRESS,
+                        extra={
+                            "name": "OpenGradient",
+                            "version": "1",
+                            "assetTransferMethod": "permit2",
+                        },
+                    ),
+                    network=BASE_MAINNET_NETWORK,
+                ),
+            ],
+            extensions={
+                **declare_erc20_approval_gas_sponsoring_extension(),
+            },
+            mime_type="application/json",
+            description="Completion",
+        ),
+    }
+
+    mw = payment_middleware(
+        application.wsgi_app,
+        routes=routes,
+        server=server,
+        session_store=store,
+        cost_per_request=100000000000000,  # static precheck/fallback estimate
+        session_idle_timeout=100,
+        session_cost_calculator=_session_cost_calculator,
+    )
+    application.wsgi_app = mw
+    logger.info(
+        "x402 payment middleware initialized with facilitator: %s", facilitator_url
+    )
+
+
 def set_provider_keys():
     """
-    POST /v1/keys — inject LLM provider API keys into the enclave.
-    Can only be called once; subsequent calls return HTTP 409.
+    POST /v1/keys — inject runtime configuration into the enclave.
+
+    Accepts LLM provider API keys, a shared facilitator_url (used for both
+    x402 payment verification and the heartbeat relay), and optional heartbeat
+    parameters. Can only be called once; subsequent calls return HTTP 409.
     """
     global _keys_initialized
 
@@ -206,15 +273,16 @@ def set_provider_keys():
         )
         set_provider_config(provider_config)
 
-        # Build heartbeat config from request body (optional)
-        contract_address = body.get("heartbeat_contract_address")
         facilitator_url = (
-            body.get("heartbeat_facilitator_url")
+            body.get("facilitator_url")
             or os.getenv("FACILITATOR_URL")
             or FACILITATOR_URL
         )
+
+        # Build heartbeat config from request body (optional)
+        contract_address = body.get("heartbeat_contract_address")
         heartbeat_config: HeartbeatConfig | None = None
-        if contract_address and facilitator_url:
+        if contract_address:
             interval_raw = body.get(
                 "tee_heartbeat_interval", DEFAULT_HEARTBEAT_INTERVAL
             )
@@ -261,13 +329,10 @@ def set_provider_keys():
         logger.info(
             "  xai_api_key                 : %s", _set(provider_config.xai_api_key)
         )
+        logger.info("  facilitator_url             : %s", facilitator_url)
         logger.info(
             "  heartbeat_contract_address  : %s",
             _set(heartbeat_config.contract_address if heartbeat_config else None),
-        )
-        logger.info(
-            "  heartbeat_facilitator_url   : %s",
-            _set(heartbeat_config.facilitator_url if heartbeat_config else None),
         )
         logger.info(
             "  tee_heartbeat_interval      : %s",
@@ -282,6 +347,8 @@ def set_provider_keys():
             _init_heartbeat(heartbeat_config)
         except Exception as e:
             logger.warning(f"Heartbeat initialization failed: {e}")
+
+        _init_payment_middleware(facilitator_url)
 
         _keys_initialized = True
 
@@ -358,59 +425,11 @@ def create_app():
 
 
 # ---------------------------------------------------------------------------
-# WSGI application + x402 payment middleware
+# WSGI application
 # ---------------------------------------------------------------------------
 
-# Create the WSGI application
 application = create_app()
 
-# This patch ensures that non-payment 0-length requests can still bypass the middleware
-_original_read_body_bytes = x402_flask._read_body_bytes
-
-
-def _patched_read_body_bytes(environ):
-    try:
-        content_length = int(environ.get("CONTENT_LENGTH") or 0)
-    except (ValueError, TypeError):
-        content_length = 0
-
-    if content_length <= 0:
-        return b""
-
-    return _original_read_body_bytes(environ)
-
-
-x402_flask._read_body_bytes = _patched_read_body_bytes
-
-
-def _session_cost_calculator(ctx: dict) -> int:
-    # Post-inference cost calculation — response already sent to client.
-    # Predictable failures (unknown price, unknown model) are blocked by the
-    # pre-inference gate; any exception here indicates a provider-side error
-    # (e.g. missing usage field in the LLM response).  The x402 middleware
-    # swallows the exception in close(), so the client is not charged.
-    # Log CRITICAL so provider errors are never silently missed.
-    try:
-        return calculate_session_cost(ctx, _price_feed.get_price)
-    except Exception as exc:
-        logger.critical(
-            "Post-inference cost calculation failed (provider error) — "
-            "client was NOT charged: %s",
-            exc,
-            exc_info=True,
-        )
-        raise
-
-
-_payment_mw = payment_middleware(
-    application,
-    routes=routes,
-    server=server,
-    session_store=store,
-    cost_per_request=100000000000000,  # static precheck/fallback estimate
-    session_idle_timeout=100,
-    session_cost_calculator=_session_cost_calculator,
-)
 
 # ---------------------------------------------------------------------------
 # Pre-inference pricing gate
@@ -442,8 +461,6 @@ def _check_pricing_ready():
         except ValueError:
             return jsonify({"error": f"Model '{model}' is not supported"}), 400
 
-
-logger.info("x402 payment middleware initialized")
 
 if __name__ == "__main__":
     port = int(os.getenv("API_SERVER_PORT", "8000"))

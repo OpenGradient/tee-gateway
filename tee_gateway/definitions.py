@@ -13,6 +13,10 @@ import os
 # ---------------------------------------------------------------------------
 # X402 Facilitator
 # ---------------------------------------------------------------------------
+# Default fallback only. The live value is injected at runtime via POST /v1/keys
+# (facilitator_url field) and used for both x402 payment verification and the
+# heartbeat service. Override at the OS level with the FACILITATOR_URL env var,
+# or supply it directly in the injection payload.
 FACILITATOR_URL = os.getenv("FACILITATOR_URL", "https://facilitator.memchat.io")
 
 # ---------------------------------------------------------------------------

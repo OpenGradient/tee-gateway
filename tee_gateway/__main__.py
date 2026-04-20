@@ -273,11 +273,7 @@ def set_provider_keys():
         )
         set_provider_config(provider_config)
 
-        facilitator_url = (
-            body.get("facilitator_url")
-            or os.getenv("FACILITATOR_URL")
-            or FACILITATOR_URL
-        )
+        facilitator_url = body.get("facilitator_url") or FACILITATOR_URL
 
         # Build heartbeat config from request body (optional)
         contract_address = body.get("heartbeat_contract_address")

@@ -15,6 +15,7 @@ Create an ``OPGPriceFeed`` instance in the application entry point, call
 import logging
 import threading
 import time
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -29,6 +30,8 @@ from tee_gateway.price_feed.config import (
     DEFAULT_RETRY_DELAY,
     FETCH_TIMEOUT,
     STALE_WARNING_MULTIPLIER,
+    TGE_CUTOVER_UTC,
+    TGE_FALLBACK_PRICE_USD,
 )
 
 logger = logging.getLogger("llm_server.price_feed")
@@ -92,12 +95,19 @@ class OPGPriceFeed:
     def get_price(self) -> Decimal:
         """Return the latest cached OPG/USD price.
 
-        Raises ``ValueError`` if no price has been successfully fetched yet.
-        Logs a warning (but still returns the price) if the cached value is
-        older than ``STALE_WARNING_MULTIPLIER * refresh_interval`` seconds —
-        this indicates the background loop has missed at least one refresh
-        cycle and may be experiencing persistent errors.
+        Before the TGE cutover (``TGE_CUTOVER_UTC``), returns the fixed
+        ``TGE_FALLBACK_PRICE_USD`` so requests can be priced before OPG is
+        listed on CoinGecko.  After the cutover the live cached price is used.
+
+        Raises ``ValueError`` if no price has been successfully fetched yet
+        (post-TGE only).  Logs a warning (but still returns the price) if the
+        cached value is older than ``STALE_WARNING_MULTIPLIER * refresh_interval``
+        seconds — this indicates the background loop has missed at least one
+        refresh cycle and may be experiencing persistent errors.
         """
+        if datetime.now(timezone.utc) < TGE_CUTOVER_UTC:
+            return TGE_FALLBACK_PRICE_USD
+
         now = time.time()
         with self._lock:
             if self._price is None:
@@ -237,4 +247,10 @@ def fetch_opg_price() -> Decimal:
             f"Unexpected CoinGecko response for {BASE_MAINNET_OPG_ADDRESS}: {data!r}"
         )
 
-    return Decimal(str(price_entry["usd"]))
+    price = Decimal(str(price_entry["usd"]))
+    if not price.is_finite() or price <= 0:
+        raise ValueError(
+            f"Invalid price from CoinGecko for {BASE_MAINNET_OPG_ADDRESS}: "
+            f"{price_entry['usd']!r}"
+        )
+    return price

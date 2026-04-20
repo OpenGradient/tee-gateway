@@ -14,6 +14,7 @@ TestCalculateSessionCost — calculate_session_cost(context, get_price) in util.
 
 import time
 import unittest
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -34,6 +35,9 @@ SAMPLE_PRICE_FLOAT = 0.042
 
 # Patch target prefix — all mocks go through the feed module.
 _FEED = "tee_gateway.price_feed.feed"
+
+# A datetime well after the TGE cutover so get_price() uses the cached price.
+_POST_TGE = datetime(2026, 4, 22, 0, 0, 0, tzinfo=timezone.utc)
 
 
 def _mock_response(status_code: int = 200, json_body: dict | None = None) -> MagicMock:
@@ -102,6 +106,13 @@ class TestFetchOPGPrice(unittest.TestCase):
     def test_raises_when_usd_key_missing(self, mock_get):
         mock_get.return_value = _mock_response(200, {OPG_ADDRESS_LOWER: {"eur": 0.04}})
         with self.assertRaises(ValueError):
+            fetch_opg_price()
+
+    @patch(f"{_FEED}.requests.get")
+    def test_raises_when_address_entry_is_empty_dict(self, mock_get):
+        """CoinGecko returns {address: {}} for known-but-unpriced tokens (current OPG behaviour)."""
+        mock_get.return_value = _mock_response(200, {OPG_ADDRESS_LOWER: {}})
+        with self.assertRaises(ValueError, msg="empty price entry should raise"):
             fetch_opg_price()
 
     @patch(f"{_FEED}.requests.get")
@@ -221,22 +232,28 @@ class TestOPGPriceFeedRefresh(unittest.TestCase):
 class TestOPGPriceFeedGetPrice(unittest.TestCase):
     """Tests for OPGPriceFeed.get_price() behaviour."""
 
-    def test_raises_before_any_successful_fetch(self):
+    @patch(f"{_FEED}.datetime")
+    def test_raises_before_any_successful_fetch(self, mock_dt):
+        mock_dt.now.return_value = _POST_TGE
         feed = OPGPriceFeed()
         with self.assertRaises(ValueError) as ctx:
             feed.get_price()
         self.assertIn("not yet available", str(ctx.exception))
 
+    @patch(f"{_FEED}.datetime")
     @patch(f"{_FEED}.fetch_opg_price")
-    def test_returns_price_after_successful_refresh(self, mock_fetch):
+    def test_returns_price_after_successful_refresh(self, mock_fetch, mock_dt):
+        mock_dt.now.return_value = _POST_TGE
         mock_fetch.return_value = SAMPLE_PRICE
         feed = OPGPriceFeed(retry_delay=0)
         feed._refresh_price()
         self.assertEqual(feed.get_price(), SAMPLE_PRICE)
 
+    @patch(f"{_FEED}.datetime")
     @patch(f"{_FEED}.time.time")
     @patch(f"{_FEED}.fetch_opg_price")
-    def test_warns_when_price_is_stale(self, mock_fetch, mock_time):
+    def test_warns_when_price_is_stale(self, mock_fetch, mock_time, mock_dt):
+        mock_dt.now.return_value = _POST_TGE
         mock_fetch.return_value = SAMPLE_PRICE
         feed = OPGPriceFeed(refresh_interval=300, retry_delay=0)
 

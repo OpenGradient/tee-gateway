@@ -29,6 +29,7 @@ from tee_gateway.price_feed.config import (
     DEFAULT_REFRESH_INTERVAL,
     DEFAULT_RETRY_DELAY,
     FETCH_TIMEOUT,
+    STALE_PRICE_MAX_AGE,
     STALE_WARNING_MULTIPLIER,
     TGE_CUTOVER_UTC,
     TGE_FALLBACK_PRICE_USD,
@@ -115,17 +116,27 @@ class OPGPriceFeed:
                     "OPG price not yet available — "
                     "price feed has not completed a successful fetch"
                 )
-            if self.last_success is not None:
-                age = now - self.last_success
-                stale_threshold = self._refresh_interval * STALE_WARNING_MULTIPLIER
-                if age > stale_threshold:
-                    logger.warning(
-                        "OPG price data is stale: last successful fetch was %.0fs ago "
-                        "(threshold: %.0fs); consecutive failures: %d",
-                        age,
-                        stale_threshold,
-                        self.consecutive_failures,
-                    )
+            if self.last_success is None:
+                raise ValueError(
+                    "OPG price not yet available — "
+                    "price feed has not completed a successful fetch"
+                )
+            age = now - self.last_success
+            if age > STALE_PRICE_MAX_AGE:
+                raise ValueError(
+                    f"OPG price data expired: last successful fetch was {age:.0f}s ago "
+                    f"(max: {STALE_PRICE_MAX_AGE}s); consecutive failures: "
+                    f"{self.consecutive_failures}"
+                )
+            stale_threshold = self._refresh_interval * STALE_WARNING_MULTIPLIER
+            if age > stale_threshold:
+                logger.warning(
+                    "OPG price data is stale: last successful fetch was %.0fs ago "
+                    "(threshold: %.0fs); consecutive failures: %d",
+                    age,
+                    stale_threshold,
+                    self.consecutive_failures,
+                )
             return self._price
 
     def get_status(self) -> dict[str, Any]:

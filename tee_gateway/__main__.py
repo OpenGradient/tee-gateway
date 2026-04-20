@@ -231,7 +231,7 @@ def _init_payment_middleware(facilitator_url: str) -> None:
     }
 
     mw = payment_middleware(
-        application.wsgi_app,
+        application,
         routes=routes,
         server=server,
         session_store=store,
@@ -239,6 +239,8 @@ def _init_payment_middleware(facilitator_url: str) -> None:
         session_idle_timeout=100,
         session_cost_calculator=_session_cost_calculator,
     )
+    # payment_middleware captures application.wsgi_app by value at creation time,
+    # so assigning mw back here does not create a circular reference.
     application.wsgi_app = mw
     logger.info(
         "x402 payment middleware initialized with facilitator: %s", facilitator_url

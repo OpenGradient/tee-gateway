@@ -36,7 +36,7 @@ from x402.session import SessionStore
 import x402.http.middleware.flask as x402_flask
 import types as _types
 
-from .util import make_cost_calculator
+from .util import calculate_session_cost
 from .price_feed import OPGPriceFeed
 from .definitions import (
     EVM_PAYMENT_ADDRESS,
@@ -382,6 +382,11 @@ def _patched_read_body_bytes(environ):
 
 x402_flask._read_body_bytes = _patched_read_body_bytes
 
+
+def _session_cost_calculator(ctx: dict) -> int:
+    return calculate_session_cost(ctx, _price_feed.get_price)
+
+
 _payment_mw = payment_middleware(
     application,
     routes=routes,
@@ -389,7 +394,7 @@ _payment_mw = payment_middleware(
     session_store=store,
     cost_per_request=100000000000000,  # static precheck/fallback estimate
     session_idle_timeout=100,
-    session_cost_calculator=make_cost_calculator(_price_feed),
+    session_cost_calculator=_session_cost_calculator,
 )
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@ TestFetchOPGPrice        — the raw fetch_opg_price() helper in feed.py
 TestOPGPriceFeedRefresh  — OPGPriceFeed._refresh_price() (retry, rate-limit, stats)
 TestOPGPriceFeedGetPrice — OPGPriceFeed.get_price() (stale warning, ValueError before fetch)
 TestOPGPriceFeedStatus   — OPGPriceFeed.get_status() snapshots
-TestMakeCostCalculator   — make_cost_calculator() factory and the returned closure
+TestCalculateSessionCost — calculate_session_cost(context, get_price) in util.py
 """
 
 import time
@@ -22,7 +22,7 @@ import requests
 from tee_gateway.definitions import BASE_MAINNET_OPG_ADDRESS
 from tee_gateway.price_feed import OPGPriceFeed
 from tee_gateway.price_feed.feed import fetch_opg_price
-from tee_gateway.util import make_cost_calculator
+from tee_gateway.util import calculate_session_cost
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -371,16 +371,15 @@ def _make_context(
     }
 
 
-class TestMakeCostCalculator(unittest.TestCase):
-    """Tests for make_cost_calculator() and the returned closure."""
+def _make_get_price(price_usd: Decimal = Decimal("0.10")) -> MagicMock:
+    mock = MagicMock(return_value=price_usd)
+    return mock
 
-    def _calculator(self, price_usd: Decimal = Decimal("0.10")):
-        mock_feed = MagicMock()
-        mock_feed.get_price.return_value = price_usd
-        return make_cost_calculator(mock_feed), mock_feed
+
+class TestCalculateSessionCost(unittest.TestCase):
+    """Tests for calculate_session_cost(context, get_price)."""
 
     def _patch_definitions(self):
-        """Patch ASSET_DECIMALS_BY_ADDRESS so the test asset is recognised."""
         return patch(
             "tee_gateway.util.ASSET_DECIMALS_BY_ADDRESS",
             {_ASSET_ADDR_LOWER: _ASSET_DECIMALS},
@@ -389,97 +388,83 @@ class TestMakeCostCalculator(unittest.TestCase):
     def _patch_model(
         self, input_price: str = "0.000001", output_price: str = "0.000002"
     ):
-        """Patch get_model_config to return a predictable pricing config."""
         cfg = MagicMock()
         cfg.input_price_usd = Decimal(input_price)
         cfg.output_price_usd = Decimal(output_price)
         return patch("tee_gateway.util.get_model_config", return_value=cfg)
 
-    def test_calls_price_feed_get_price(self):
-        calc, mock_feed = self._calculator()
+    def test_calls_get_price(self):
+        get_price = _make_get_price()
         with self._patch_definitions(), self._patch_model():
-            calc(_make_context())
-        mock_feed.get_price.assert_called_once()
+            calculate_session_cost(_make_context(), get_price)
+        get_price.assert_called_once()
 
     def test_returns_positive_int(self):
-        calc, _ = self._calculator()
         with self._patch_definitions(), self._patch_model():
-            result = calc(_make_context())
+            result = calculate_session_cost(_make_context(), _make_get_price())
         self.assertIsInstance(result, int)
         self.assertGreaterEqual(result, 0)
 
     def test_zero_tokens_returns_zero(self):
-        calc, _ = self._calculator()
         with self._patch_definitions(), self._patch_model():
-            result = calc(_make_context(input_tokens=0, output_tokens=0))
+            result = calculate_session_cost(
+                _make_context(input_tokens=0, output_tokens=0), _make_get_price()
+            )
         self.assertEqual(result, 0)
 
-    def test_raises_when_price_feed_raises(self):
-        mock_feed = MagicMock()
-        mock_feed.get_price.side_effect = ValueError("price not available")
-        calc = make_cost_calculator(mock_feed)
-        with self._patch_definitions(), self._patch_model():
-            with self.assertRaises(
-                ValueError, msg="error from get_price must propagate"
-            ):
-                calc(_make_context())
-
-    def test_raises_when_non_positive_price(self):
-        calc, _ = self._calculator(price_usd=Decimal("0"))
+    def test_raises_when_get_price_raises(self):
+        get_price = MagicMock(side_effect=ValueError("price not available"))
         with self._patch_definitions(), self._patch_model():
             with self.assertRaises(ValueError):
-                calc(_make_context())
+                calculate_session_cost(_make_context(), get_price)
+
+    def test_raises_when_non_positive_price(self):
+        with self._patch_definitions(), self._patch_model():
+            with self.assertRaises(ValueError):
+                calculate_session_cost(_make_context(), _make_get_price(Decimal("0")))
 
     def test_raises_when_request_json_missing(self):
-        calc, _ = self._calculator()
         ctx = _make_context()
         ctx["request_json"] = None
         with self._patch_definitions(), self._patch_model():
             with self.assertRaises(ValueError):
-                calc(ctx)
+                calculate_session_cost(ctx, _make_get_price())
 
     def test_raises_when_usage_missing(self):
-        calc, _ = self._calculator()
         ctx = _make_context()
-        ctx["response_json"] = {"model": "gpt-4.1-mini"}  # no usage key
+        ctx["response_json"] = {"model": "gpt-4.1-mini"}
         with self._patch_definitions(), self._patch_model():
             with self.assertRaises(ValueError):
-                calc(ctx)
+                calculate_session_cost(ctx, _make_get_price())
 
     def test_raises_when_asset_unknown(self):
-        calc, _ = self._calculator()
         ctx = _make_context(asset="0xunknown")
         with (
             patch("tee_gateway.util.ASSET_DECIMALS_BY_ADDRESS", {}),
             self._patch_model(),
         ):
             with self.assertRaises(ValueError):
-                calc(ctx)
+                calculate_session_cost(ctx, _make_get_price())
 
     def test_cost_scales_with_token_count(self):
-        calc, _ = self._calculator()
         with self._patch_definitions(), self._patch_model():
-            cost_small = calc(_make_context(input_tokens=10, output_tokens=5))
-            cost_large = calc(_make_context(input_tokens=1000, output_tokens=500))
+            cost_small = calculate_session_cost(
+                _make_context(input_tokens=10, output_tokens=5), _make_get_price()
+            )
+            cost_large = calculate_session_cost(
+                _make_context(input_tokens=1000, output_tokens=500), _make_get_price()
+            )
         self.assertGreater(cost_large, cost_small)
 
-    def test_each_call_uses_independent_closure(self):
-        feed_a = MagicMock()
-        feed_a.get_price.return_value = Decimal("0.10")
-        feed_b = MagicMock()
-        feed_b.get_price.return_value = Decimal("0.20")
-
-        calc_a = make_cost_calculator(feed_a)
-        calc_b = make_cost_calculator(feed_b)
-
+    def test_higher_token_price_yields_lower_cost(self):
         with self._patch_definitions(), self._patch_model():
-            cost_a = calc_a(_make_context())
-            cost_b = calc_b(_make_context())
-
-        # Higher token price → lower cost in smallest units for same USD amount.
-        self.assertGreater(cost_a, cost_b)
-        feed_a.get_price.assert_called_once()
-        feed_b.get_price.assert_called_once()
+            cost_cheap = calculate_session_cost(
+                _make_context(), _make_get_price(Decimal("0.10"))
+            )
+            cost_expensive = calculate_session_cost(
+                _make_context(), _make_get_price(Decimal("0.20"))
+            )
+        self.assertGreater(cost_cheap, cost_expensive)
 
 
 if __name__ == "__main__":

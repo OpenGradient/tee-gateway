@@ -230,6 +230,8 @@ def _init_payment_middleware(facilitator_url: str) -> None:
         ),
     }
 
+    # Return value intentionally discarded — PaymentMiddleware.__init__ self-wires
+    # by setting application.wsgi_app = self._wsgi_middleware internally.
     payment_middleware(
         application,
         routes=routes,

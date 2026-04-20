@@ -37,6 +37,7 @@ import x402.http.middleware.flask as x402_flask
 import types as _types
 
 from .util import dynamic_session_cost_calculator
+from .opg_price_feed import start_price_feed
 from .definitions import (
     EVM_PAYMENT_ADDRESS,
     BASE_MAINNET_NETWORK,
@@ -105,6 +106,12 @@ def _shutdown_heartbeat():
 
 
 atexit.register(_shutdown_heartbeat)
+
+# ---------------------------------------------------------------------------
+# OPG price feed — start before x402 middleware so the first request can be
+# priced correctly.  Runs as a daemon thread; no cleanup needed on exit.
+# ---------------------------------------------------------------------------
+start_price_feed()
 
 facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=FACILITATOR_URL))
 server = x402ResourceServerSync(facilitator)

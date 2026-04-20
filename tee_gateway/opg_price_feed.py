@@ -1,0 +1,285 @@
+"""
+Background OPG/USD price feed using the CoinGecko public API.
+
+Runs as a daemon thread that proactively refreshes the OPG token price at a
+configurable interval, with retry on per-cycle fetch failure and early exit on
+rate limiting.
+
+Usage
+-----
+Call ``start_price_feed()`` once during application startup (e.g. in
+``__main__.py``).  The dynamic cost calculator in ``util.py`` then calls
+``get_opg_price_usd()`` to obtain the latest cached price.  If no price has
+been fetched yet, ``get_opg_price_usd()`` raises ``ValueError``, which
+propagates through ``dynamic_session_cost_calculator`` and the strict
+``_resolve_session_request_cost`` monkey-patch in ``__main__.py`` to produce
+an HTTP 500 rather than silently charging an incorrect amount.
+"""
+
+import logging
+import threading
+import time
+from decimal import Decimal
+from typing import Any, Optional
+
+import requests
+
+from tee_gateway.definitions import BASE_MAINNET_OPG_ADDRESS
+
+logger = logging.getLogger("llm_server.opg_price_feed")
+
+COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
+COINGECKO_PLATFORM = "base"
+
+# How long to wait between background refreshes (seconds).
+DEFAULT_REFRESH_INTERVAL = 300  # 5 minutes — well within CoinGecko free-tier limits
+
+# Per-refresh retry settings.
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_DELAY = 10  # seconds between retry attempts within a single refresh cycle
+
+# HTTP request timeout for each CoinGecko call.
+FETCH_TIMEOUT = 10
+
+# Warn in get_price() when the last successful fetch is this many intervals old.
+STALE_WARNING_MULTIPLIER = 2
+
+
+class OPGPriceFeed:
+    """Fetches and caches the OPG/USD price from CoinGecko in a background thread."""
+
+    def __init__(
+        self,
+        refresh_interval: int = DEFAULT_REFRESH_INTERVAL,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_delay: float = DEFAULT_RETRY_DELAY,
+    ) -> None:
+        self._refresh_interval = refresh_interval
+        self._max_retries = max_retries
+        self._retry_delay = retry_delay
+
+        self._price: Optional[Decimal] = None
+        self._lock = threading.Lock()
+        self._thread: Optional[threading.Thread] = None
+
+        # Status tracking — updated under _lock on every refresh cycle outcome.
+        self.last_success: Optional[float] = None  # epoch seconds of last good fetch
+        self.last_error: Optional[str] = None  # description of last failure (if any)
+        self.consecutive_failures: int = 0  # reset to 0 on any successful fetch
+        self.total_fetches: int = 0  # cumulative successful fetches
+        self.total_errors: int = 0  # cumulative failed refresh cycles
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    def start(self) -> None:
+        """Perform an initial price fetch then launch the background refresh loop.
+
+        If the initial fetch fails after all retries the feed still starts —
+        ``get_price()`` will raise ``ValueError`` until the background loop
+        eventually succeeds.
+        """
+        self._refresh_price()
+        self._thread = threading.Thread(
+            target=self._run, name="opg-price-feed", daemon=True
+        )
+        self._thread.start()
+        logger.info(
+            "OPG price feed started (refresh_interval=%ds, max_retries=%d)",
+            self._refresh_interval,
+            self._max_retries,
+        )
+
+    def get_price(self) -> Decimal:
+        """Return the latest cached OPG/USD price.
+
+        Raises ``ValueError`` if no price has been successfully fetched yet.
+        Logs a warning (but still returns the price) if the cached value is
+        older than ``STALE_WARNING_MULTIPLIER * refresh_interval`` seconds —
+        this indicates the background loop has missed at least one refresh
+        cycle and may be experiencing persistent errors.
+        """
+        now = time.time()
+        with self._lock:
+            if self._price is None:
+                raise ValueError(
+                    "OPG price not yet available — "
+                    "price feed has not completed a successful fetch"
+                )
+            if self.last_success is not None:
+                age = now - self.last_success
+                stale_threshold = self._refresh_interval * STALE_WARNING_MULTIPLIER
+                if age > stale_threshold:
+                    logger.warning(
+                        "OPG price data is stale: last successful fetch was %.0fs ago "
+                        "(threshold: %.0fs); consecutive failures: %d",
+                        age,
+                        stale_threshold,
+                        self.consecutive_failures,
+                    )
+            return self._price
+
+    def get_status(self) -> dict[str, Any]:
+        """Return a health snapshot suitable for logging or a /health endpoint."""
+        with self._lock:
+            return {
+                "price_usd": float(self._price) if self._price is not None else None,
+                "last_success": self.last_success,
+                "last_error": self.last_error,
+                "consecutive_failures": self.consecutive_failures,
+                "total_fetches": self.total_fetches,
+                "total_errors": self.total_errors,
+                "refresh_interval": self._refresh_interval,
+            }
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _run(self) -> None:
+        while True:
+            time.sleep(self._refresh_interval)
+            self._refresh_price()
+
+    def _refresh_price(self) -> None:
+        """Attempt to fetch a fresh price, retrying on transient failure.
+
+        - On success: updates the cached price and resets ``consecutive_failures``.
+        - On HTTP 429: logs a rate-limit warning and exits the retry loop early
+          (no point hammering a rate-limited API).
+        - On exhausted retries: increments ``consecutive_failures`` and retains
+          the last known good price so live traffic is not disrupted by a
+          transient CoinGecko outage.
+        """
+        last_exc: Optional[Exception] = None
+
+        for attempt in range(1, self._max_retries + 1):
+            try:
+                price = _fetch_from_coingecko()
+                with self._lock:
+                    self._price = price
+                    self.last_success = time.time()
+                    self.consecutive_failures = 0
+                    self.total_fetches += 1
+                logger.info(
+                    "OPG price updated: $%.6f USD (attempt %d/%d)",
+                    float(price),
+                    attempt,
+                    self._max_retries,
+                )
+                return
+            except requests.exceptions.HTTPError as exc:
+                last_exc = exc
+                status_code = (
+                    exc.response.status_code if exc.response is not None else None
+                )
+                if status_code == 429:
+                    logger.warning(
+                        "CoinGecko rate limit hit (429) on attempt %d/%d; "
+                        "skipping remaining retries for this cycle",
+                        attempt,
+                        self._max_retries,
+                    )
+                    break
+                logger.warning(
+                    "OPG price fetch attempt %d/%d failed (HTTP %s): %s",
+                    attempt,
+                    self._max_retries,
+                    status_code,
+                    exc,
+                )
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "OPG price fetch attempt %d/%d failed: %s",
+                    attempt,
+                    self._max_retries,
+                    exc,
+                )
+
+            if attempt < self._max_retries:
+                time.sleep(self._retry_delay)
+
+        # All attempts exhausted (or rate-limited out) — record the failure.
+        with self._lock:
+            self.total_errors += 1
+            self.consecutive_failures += 1
+            self.last_error = str(last_exc) if last_exc is not None else "unknown error"
+
+        logger.error(
+            "OPG price refresh failed (consecutive failures: %d); "
+            "retaining last known price (%s)",
+            self.consecutive_failures,
+            self._price,
+        )
+
+
+def _fetch_from_coingecko() -> Decimal:
+    """Single CoinGecko HTTP call.  Raises on any error."""
+    url = f"{COINGECKO_BASE_URL}/simple/token_price/{COINGECKO_PLATFORM}"
+    params = {
+        "contract_addresses": BASE_MAINNET_OPG_ADDRESS,
+        "vs_currencies": "usd",
+    }
+    response = requests.get(url, params=params, timeout=FETCH_TIMEOUT)
+    response.raise_for_status()
+
+    data: dict = response.json()
+    # CoinGecko keys the result by the lowercased contract address.
+    price_entry = data.get(BASE_MAINNET_OPG_ADDRESS.lower())
+    if not isinstance(price_entry, dict) or "usd" not in price_entry:
+        raise ValueError(
+            f"Unexpected CoinGecko response for {BASE_MAINNET_OPG_ADDRESS}: {data!r}"
+        )
+
+    return Decimal(str(price_entry["usd"]))
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton — initialised by start_price_feed()
+# ---------------------------------------------------------------------------
+
+_feed: Optional[OPGPriceFeed] = None
+
+
+def start_price_feed(
+    refresh_interval: int = DEFAULT_REFRESH_INTERVAL,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_delay: float = DEFAULT_RETRY_DELAY,
+) -> None:
+    """Create and start the global OPG price feed.  Call once at app startup."""
+    global _feed
+    if _feed is not None:
+        logger.info("OPG price feed already running, skipping")
+        return
+    _feed = OPGPriceFeed(
+        refresh_interval=refresh_interval,
+        max_retries=max_retries,
+        retry_delay=retry_delay,
+    )
+    _feed.start()
+
+
+def get_opg_price_usd() -> Decimal:
+    """Return the current OPG/USD price from the running price feed.
+
+    Raises ``ValueError`` if the feed has not been started or has not yet
+    completed a successful fetch.
+    """
+    if _feed is None:
+        raise ValueError(
+            "OPG price feed has not been started — "
+            "call start_price_feed() at app startup"
+        )
+    return _feed.get_price()
+
+
+def get_price_feed_status() -> dict[str, Any]:
+    """Return the current health snapshot of the price feed.
+
+    Returns ``{"status": "not_started"}`` if the feed has never been started.
+    """
+    if _feed is None:
+        return {"status": "not_started"}
+    return _feed.get_status()

@@ -466,6 +466,16 @@ class TestCalculateSessionCost(unittest.TestCase):
             )
         self.assertGreater(cost_cheap, cost_expensive)
 
+    def test_uses_current_price_on_each_call(self):
+        """get_price is called fresh every invocation — price changes are picked up."""
+        get_price = MagicMock(side_effect=[Decimal("0.10"), Decimal("0.20")])
+        with self._patch_definitions(), self._patch_model():
+            cost_first = calculate_session_cost(_make_context(), get_price)
+            cost_second = calculate_session_cost(_make_context(), get_price)
+        self.assertEqual(get_price.call_count, 2)
+        # Price doubled → cost should halve (same USD spend, twice the token price).
+        self.assertGreater(cost_first, cost_second)
+
 
 if __name__ == "__main__":
     unittest.main()

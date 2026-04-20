@@ -3,7 +3,7 @@ import datetime
 from tee_gateway import typing_utils
 import logging
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
-from typing import Any
+from typing import Any, Callable, Protocol
 
 logger = logging.getLogger("llm_server.dynamic_pricing")
 
@@ -159,12 +159,6 @@ from tee_gateway.definitions import (  # noqa: E402
 from tee_gateway.model_registry import get_model_config  # noqa: E402
 
 
-def get_token_a_price_usd() -> Decimal:
-    from tee_gateway.price_feed import get_opg_price_usd  # noqa: PLC0415
-
-    return get_opg_price_usd()
-
-
 def _as_dict(value: Any) -> dict[str, Any] | None:
     if value is None:
         return None
@@ -271,53 +265,63 @@ def _extract_asset_decimals_from_requirements(payment_requirements: Any) -> int:
     return ASSET_DECIMALS_BY_ADDRESS[asset_lower]
 
 
-def dynamic_session_cost_calculator(context: dict[str, Any]) -> int:
-    """Compute UPTO per-request cost in token smallest units from actual usage.
+class _PriceSource(Protocol):
+    """Structural type for anything that can provide a current token price."""
 
-    Raises ValueError on any missing or unrecognised input — no silent fallback.
+    def get_price(self) -> Decimal: ...
+
+
+def make_cost_calculator(
+    price_feed: _PriceSource,
+) -> Callable[[dict[str, Any]], int]:
+    """Return a session cost calculator bound to the given price feed.
+
+    The returned callable is passed directly to the x402 payment middleware as
+    ``session_cost_calculator``.  Raising ``ValueError`` from the inner
+    function propagates through the strict monkey-patch in ``__main__.py`` and
+    produces an HTTP 500 rather than silently charging an incorrect amount.
     """
-    request_json = context.get("request_json")
-    response_json = context.get("response_json")
 
-    if not isinstance(request_json, dict) or not isinstance(response_json, dict):
-        raise ValueError(
-            "dynamic_session_cost_calculator requires both request_json and response_json"
+    def dynamic_session_cost_calculator(context: dict[str, Any]) -> int:
+        request_json = context.get("request_json")
+        response_json = context.get("response_json")
+
+        if not isinstance(request_json, dict) or not isinstance(response_json, dict):
+            raise ValueError(
+                "dynamic_session_cost_calculator requires both request_json and response_json"
+            )
+
+        model = _extract_model_from_context(request_json, response_json)
+        cfg = get_model_config(model)
+        input_tokens, output_tokens = _extract_usage_tokens(response_json)
+
+        total_usd = (Decimal(input_tokens) * cfg.input_price_usd) + (
+            Decimal(output_tokens) * cfg.output_price_usd
+        )
+        token_price_usd = price_feed.get_price()
+        if token_price_usd <= 0:
+            raise ValueError(f"Token price is non-positive: {token_price_usd}")
+
+        token_amount = total_usd / token_price_usd
+        decimals = _extract_asset_decimals_from_requirements(
+            context.get("payment_requirements")
+        )
+        scale = Decimal(10) ** decimals
+        cost_smallest_units = int(
+            (token_amount * scale).to_integral_value(rounding=ROUND_CEILING)
         )
 
-    model = _extract_model_from_context(request_json, response_json)
+        logger.info(
+            "DYNAMIC_SESSION_COST model=%s input_tokens=%d output_tokens=%d "
+            "total_usd=%s token_price_usd=%s decimals=%d cost=%d",
+            model,
+            input_tokens,
+            output_tokens,
+            str(total_usd),
+            str(token_price_usd),
+            decimals,
+            cost_smallest_units,
+        )
+        return max(0, cost_smallest_units)
 
-    # get_model_config raises ValueError for unknown models — no fallback
-    cfg = get_model_config(model)
-
-    input_tokens, output_tokens = _extract_usage_tokens(response_json)
-
-    input_rate = cfg.input_price_usd
-    output_rate = cfg.output_price_usd
-
-    total_usd = (Decimal(input_tokens) * input_rate) + (
-        Decimal(output_tokens) * output_rate
-    )
-    token_price_usd = get_token_a_price_usd()
-    if token_price_usd <= 0:
-        raise ValueError(f"Token A price is non-positive: {token_price_usd}")
-
-    token_amount = total_usd / token_price_usd
-    decimals = _extract_asset_decimals_from_requirements(
-        context.get("payment_requirements")
-    )
-    scale = Decimal(10) ** decimals
-    cost_smallest_units = int(
-        (token_amount * scale).to_integral_value(rounding=ROUND_CEILING)
-    )
-
-    logger.info(
-        "DYNAMIC_SESSION_COST model=%s input_tokens=%d output_tokens=%d total_usd=%s token_price_usd=%s decimals=%d cost=%d",
-        model,
-        input_tokens,
-        output_tokens,
-        str(total_usd),
-        str(token_price_usd),
-        decimals,
-        cost_smallest_units,
-    )
-    return max(0, cost_smallest_units)
+    return dynamic_session_cost_calculator

@@ -7,13 +7,9 @@ rate limiting.
 
 Usage
 -----
-Call ``start_price_feed()`` once during application startup (e.g. in
-``__main__.py``).  The dynamic cost calculator in ``util.py`` then calls
-``get_opg_price_usd()`` to obtain the latest cached price.  If no price has
-been fetched yet, ``get_opg_price_usd()`` raises ``ValueError``, which
-propagates through ``dynamic_session_cost_calculator`` and the strict
-``_resolve_session_request_cost`` monkey-patch in ``__main__.py`` to produce
-an HTTP 500 rather than silently charging an incorrect amount.
+Create an ``OPGPriceFeed`` instance in the application entry point, call
+``start()``, then pass it explicitly to wherever the price is needed (e.g.
+``make_cost_calculator`` in ``util.py``).
 """
 
 import logging
@@ -33,7 +29,6 @@ from tee_gateway.price_feed.config import (
     DEFAULT_RETRY_DELAY,
     FETCH_TIMEOUT,
     STALE_WARNING_MULTIPLIER,
-    PriceFeedConfig,
 )
 
 logger = logging.getLogger("llm_server.price_feed")
@@ -228,49 +223,3 @@ def fetch_opg_price() -> Decimal:
         )
 
     return Decimal(str(price_entry["usd"]))
-
-
-# ---------------------------------------------------------------------------
-# Module-level singleton — initialised by start_price_feed()
-# ---------------------------------------------------------------------------
-
-_feed: Optional[OPGPriceFeed] = None
-
-
-def start_price_feed(config: Optional[PriceFeedConfig] = None) -> None:
-    """Create and start the global OPG price feed.  Call once at app startup."""
-    global _feed
-    if _feed is not None:
-        logger.info("OPG price feed already running, skipping")
-        return
-    cfg = config or PriceFeedConfig()
-    _feed = OPGPriceFeed(
-        refresh_interval=cfg.refresh_interval,
-        max_retries=cfg.max_retries,
-        retry_delay=cfg.retry_delay,
-    )
-    _feed.start()
-
-
-def get_opg_price_usd() -> Decimal:
-    """Return the current OPG/USD price from the running price feed.
-
-    Raises ``ValueError`` if the feed has not been started or has not yet
-    completed a successful fetch.
-    """
-    if _feed is None:
-        raise ValueError(
-            "OPG price feed has not been started — "
-            "call start_price_feed() at app startup"
-        )
-    return _feed.get_price()
-
-
-def get_price_feed_status() -> dict[str, Any]:
-    """Return the current health snapshot of the price feed.
-
-    Returns ``{"status": "not_started"}`` if the feed has never been started.
-    """
-    if _feed is None:
-        return {"status": "not_started"}
-    return _feed.get_status()

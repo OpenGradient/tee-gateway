@@ -1,5 +1,5 @@
 """
-Unit tests for tee_gateway.price_feed.
+Unit tests for tee_gateway.price_feed and tee_gateway.util.make_cost_calculator.
 
 All external HTTP calls are mocked — no network access required.
 
@@ -9,7 +9,7 @@ TestFetchOPGPrice        — the raw fetch_opg_price() helper in feed.py
 TestOPGPriceFeedRefresh  — OPGPriceFeed._refresh_price() (retry, rate-limit, stats)
 TestOPGPriceFeedGetPrice — OPGPriceFeed.get_price() (stale warning, ValueError before fetch)
 TestOPGPriceFeedStatus   — OPGPriceFeed.get_status() snapshots
-TestModuleLevelFunctions — start_price_feed() / get_opg_price_usd() / get_price_feed_status()
+TestMakeCostCalculator   — make_cost_calculator() factory and the returned closure
 """
 
 import time
@@ -20,12 +20,9 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from tee_gateway.definitions import BASE_MAINNET_OPG_ADDRESS
-from tee_gateway.price_feed import (
-    OPGPriceFeed,
-    get_opg_price_usd,
-    get_price_feed_status,
-)
+from tee_gateway.price_feed import OPGPriceFeed
 from tee_gateway.price_feed.feed import fetch_opg_price
+from tee_gateway.util import make_cost_calculator
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -335,40 +332,154 @@ class TestOPGPriceFeedStatus(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestModuleLevelFunctions
+# TestMakeCostCalculator
 # ---------------------------------------------------------------------------
 
+_ASSET_ADDR = "0xdeadbeef"
+_ASSET_ADDR_LOWER = _ASSET_ADDR.lower()
+_ASSET_DECIMALS = 18
 
-class TestModuleLevelFunctions(unittest.TestCase):
-    """Tests for the module-level singleton helpers."""
 
-    def test_get_opg_price_usd_raises_when_feed_is_none(self):
-        with patch(f"{_FEED}._feed", None):
-            with self.assertRaises(ValueError) as ctx:
-                get_opg_price_usd()
-        self.assertIn("not been started", str(ctx.exception))
+def _make_payment_requirements(asset: str = _ASSET_ADDR) -> dict:
+    return {"asset": asset, "price": {"amount": "1000000000000000000", "asset": asset}}
 
-    def test_get_opg_price_usd_delegates_to_feed(self):
+
+def _make_context(
+    model: str = "gpt-4.1-mini",
+    input_tokens: int = 100,
+    output_tokens: int = 50,
+    price_usd: Decimal = Decimal("0.10"),
+    asset: str = _ASSET_ADDR,
+) -> dict:
+    return {
+        "request_json": {"model": model},
+        "response_json": {
+            "model": model,
+            "usage": {
+                "prompt_tokens": input_tokens,
+                "completion_tokens": output_tokens,
+            },
+        },
+        "payment_requirements": _make_payment_requirements(asset),
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "status_code": 200,
+        "is_streaming": False,
+        "request_body_bytes": b"",
+        "response_body_bytes": b"",
+        "default_cost": 10**18,
+    }
+
+
+class TestMakeCostCalculator(unittest.TestCase):
+    """Tests for make_cost_calculator() and the returned closure."""
+
+    def _calculator(self, price_usd: Decimal = Decimal("0.10")):
         mock_feed = MagicMock()
-        mock_feed.get_price.return_value = SAMPLE_PRICE
-        with patch(f"{_FEED}._feed", mock_feed):
-            price = get_opg_price_usd()
-        self.assertEqual(price, SAMPLE_PRICE)
+        mock_feed.get_price.return_value = price_usd
+        return make_cost_calculator(mock_feed), mock_feed
+
+    def _patch_definitions(self):
+        """Patch ASSET_DECIMALS_BY_ADDRESS so the test asset is recognised."""
+        return patch(
+            "tee_gateway.util.ASSET_DECIMALS_BY_ADDRESS",
+            {_ASSET_ADDR_LOWER: _ASSET_DECIMALS},
+        )
+
+    def _patch_model(
+        self, input_price: str = "0.000001", output_price: str = "0.000002"
+    ):
+        """Patch get_model_config to return a predictable pricing config."""
+        cfg = MagicMock()
+        cfg.input_price_usd = Decimal(input_price)
+        cfg.output_price_usd = Decimal(output_price)
+        return patch("tee_gateway.util.get_model_config", return_value=cfg)
+
+    def test_calls_price_feed_get_price(self):
+        calc, mock_feed = self._calculator()
+        with self._patch_definitions(), self._patch_model():
+            calc(_make_context())
         mock_feed.get_price.assert_called_once()
 
-    def test_get_price_feed_status_when_feed_is_none(self):
-        with patch(f"{_FEED}._feed", None):
-            status = get_price_feed_status()
-        self.assertEqual(status, {"status": "not_started"})
+    def test_returns_positive_int(self):
+        calc, _ = self._calculator()
+        with self._patch_definitions(), self._patch_model():
+            result = calc(_make_context())
+        self.assertIsInstance(result, int)
+        self.assertGreaterEqual(result, 0)
 
-    def test_get_price_feed_status_delegates_to_feed(self):
-        expected = {"price_usd": 0.042, "total_fetches": 5}
+    def test_zero_tokens_returns_zero(self):
+        calc, _ = self._calculator()
+        with self._patch_definitions(), self._patch_model():
+            result = calc(_make_context(input_tokens=0, output_tokens=0))
+        self.assertEqual(result, 0)
+
+    def test_raises_when_price_feed_raises(self):
         mock_feed = MagicMock()
-        mock_feed.get_status.return_value = expected
-        with patch(f"{_FEED}._feed", mock_feed):
-            status = get_price_feed_status()
-        self.assertEqual(status, expected)
-        mock_feed.get_status.assert_called_once()
+        mock_feed.get_price.side_effect = ValueError("price not available")
+        calc = make_cost_calculator(mock_feed)
+        with self._patch_definitions(), self._patch_model():
+            with self.assertRaises(
+                ValueError, msg="error from get_price must propagate"
+            ):
+                calc(_make_context())
+
+    def test_raises_when_non_positive_price(self):
+        calc, _ = self._calculator(price_usd=Decimal("0"))
+        with self._patch_definitions(), self._patch_model():
+            with self.assertRaises(ValueError):
+                calc(_make_context())
+
+    def test_raises_when_request_json_missing(self):
+        calc, _ = self._calculator()
+        ctx = _make_context()
+        ctx["request_json"] = None
+        with self._patch_definitions(), self._patch_model():
+            with self.assertRaises(ValueError):
+                calc(ctx)
+
+    def test_raises_when_usage_missing(self):
+        calc, _ = self._calculator()
+        ctx = _make_context()
+        ctx["response_json"] = {"model": "gpt-4.1-mini"}  # no usage key
+        with self._patch_definitions(), self._patch_model():
+            with self.assertRaises(ValueError):
+                calc(ctx)
+
+    def test_raises_when_asset_unknown(self):
+        calc, _ = self._calculator()
+        ctx = _make_context(asset="0xunknown")
+        with (
+            patch("tee_gateway.util.ASSET_DECIMALS_BY_ADDRESS", {}),
+            self._patch_model(),
+        ):
+            with self.assertRaises(ValueError):
+                calc(ctx)
+
+    def test_cost_scales_with_token_count(self):
+        calc, _ = self._calculator()
+        with self._patch_definitions(), self._patch_model():
+            cost_small = calc(_make_context(input_tokens=10, output_tokens=5))
+            cost_large = calc(_make_context(input_tokens=1000, output_tokens=500))
+        self.assertGreater(cost_large, cost_small)
+
+    def test_each_call_uses_independent_closure(self):
+        feed_a = MagicMock()
+        feed_a.get_price.return_value = Decimal("0.10")
+        feed_b = MagicMock()
+        feed_b.get_price.return_value = Decimal("0.20")
+
+        calc_a = make_cost_calculator(feed_a)
+        calc_b = make_cost_calculator(feed_b)
+
+        with self._patch_definitions(), self._patch_model():
+            cost_a = calc_a(_make_context())
+            cost_b = calc_b(_make_context())
+
+        # Higher token price → lower cost in smallest units for same USD amount.
+        self.assertGreater(cost_a, cost_b)
+        feed_a.get_price.assert_called_once()
+        feed_b.get_price.assert_called_once()
 
 
 if __name__ == "__main__":

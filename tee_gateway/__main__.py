@@ -36,8 +36,8 @@ from x402.session import SessionStore
 import x402.http.middleware.flask as x402_flask
 import types as _types
 
-from .util import dynamic_session_cost_calculator
-from .price_feed import start_price_feed
+from .util import make_cost_calculator
+from .price_feed import OPGPriceFeed
 from .definitions import (
     EVM_PAYMENT_ADDRESS,
     BASE_MAINNET_NETWORK,
@@ -111,7 +111,8 @@ atexit.register(_shutdown_heartbeat)
 # OPG price feed — start before x402 middleware so the first request can be
 # priced correctly.  Runs as a daemon thread; no cleanup needed on exit.
 # ---------------------------------------------------------------------------
-start_price_feed()
+_price_feed = OPGPriceFeed()
+_price_feed.start()
 
 facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=FACILITATOR_URL))
 server = x402ResourceServerSync(facilitator)
@@ -387,7 +388,7 @@ _payment_mw = payment_middleware(
     session_store=store,
     cost_per_request=100000000000000,  # static precheck/fallback estimate
     session_idle_timeout=100,
-    session_cost_calculator=dynamic_session_cost_calculator,
+    session_cost_calculator=make_cost_calculator(_price_feed),
 )
 
 # ---------------------------------------------------------------------------

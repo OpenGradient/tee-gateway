@@ -3,7 +3,7 @@ import datetime
 from tee_gateway import typing_utils
 import logging
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 
 logger = logging.getLogger("llm_server.dynamic_pricing")
 
@@ -265,63 +265,54 @@ def _extract_asset_decimals_from_requirements(payment_requirements: Any) -> int:
     return ASSET_DECIMALS_BY_ADDRESS[asset_lower]
 
 
-class _PriceSource(Protocol):
-    """Structural type for anything that can provide a current token price."""
+def calculate_session_cost(
+    context: dict[str, Any], get_price: Callable[[], Decimal]
+) -> int:
+    """Calculate the x402 session cost in token smallest units for a completed request.
 
-    def get_price(self) -> Decimal: ...
-
-
-def make_cost_calculator(
-    price_feed: _PriceSource,
-) -> Callable[[dict[str, Any]], int]:
-    """Return a session cost calculator bound to the given price feed.
-
-    The returned callable is passed directly to the x402 payment middleware as
-    ``session_cost_calculator``.  Raising ``ValueError`` from the inner
-    function propagates through the strict monkey-patch in ``__main__.py`` and
-    produces an HTTP 500 rather than silently charging an incorrect amount.
+    ``get_price`` is called on every invocation to fetch the current OPG/USD
+    price — pass ``price_feed.get_price`` so the latest cached value is used.
+    Raises ``ValueError`` on any missing/invalid data; the strict monkey-patch
+    in ``__main__.py`` propagates this as HTTP 500 rather than silently
+    charging the static fallback amount.
     """
+    request_json = context.get("request_json")
+    response_json = context.get("response_json")
 
-    def dynamic_session_cost_calculator(context: dict[str, Any]) -> int:
-        request_json = context.get("request_json")
-        response_json = context.get("response_json")
-
-        if not isinstance(request_json, dict) or not isinstance(response_json, dict):
-            raise ValueError(
-                "dynamic_session_cost_calculator requires both request_json and response_json"
-            )
-
-        model = _extract_model_from_context(request_json, response_json)
-        cfg = get_model_config(model)
-        input_tokens, output_tokens = _extract_usage_tokens(response_json)
-
-        total_usd = (Decimal(input_tokens) * cfg.input_price_usd) + (
-            Decimal(output_tokens) * cfg.output_price_usd
-        )
-        token_price_usd = price_feed.get_price()
-        if token_price_usd <= 0:
-            raise ValueError(f"Token price is non-positive: {token_price_usd}")
-
-        token_amount = total_usd / token_price_usd
-        decimals = _extract_asset_decimals_from_requirements(
-            context.get("payment_requirements")
-        )
-        scale = Decimal(10) ** decimals
-        cost_smallest_units = int(
-            (token_amount * scale).to_integral_value(rounding=ROUND_CEILING)
+    if not isinstance(request_json, dict) or not isinstance(response_json, dict):
+        raise ValueError(
+            "calculate_session_cost requires both request_json and response_json"
         )
 
-        logger.info(
-            "DYNAMIC_SESSION_COST model=%s input_tokens=%d output_tokens=%d "
-            "total_usd=%s token_price_usd=%s decimals=%d cost=%d",
-            model,
-            input_tokens,
-            output_tokens,
-            str(total_usd),
-            str(token_price_usd),
-            decimals,
-            cost_smallest_units,
-        )
-        return max(0, cost_smallest_units)
+    model = _extract_model_from_context(request_json, response_json)
+    cfg = get_model_config(model)
+    input_tokens, output_tokens = _extract_usage_tokens(response_json)
 
-    return dynamic_session_cost_calculator
+    total_usd = (Decimal(input_tokens) * cfg.input_price_usd) + (
+        Decimal(output_tokens) * cfg.output_price_usd
+    )
+    token_price_usd = get_price()
+    if token_price_usd <= 0:
+        raise ValueError(f"Token price is non-positive: {token_price_usd}")
+
+    token_amount = total_usd / token_price_usd
+    decimals = _extract_asset_decimals_from_requirements(
+        context.get("payment_requirements")
+    )
+    scale = Decimal(10) ** decimals
+    cost_smallest_units = int(
+        (token_amount * scale).to_integral_value(rounding=ROUND_CEILING)
+    )
+
+    logger.info(
+        "DYNAMIC_SESSION_COST model=%s input_tokens=%d output_tokens=%d "
+        "total_usd=%s token_price_usd=%s decimals=%d cost=%d",
+        model,
+        input_tokens,
+        output_tokens,
+        str(total_usd),
+        str(token_price_usd),
+        decimals,
+        cost_smallest_units,
+    )
+    return max(0, cost_smallest_units)

@@ -67,14 +67,18 @@ class OPGPriceFeed:
 
         The initial fetch runs inside the background thread so startup is
         non-blocking.  ``get_price()`` will raise ``ValueError`` until the
-        first fetch completes; any error propagates as HTTP 500 via the
-        strict cost-resolution patch in ``__main__.py``.
+        first successful fetch completes; until then, inference requests are
+        rejected by the pre-inference pricing gate in ``__main__.py``.
 
         Idempotent — calling ``start()`` on an already-running feed is a no-op.
+        Thread-safe: the check-and-start is performed under ``_lock``.
         """
-        if self._thread is not None and self._thread.is_alive():
-            logger.info("OPG price feed already running, ignoring duplicate start()")
-            return
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                logger.info(
+                    "OPG price feed already running, ignoring duplicate start()"
+                )
+                return
         self._thread = threading.Thread(
             target=self._run_with_initial_fetch, name="opg-price-feed", daemon=True
         )
@@ -221,7 +225,11 @@ def fetch_opg_price() -> Decimal:
     response = requests.get(url, params=params, timeout=FETCH_TIMEOUT)
     response.raise_for_status()
 
-    data: dict = response.json()
+    data: Any = response.json()
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Unexpected CoinGecko response for {BASE_MAINNET_OPG_ADDRESS}: {data!r}"
+        )
     # CoinGecko keys the result by the lowercased contract address.
     price_entry = data.get(BASE_MAINNET_OPG_ADDRESS.lower())
     if not isinstance(price_entry, dict) or "usd" not in price_entry:

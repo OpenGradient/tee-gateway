@@ -386,13 +386,17 @@ x402_flask._read_body_bytes = _patched_read_body_bytes
 
 def _session_cost_calculator(ctx: dict) -> int:
     # Post-inference cost calculation — response already sent to client.
-    # Failures here (e.g. missing usage field in LLM response) cannot be
-    # returned as errors; log CRITICAL so they are never silently missed.
+    # Predictable failures (unknown price, unknown model) are blocked by the
+    # pre-inference gate; any exception here indicates a provider-side error
+    # (e.g. missing usage field in the LLM response).  The x402 middleware
+    # swallows the exception in close(), so the client is not charged.
+    # Log CRITICAL so provider errors are never silently missed.
     try:
         return calculate_session_cost(ctx, _price_feed.get_price)
     except Exception as exc:
         logger.critical(
-            "Post-inference cost calculation failed — client was NOT charged: %s",
+            "Post-inference cost calculation failed (provider error) — "
+            "client was NOT charged: %s",
             exc,
             exc_info=True,
         )

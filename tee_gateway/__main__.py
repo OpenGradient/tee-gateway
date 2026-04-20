@@ -310,6 +310,7 @@ def health():
         "status": "OK",
         "version": "1.0.0",
         "tee_enabled": True,
+        "price_feed": _price_feed.get_status(),
     }, 200
 
 

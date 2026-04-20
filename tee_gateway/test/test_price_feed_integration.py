@@ -16,10 +16,14 @@ Run with::
     uv run pytest tee_gateway/test/test_price_feed_integration.py -v
 """
 
+import os
 import unittest
 from decimal import Decimal
 
 import requests
+
+if not os.getenv("RUN_INTEGRATION_TESTS"):
+    raise unittest.SkipTest("Set RUN_INTEGRATION_TESTS=1 to run integration tests")
 
 from tee_gateway.definitions import BASE_MAINNET_OPG_ADDRESS
 from tee_gateway.price_feed.config import (

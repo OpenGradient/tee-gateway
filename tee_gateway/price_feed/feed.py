@@ -9,7 +9,7 @@ Usage
 -----
 Create an ``OPGPriceFeed`` instance in the application entry point, call
 ``start()``, then pass it explicitly to wherever the price is needed (e.g.
-``make_cost_calculator`` in ``util.py``).
+``calculate_session_cost(...)`` in ``util.py``).
 """
 
 import logging
@@ -63,15 +63,20 @@ class OPGPriceFeed:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        """Perform an initial price fetch then launch the background refresh loop.
+        """Launch the background refresh loop, including the initial price fetch.
 
-        If the initial fetch fails after all retries the feed still starts —
-        ``get_price()`` will raise ``ValueError`` until the background loop
-        eventually succeeds.
+        The initial fetch runs inside the background thread so startup is
+        non-blocking.  ``get_price()`` will raise ``ValueError`` until the
+        first fetch completes; any error propagates as HTTP 500 via the
+        strict cost-resolution patch in ``__main__.py``.
+
+        Idempotent — calling ``start()`` on an already-running feed is a no-op.
         """
-        self._refresh_price()
+        if self._thread is not None and self._thread.is_alive():
+            logger.info("OPG price feed already running, ignoring duplicate start()")
+            return
         self._thread = threading.Thread(
-            target=self._run, name="opg-price-feed", daemon=True
+            target=self._run_with_initial_fetch, name="opg-price-feed", daemon=True
         )
         self._thread.start()
         logger.info(
@@ -126,7 +131,8 @@ class OPGPriceFeed:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _run(self) -> None:
+    def _run_with_initial_fetch(self) -> None:
+        self._refresh_price()
         while True:
             time.sleep(self._refresh_interval)
             self._refresh_price()
@@ -149,6 +155,7 @@ class OPGPriceFeed:
                 with self._lock:
                     self._price = price
                     self.last_success = time.time()
+                    self.last_error = None
                     self.consecutive_failures = 0
                     self.total_fetches += 1
                 logger.info(

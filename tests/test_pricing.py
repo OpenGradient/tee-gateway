@@ -209,8 +209,8 @@ class TestModelRegistry(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestDynamicSessionCostCalculatorOPG(unittest.TestCase):
-    """dynamic_session_cost_calculator with OPG (18 decimals)."""
+class TestCalculateSessionCostOPG(unittest.TestCase):
+    """calculate_session_cost with OPG (18 decimals)."""
 
     def _calc(self, model, input_tokens, output_tokens):
         return calculate_session_cost(
@@ -355,8 +355,8 @@ class TestDynamicSessionCostCalculatorOPG(unittest.TestCase):
         self.assertLess(fast, full)
 
 
-class TestDynamicSessionCostCalculatorEdgeCases(unittest.TestCase):
-    """Edge cases for dynamic_session_cost_calculator."""
+class TestCalculateSessionCostEdgeCases(unittest.TestCase):
+    """Edge cases for calculate_session_cost."""
 
     def test_zero_tokens_returns_zero(self):
         cost = calculate_session_cost(_ctx("claude-sonnet-4-5", 0, 0), _get_price)

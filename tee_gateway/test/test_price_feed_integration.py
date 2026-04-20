@@ -1,5 +1,5 @@
 """
-Integration tests for tee_gateway.opg_price_feed.
+Integration tests for tee_gateway.price_feed.
 
 These tests make REAL network calls to the CoinGecko public API.
 
@@ -13,7 +13,7 @@ Expected behaviour
 
 Run with::
 
-    uv run pytest tee_gateway/test/test_opg_price_feed_integration.py -v
+    uv run pytest tee_gateway/test/test_price_feed_integration.py -v
 """
 
 import unittest
@@ -22,12 +22,12 @@ from decimal import Decimal
 import requests
 
 from tee_gateway.definitions import BASE_MAINNET_OPG_ADDRESS
-from tee_gateway.opg_price_feed import (
+from tee_gateway.price_feed.config import (
     COINGECKO_BASE_URL,
     COINGECKO_PLATFORM,
     FETCH_TIMEOUT,
-    _fetch_from_coingecko,
 )
+from tee_gateway.price_feed.feed import fetch_opg_price
 
 
 def _get(url: str, **kwargs) -> requests.Response:
@@ -57,7 +57,9 @@ class TestCoinGeckoConnectivity(unittest.TestCase):
         url = f"{COINGECKO_BASE_URL}/simple/token_price/{COINGECKO_PLATFORM}"
         # USDC on Base mainnet — reliably indexed on CoinGecko.
         usdc_base = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
-        resp = _get(url, params={"contract_addresses": usdc_base, "vs_currencies": "usd"})
+        resp = _get(
+            url, params={"contract_addresses": usdc_base, "vs_currencies": "usd"}
+        )
         self.assertEqual(
             resp.status_code,
             200,
@@ -103,9 +105,9 @@ class TestOPGPriceFetchLive(unittest.TestCase):
         self.assertIsInstance(price_entry["usd"], (int, float))
 
     def test_opg_price_fetch_live(self):
-        """End-to-end: _fetch_from_coingecko() returns a positive Decimal price."""
+        """End-to-end: fetch_opg_price() returns a positive Decimal price."""
         try:
-            price = _fetch_from_coingecko()
+            price = fetch_opg_price()
         except requests.exceptions.HTTPError as exc:
             if exc.response is not None and exc.response.status_code == 429:
                 self.skipTest("CoinGecko rate limit — re-run after a short wait")

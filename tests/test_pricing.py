@@ -3,7 +3,7 @@ Unit tests for dynamic pricing / cost calculation across all supported models.
 
 Tests verify that:
   - Every user-facing model name resolves to the correct ModelConfig
-  - calculate_session_cost produces the right amount in OPG token
+  - dynamic_session_cost_calculator produces the right amount in OPG token
     smallest-units for supported models
   - Edge cases (no usage, unknown model, bad context) are handled correctly
 """
@@ -16,11 +16,7 @@ from tee_gateway.model_registry import (
     _MODEL_LOOKUP,
     get_model_config,
 )
-from tee_gateway.util import calculate_session_cost
-
-# All pricing tests assume OPG = $1.00 so USD cost == OPG token amount.
-_OPG_PRICE_USD = Decimal("1")
-_get_price = lambda: _OPG_PRICE_USD  # noqa: E731
+from tee_gateway.util import dynamic_session_cost_calculator
 
 
 # ---------------------------------------------------------------------------
@@ -209,12 +205,12 @@ class TestModelRegistry(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestCalculateSessionCostOPG(unittest.TestCase):
-    """calculate_session_cost with OPG (18 decimals)."""
+class TestDynamicSessionCostCalculatorOPG(unittest.TestCase):
+    """dynamic_session_cost_calculator with OPG (18 decimals)."""
 
     def _calc(self, model, input_tokens, output_tokens):
-        return calculate_session_cost(
-            _ctx(model, input_tokens, output_tokens, _opg_requirements()), _get_price
+        return dynamic_session_cost_calculator(
+            _ctx(model, input_tokens, output_tokens, _opg_requirements())
         )
 
     # ── OpenAI ──────────────────────────────────────────────────────────────
@@ -355,11 +351,11 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertLess(fast, full)
 
 
-class TestCalculateSessionCostEdgeCases(unittest.TestCase):
-    """Edge cases for calculate_session_cost."""
+class TestDynamicSessionCostCalculatorEdgeCases(unittest.TestCase):
+    """Edge cases for dynamic_session_cost_calculator."""
 
     def test_zero_tokens_returns_zero(self):
-        cost = calculate_session_cost(_ctx("claude-sonnet-4-5", 0, 0), _get_price)
+        cost = dynamic_session_cost_calculator(_ctx("claude-sonnet-4-5", 0, 0))
         self.assertEqual(cost, 0)
 
     def test_missing_usage_raises(self):
@@ -369,24 +365,24 @@ class TestCalculateSessionCostEdgeCases(unittest.TestCase):
             "payment_requirements": _opg_requirements(),
         }
         with self.assertRaises(ValueError):
-            calculate_session_cost(ctx, _get_price)
+            dynamic_session_cost_calculator(ctx)
 
     def test_unknown_asset_raises(self):
         ctx = _ctx("claude-sonnet-4-5", 100, 100)
         ctx["payment_requirements"] = {"asset": "0xdeadbeef", "amount": "1000"}
         with self.assertRaises(ValueError):
-            calculate_session_cost(ctx, _get_price)
+            dynamic_session_cost_calculator(ctx)
 
     def test_missing_asset_raises(self):
         ctx = _ctx("claude-sonnet-4-5", 100, 100)
         ctx["payment_requirements"] = {"amount": "1000"}  # no asset
         with self.assertRaises(ValueError):
-            calculate_session_cost(ctx, _get_price)
+            dynamic_session_cost_calculator(ctx)
 
     def test_unknown_model_raises_value_error(self):
         ctx = _ctx("gpt-4o", 100, 100)
         with self.assertRaises(ValueError):
-            calculate_session_cost(ctx, _get_price)
+            dynamic_session_cost_calculator(ctx)
 
     def test_missing_request_json_raises_value_error(self):
         ctx = {
@@ -398,7 +394,7 @@ class TestCalculateSessionCostEdgeCases(unittest.TestCase):
             "payment_requirements": _opg_requirements(),
         }
         with self.assertRaises(ValueError):
-            calculate_session_cost(ctx, _get_price)
+            dynamic_session_cost_calculator(ctx)
 
     def test_model_from_request_takes_priority(self):
         """request_json model name is used even if response_json has a different model."""
@@ -410,7 +406,7 @@ class TestCalculateSessionCostEdgeCases(unittest.TestCase):
             },
             "payment_requirements": _opg_requirements(),
         }
-        cost = calculate_session_cost(ctx, _get_price)
+        cost = dynamic_session_cost_calculator(ctx)
         # Should be priced as Haiku (from request), not Sonnet
         haiku_cost = _expected_cost_opg("claude-haiku-4-5", 1000, 500)
         self.assertEqual(cost, haiku_cost)
@@ -418,31 +414,29 @@ class TestCalculateSessionCostEdgeCases(unittest.TestCase):
     def test_rounding_ceiling(self):
         """Fractional token costs are always rounded UP."""
         # 1 output token of Haiku: 0.000005 USD = 5e12 wei — exact, no rounding needed
-        cost = calculate_session_cost(_ctx("claude-haiku-4-5", 0, 1), _get_price)
+        cost = dynamic_session_cost_calculator(_ctx("claude-haiku-4-5", 0, 1))
         self.assertEqual(cost, 5_000_000_000_000)
 
         # 1 input token of Gemini Flash Lite: 0.0000001 USD = 1e11 wei — exact
-        cost = calculate_session_cost(_ctx("gemini-2.5-flash-lite", 1, 0), _get_price)
+        cost = dynamic_session_cost_calculator(_ctx("gemini-2.5-flash-lite", 1, 0))
         self.assertEqual(cost, 100_000_000_000)
 
     def test_model_name_case_insensitive(self):
         """Model names are normalized to lowercase before lookup."""
-        cost_lower = calculate_session_cost(
-            _ctx("claude-sonnet-4-5", 100, 100), _get_price
+        cost_lower = dynamic_session_cost_calculator(
+            _ctx("claude-sonnet-4-5", 100, 100)
         )
-        cost_upper = calculate_session_cost(
-            _ctx("CLAUDE-SONNET-4-5", 100, 100), _get_price
+        cost_upper = dynamic_session_cost_calculator(
+            _ctx("CLAUDE-SONNET-4-5", 100, 100)
         )
         self.assertEqual(cost_lower, cost_upper)
 
     def test_sonnet_4_0_hyphen_vs_dot_same_cost(self):
         """claude-sonnet-4-0 and claude-4.0-sonnet are the same model."""
-        cost_hyphen = calculate_session_cost(
-            _ctx("claude-sonnet-4-0", 1000, 500), _get_price
+        cost_hyphen = dynamic_session_cost_calculator(
+            _ctx("claude-sonnet-4-0", 1000, 500)
         )
-        cost_dot = calculate_session_cost(
-            _ctx("claude-4.0-sonnet", 1000, 500), _get_price
-        )
+        cost_dot = dynamic_session_cost_calculator(_ctx("claude-4.0-sonnet", 1000, 500))
         self.assertEqual(cost_hyphen, cost_dot)
 
 

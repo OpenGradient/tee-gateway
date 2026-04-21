@@ -1243,16 +1243,26 @@ wheels = [
 ]
 
 [[package]]
+name = "nest-asyncio"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/83/f8/51569ac65d696c8ecbee95938f89d4abf00f47d58d48f6fbabfe8f0baefe/nest_asyncio-1.6.0.tar.gz", hash = "sha256:6f172d5449aca15afd6c646851f4e31e02c598d553a667e38cafa997cfec55fe", size = 7418, upload-time = "2024-01-21T14:25:19.227Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/c4/c2971a3ba4c6103a3d10c4b0f24f461ddc027f0f09763220cf35ca1401b3/nest_asyncio-1.6.0-py3-none-any.whl", hash = "sha256:87af6efd6b5e897c81050477ef65c62e2b2f35d51703cae01aff2905b1852e1c", size = 5195, upload-time = "2024-01-21T14:25:17.223Z" },
+]
+
+[[package]]
 name = "og-x402"
-version = "0.0.1.dev6"
+version = "0.0.1.dev9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "nest-asyncio" },
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/70/aa/2b616b9be6dfa4dfee98bde3ed20dd41cb446d0569e0069c1d6c11faa032/og_x402-0.0.1.dev6.tar.gz", hash = "sha256:140c4b725f372e81f4a3c2caf392f58b6fcf242bc51a1c3a6417f58e3ef9e347", size = 900115, upload-time = "2026-03-30T07:13:25.623Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/97/f5/02e7b68af825c200da2aa88292f2c07823d321a4fd9e2a3d20130358fc10/og_x402-0.0.1.dev9.tar.gz", hash = "sha256:d3cfd05443636712cb1277e3d904b878d875a60b3728d64265098ea06eeb116b", size = 1312652, upload-time = "2026-04-10T10:40:13.267Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/03/5e/a64de6f29eb80bb180288297882d5aba2a894363622d4f94417b420cf0b5/og_x402-0.0.1.dev6-py3-none-any.whl", hash = "sha256:2a1f962fa2a50d02f28421199027245d5c5f013f36a143ec2f184a546325f1bd", size = 952670, upload-time = "2026-03-30T07:13:00.408Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/08/f5a05fc8454541e96650d44bf15b34491505d0e4f1e9e77b26c804fbbdd3/og_x402-0.0.1.dev9-py3-none-any.whl", hash = "sha256:2db171be2526aa13a1243255538d185c4f1f6106f615eff532d1720a89672034", size = 1392934, upload-time = "2026-04-10T10:40:11.224Z" },
 ]
 
 [package.optional-dependencies]
@@ -1881,7 +1891,7 @@ requires-dist = [
     { name = "langchain-google-genai", specifier = ">=4.2.1" },
     { name = "langchain-openai", specifier = ">=1.1.12" },
     { name = "langchain-xai", specifier = ">=1.2.2" },
-    { name = "og-x402", extras = ["evm"], specifier = "==0.0.1.dev6" },
+    { name = "og-x402", extras = ["evm"], specifier = ">=0.0.1.dev9" },
     { name = "openai", specifier = ">=2.15.0" },
     { name = "psutil", specifier = ">=7.2.1" },
     { name = "pydantic", specifier = ">=2.12.5" },

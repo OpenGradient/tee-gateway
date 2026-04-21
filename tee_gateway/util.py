@@ -2,10 +2,8 @@ import datetime
 
 from tee_gateway import typing_utils
 import logging
-import threading
-import time
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger("llm_server.dynamic_pricing")
 
@@ -160,43 +158,6 @@ from tee_gateway.definitions import (  # noqa: E402
 )
 from tee_gateway.model_registry import get_model_config  # noqa: E402
 
-TOKEN_A_PRICE_CACHE_TTL_SECONDS = 60
-
-_token_price_cache: dict[str, Any] = {
-    "value": Decimal("1"),
-    "updated_at": 0.0,
-}
-_token_price_lock = threading.Lock()
-
-
-def _fetch_token_a_price_usd_mock() -> Decimal:
-    """Return the USD price of the payment token used for cost calculation.
-
-    Currently returns a fixed 1:1 ratio, which is correct for USDC-denominated
-    payments (1 USDC ≈ $1 USD). For OPG-denominated payments, replace this
-    with a live price feed (e.g. a DEX oracle or CoinGecko API call) that
-    returns the current OPG/USD exchange rate so that token amounts are
-    calculated correctly against the model's USD pricing.
-    """
-    return Decimal("1")
-
-
-def get_token_a_price_usd() -> Decimal:
-    now = time.time()
-    with _token_price_lock:
-        cached_value = _token_price_cache.get("value")
-        cached_at = float(_token_price_cache.get("updated_at") or 0.0)
-        if (
-            isinstance(cached_value, Decimal)
-            and (now - cached_at) < TOKEN_A_PRICE_CACHE_TTL_SECONDS
-        ):
-            return cached_value
-
-        value = _fetch_token_a_price_usd_mock()
-        _token_price_cache["value"] = value
-        _token_price_cache["updated_at"] = now
-        return value
-
 
 def _as_dict(value: Any) -> dict[str, Any] | None:
     if value is None:
@@ -304,35 +265,36 @@ def _extract_asset_decimals_from_requirements(payment_requirements: Any) -> int:
     return ASSET_DECIMALS_BY_ADDRESS[asset_lower]
 
 
-def dynamic_session_cost_calculator(context: dict[str, Any]) -> int:
-    """Compute UPTO per-request cost in token smallest units from actual usage.
+def calculate_session_cost(
+    context: dict[str, Any], get_price: Callable[[], Decimal]
+) -> int:
+    """Calculate the x402 session cost in token smallest units for a completed request.
 
-    Raises ValueError on any missing or unrecognised input — no silent fallback.
+    ``get_price`` is called on every invocation to fetch the current OPG/USD
+    price — pass ``price_feed.get_price`` so the latest cached value is used.
+    Raises ``ValueError`` on any missing/invalid data.  Predictable failures
+    (unavailable price, unknown model) are blocked before inference by the
+    pre-inference gate in ``__main__.py``; post-inference failures are logged
+    as CRITICAL by the caller and the client is not charged.
     """
     request_json = context.get("request_json")
     response_json = context.get("response_json")
 
     if not isinstance(request_json, dict) or not isinstance(response_json, dict):
         raise ValueError(
-            "dynamic_session_cost_calculator requires both request_json and response_json"
+            "calculate_session_cost requires both request_json and response_json"
         )
 
     model = _extract_model_from_context(request_json, response_json)
-
-    # get_model_config raises ValueError for unknown models — no fallback
     cfg = get_model_config(model)
-
     input_tokens, output_tokens = _extract_usage_tokens(response_json)
 
-    input_rate = cfg.input_price_usd
-    output_rate = cfg.output_price_usd
-
-    total_usd = (Decimal(input_tokens) * input_rate) + (
-        Decimal(output_tokens) * output_rate
+    total_usd = (Decimal(input_tokens) * cfg.input_price_usd) + (
+        Decimal(output_tokens) * cfg.output_price_usd
     )
-    token_price_usd = get_token_a_price_usd()
+    token_price_usd = get_price()
     if token_price_usd <= 0:
-        raise ValueError(f"Token A price is non-positive: {token_price_usd}")
+        raise ValueError(f"Token price is non-positive: {token_price_usd}")
 
     token_amount = total_usd / token_price_usd
     decimals = _extract_asset_decimals_from_requirements(
@@ -344,7 +306,8 @@ def dynamic_session_cost_calculator(context: dict[str, Any]) -> int:
     )
 
     logger.info(
-        "DYNAMIC_SESSION_COST model=%s input_tokens=%d output_tokens=%d total_usd=%s token_price_usd=%s decimals=%d cost=%d",
+        "CALCULATE_SESSION_COST model=%s input_tokens=%d output_tokens=%d "
+        "total_usd=%s token_price_usd=%s decimals=%d cost=%d",
         model,
         input_tokens,
         output_tokens,

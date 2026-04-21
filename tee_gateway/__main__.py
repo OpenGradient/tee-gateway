@@ -34,9 +34,10 @@ from x402.schemas import AssetAmount
 from x402.server import x402ResourceServerSync
 from x402.session import SessionStore
 import x402.http.middleware.flask as x402_flask
-import types as _types
 
-from .util import dynamic_session_cost_calculator
+from .util import calculate_session_cost
+from .model_registry import get_model_config
+from .price_feed import OPGPriceFeed
 from .definitions import (
     EVM_PAYMENT_ADDRESS,
     BASE_MAINNET_NETWORK,
@@ -106,6 +107,13 @@ def _shutdown_heartbeat():
 
 
 atexit.register(_shutdown_heartbeat)
+
+# ---------------------------------------------------------------------------
+# OPG price feed — start before x402 middleware so the first request can be
+# priced correctly.  Runs as a daemon thread; no cleanup needed on exit.
+# ---------------------------------------------------------------------------
+_price_feed = OPGPriceFeed()
+_price_feed.start()
 
 facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=FACILITATOR_URL))
 server = x402ResourceServerSync(facilitator)
@@ -303,6 +311,7 @@ def health():
         "status": "OK",
         "version": "1.0.0",
         "tee_enabled": True,
+        "price_feed": _price_feed.get_status(),
     }, 200
 
 
@@ -374,6 +383,26 @@ def _patched_read_body_bytes(environ):
 
 x402_flask._read_body_bytes = _patched_read_body_bytes
 
+
+def _session_cost_calculator(ctx: dict) -> int:
+    # Post-inference cost calculation — response already sent to client.
+    # Predictable failures (unknown price, unknown model) are blocked by the
+    # pre-inference gate; any exception here indicates a provider-side error
+    # (e.g. missing usage field in the LLM response).  The x402 middleware
+    # swallows the exception in close(), so the client is not charged.
+    # Log CRITICAL so provider errors are never silently missed.
+    try:
+        return calculate_session_cost(ctx, _price_feed.get_price)
+    except Exception as exc:
+        logger.critical(
+            "Post-inference cost calculation failed (provider error) — "
+            "client was NOT charged: %s",
+            exc,
+            exc_info=True,
+        )
+        raise
+
+
 _payment_mw = payment_middleware(
     application,
     routes=routes,
@@ -381,102 +410,39 @@ _payment_mw = payment_middleware(
     session_store=store,
     cost_per_request=100000000000000,  # static precheck/fallback estimate
     session_idle_timeout=100,
-    session_cost_calculator=dynamic_session_cost_calculator,
+    session_cost_calculator=_session_cost_calculator,
 )
 
 # ---------------------------------------------------------------------------
-# Strict cost-resolution patch
+# Pre-inference pricing gate
 #
-# Why this exists
-# ---------------
-# The upstream x402 PaymentMiddleware._resolve_session_request_cost wraps the
-# call to the session_cost_calculator in a broad try/except.  If the calculator
-# raises (e.g. ValueError for an unrecognised model name, KeyError for missing
-# usage data), the exception is swallowed and the middleware silently falls back
-# to the static session maximum (CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND /
-# CHAT_COMPLETIONS_USDC_AMOUNT).  That silent fallback means:
-#   • The client is charged the full pre-check cap instead of actual usage.
-#   • The server has no visible indication that pricing failed.
-#
-# The fix
-# -------
-# We replace _resolve_session_request_cost with our own implementation that is
-# identical to upstream, except the cost-calculator call is NOT wrapped in a
-# try/except.  Any exception from dynamic_session_cost_calculator() therefore
-# propagates up through the middleware and Flask, producing a proper HTTP 500
-# response to the client instead of an incorrect silent charge.
+# In the upto session scheme the response is streamed to the client before
+# cost is settled, so a post-inference pricing failure cannot be surfaced as
+# an HTTP error.  Instead we validate everything that can be checked up-front
+# and reject the request early if pricing would fail:
+#   1. Price feed has a valid OPG/USD price (CoinGecko fetch succeeded).
+#   2. The requested model is in the registry (has a known per-token price).
 # ---------------------------------------------------------------------------
 
 
-def _strict_resolve_session_request_cost(
-    self,
-    *,
-    method: str,
-    path: str,
-    request_body_bytes: bytes,
-    response_body_bytes: bytes,
-    payment_payload: object,
-    payment_requirements: object,
-    status_code: int | None,
-    output_object: object = None,
-    is_streaming: bool = False,
-) -> int:
-    """Replacement for PaymentMiddleware._resolve_session_request_cost.
+@application.before_request
+def _check_pricing_ready():
+    if request.path not in ("/v1/chat/completions", "/v1/completions"):
+        return
+    try:
+        _price_feed.get_price()
+    except ValueError as exc:
+        logger.warning("Rejecting inference request — price feed unavailable: %s", exc)
+        return jsonify({"error": f"Pricing unavailable: {exc}"}), 503
 
-    Identical to the upstream implementation except that exceptions raised by
-    the dynamic cost calculator are NOT caught.  This means a request whose
-    cost cannot be determined (unknown model, missing usage data, etc.) will
-    result in a 500 error rather than silently falling back to the static cap
-    amount and charging the user an incorrect amount.
-    """
-    from x402.http.middleware.flask import _parse_json_bytes as _x402_parse_json  # noqa: PLC0415
+    body = request.get_json(silent=True, cache=True) or {}
+    model = body.get("model")
+    if model:
+        try:
+            get_model_config(model)
+        except ValueError:
+            return jsonify({"error": f"Model '{model}' is not supported"}), 400
 
-    default_cost = self._get_session_cost(payment_requirements)
-    if not self._should_charge_response(status_code):
-        return default_cost
-    if not callable(self._session_cost_calculator):
-        return default_cost
-
-    request_object = _x402_parse_json(request_body_bytes)
-    response_object = (
-        output_object
-        if output_object is not None
-        else _x402_parse_json(response_body_bytes)
-    )
-
-    callback_context = {
-        "method": method,
-        "path": path,
-        "status_code": status_code,
-        "is_streaming": is_streaming,
-        "request_body_bytes": request_body_bytes,
-        "response_body_bytes": response_body_bytes,
-        "request_json": request_object
-        if isinstance(request_object, (dict, list))
-        else None,
-        "response_json": response_object
-        if isinstance(response_object, (dict, list))
-        else None,
-        "response_object": response_object,
-        "payment_payload": payment_payload,
-        "payment_requirements": payment_requirements,
-        "default_cost": default_cost,
-    }
-
-    # Do NOT catch exceptions here — let them propagate so the request fails
-    # with a 500 rather than silently charging the static fallback amount.
-    dynamic_cost = self._session_cost_calculator(callback_context)
-    if dynamic_cost is None:
-        raise ValueError(
-            f"dynamic_session_cost_calculator returned None for {method} {path}; "
-            "cannot determine request cost"
-        )
-    return self._coerce_non_negative_int(dynamic_cost)
-
-
-_payment_mw._resolve_session_request_cost = _types.MethodType(  # type: ignore[method-assign, attr-defined]
-    _strict_resolve_session_request_cost, _payment_mw
-)
 
 logger.info("x402 payment middleware initialized")
 

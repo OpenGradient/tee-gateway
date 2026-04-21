@@ -83,10 +83,12 @@ class OPGPriceFeed:
                     "OPG price feed already running, ignoring duplicate start()"
                 )
                 return
-        self._thread = threading.Thread(
-            target=self._run_with_initial_fetch, name="opg-price-feed", daemon=True
-        )
-        self._thread.start()
+            self._thread = threading.Thread(
+                target=self._run_with_initial_fetch,
+                name="opg-price-feed",
+                daemon=True,
+            )
+            self._thread.start()
         logger.info(
             "OPG price feed started (refresh_interval=%ds, max_retries=%d)",
             self._refresh_interval,

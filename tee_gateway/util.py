@@ -306,7 +306,7 @@ def calculate_session_cost(
     )
 
     logger.info(
-        "DYNAMIC_SESSION_COST model=%s input_tokens=%d output_tokens=%d "
+        "CALCULATE_SESSION_COST model=%s input_tokens=%d output_tokens=%d "
         "total_usd=%s token_price_usd=%s decimals=%d cost=%d",
         model,
         input_tokens,

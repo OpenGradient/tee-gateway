@@ -42,6 +42,7 @@ from .definitions import (
     BASE_MAINNET_NETWORK,
     BASE_MAINNET_OPG_ADDRESS,
     CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
+    COMPLETIONS_OPG_SESSION_MAX_SPEND,
     FACILITATOR_URL,
 )
 
@@ -145,7 +146,7 @@ routes = {
                 scheme="upto",
                 pay_to=EVM_PAYMENT_ADDRESS,
                 price=AssetAmount(
-                    amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
+                    amount=COMPLETIONS_OPG_SESSION_MAX_SPEND,
                     asset=BASE_MAINNET_OPG_ADDRESS,
                     extra={
                         "name": "OpenGradient",

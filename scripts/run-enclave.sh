@@ -90,9 +90,11 @@ if [ -f "$ENV_FILE" ]; then
         ANTHROPIC_API_KEY="$(grep -E '^ANTHROPIC_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         XAI_API_KEY="$(grep -E '^XAI_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
 
-        # Heartbeat configuration (optional — wallet key is generated inside the TEE)
+        # FACILITATOR_URL is used for both x402 payment verification and the heartbeat relay.
+        # HEARTBEAT_CONTRACT_ADDRESS and TEE_HEARTBEAT_INTERVAL are optional heartbeat parameters.
+        # The TEE wallet key is generated inside the enclave and never injected.
         HEARTBEAT_CONTRACT_ADDRESS="$(grep -E '^HEARTBEAT_CONTRACT_ADDRESS=' "$ENV_FILE" | cut -d'=' -f2-)"
-        HEARTBEAT_FACILITATOR_URL="$(grep -E '^HEARTBEAT_FACILITATOR_URL=' "$ENV_FILE" | cut -d'=' -f2-)"
+        FACILITATOR_URL="$(grep -E '^FACILITATOR_URL=' "$ENV_FILE" | cut -d'=' -f2-)"
         TEE_HEARTBEAT_INTERVAL="$(grep -E '^TEE_HEARTBEAT_INTERVAL=' "$ENV_FILE" | cut -d'=' -f2-)"
 
         # Build the JSON payload using jq for safe escaping
@@ -103,7 +105,7 @@ if [ -f "$ENV_FILE" ]; then
             --arg anthropic "$ANTHROPIC_API_KEY" \
             --arg xai "$XAI_API_KEY" \
             --arg hb_contract "$HEARTBEAT_CONTRACT_ADDRESS" \
-            --arg hb_facilitator "$HEARTBEAT_FACILITATOR_URL" \
+            --arg facilitator "$FACILITATOR_URL" \
             --arg hb_interval "$TEE_HEARTBEAT_INTERVAL" \
             '{
                 openai_api_key: $openai,
@@ -112,7 +114,7 @@ if [ -f "$ENV_FILE" ]; then
                 xai_api_key: $xai
             }
             + if $hb_contract != "" then {heartbeat_contract_address: $hb_contract} else {} end
-            + if $hb_facilitator != "" then {heartbeat_facilitator_url: $hb_facilitator} else {} end
+            + if $facilitator != "" then {facilitator_url: $facilitator} else {} end
             + if $hb_interval != "" then {tee_heartbeat_interval: $hb_interval} else {} end
             ')
 
@@ -125,10 +127,14 @@ if [ -f "$ENV_FILE" ]; then
 
         if [ "$http_status" = "200" ]; then
             echo "[ec2] API keys injected successfully."
-            if [ -n "$HEARTBEAT_CONTRACT_ADDRESS" ] && [ -n "$HEARTBEAT_FACILITATOR_URL" ]; then
-                echo "[ec2] Heartbeat service configured via facilitator relay (contract: ${HEARTBEAT_CONTRACT_ADDRESS})"
+            if [ -n "$HEARTBEAT_CONTRACT_ADDRESS" ]; then
+                if [ -n "$FACILITATOR_URL" ]; then
+                    echo "[ec2] Heartbeat service configured via facilitator relay (contract: ${HEARTBEAT_CONTRACT_ADDRESS})"
+                else
+                    echo "[ec2] Heartbeat service configured using enclave default facilitator URL (contract: ${HEARTBEAT_CONTRACT_ADDRESS})"
+                fi
             else
-                echo "[ec2] Heartbeat service not configured (missing env vars)."
+                echo "[ec2] Heartbeat service not configured (missing HEARTBEAT_CONTRACT_ADDRESS)."
             fi
         else
             echo "[ec2] Warning: Key injection returned HTTP $http_status. Check enclave logs."
@@ -136,7 +142,7 @@ if [ -f "$ENV_FILE" ]; then
 
         # Clear key variables from this shell immediately after use
         unset OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY XAI_API_KEY
-        unset HEARTBEAT_CONTRACT_ADDRESS HEARTBEAT_FACILITATOR_URL TEE_HEARTBEAT_INTERVAL
+        unset HEARTBEAT_CONTRACT_ADDRESS FACILITATOR_URL TEE_HEARTBEAT_INTERVAL
     fi
 else
     echo "[ec2] No .env file found at $ENV_FILE"

@@ -13,6 +13,10 @@ import os
 # ---------------------------------------------------------------------------
 # X402 Facilitator
 # ---------------------------------------------------------------------------
+# Default fallback only. The live value is injected at runtime via POST /v1/keys
+# (facilitator_url field) and used for both x402 payment verification and the
+# heartbeat service. Override at the OS level with the FACILITATOR_URL env var,
+# or supply it directly in the injection payload.
 FACILITATOR_URL = os.getenv("FACILITATOR_URL", "https://facilitator.memchat.io")
 
 # ---------------------------------------------------------------------------
@@ -62,16 +66,16 @@ DEFAULT_ASSET_DECIMALS: int = 18
 # by dynamic_session_cost_calculator() in util.py.
 # ---------------------------------------------------------------------------
 
-# /v1/chat/completions — maximum OPG spend per session (18 decimals: 1000000000000000000 = 1 OPG).
+# /v1/chat/completions — maximum OPG spend per session (18 decimals: 100000000000000000 = 0.1 OPG).
 # This is the upper-bound amount presented to the client during the x402 pre-check handshake.
 # The x402 "upto" scheme allows the actual charge to be any value up to this cap;
 # the real per-request cost is settled dynamically by dynamic_session_cost_calculator() in util.py
 # based on actual token usage, so clients are never overcharged beyond what they consumed.
-CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "1000000000000000000"
+CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"
 
-# /v1/completions — maximum OPG spend per session (18 decimals: 1000000000000000000 = 1 OPG).
+# /v1/completions — maximum OPG spend per session (18 decimals: 100000000000000000 = 0.1 OPG).
 # This is the upper-bound amount presented to the client during the x402 pre-check handshake.
 # The x402 "upto" scheme allows the actual charge to be any value up to this cap;
 # the real per-request cost is settled dynamically by dynamic_session_cost_calculator() in util.py
 # based on actual token usage, so clients are never overcharged beyond what they consumed.
-COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "1000000000000000000"
+COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"

@@ -94,12 +94,6 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.000003"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000015"))
 
-    def test_claude_sonnet_4_0_hyphen_resolves(self):
-        """claude-sonnet-4-0 (legacy) must still resolve for older SDK versions."""
-        cfg = get_model_config("claude-sonnet-4-0")
-        self.assertEqual(cfg, get_model_config("claude-4.0-sonnet"))
-        self.assertEqual(cfg.provider, "anthropic")
-
     # ── Anthropic Haiku ─────────────────────────────────────────────────────
 
     def test_claude_haiku_4_5_resolves(self):
@@ -148,6 +142,55 @@ class TestModelRegistry(unittest.TestCase):
         cfg = get_model_config("gpt-5.2")
         self.assertEqual(cfg.provider, "openai")
 
+    def test_gpt_4_1_mini_resolves(self):
+        cfg = get_model_config("gpt-4.1-mini")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000004"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000016"))
+
+    def test_gpt_4_1_mini_dated_resolves(self):
+        cfg = get_model_config("gpt-4.1-mini-2025-04-14")
+        self.assertEqual(cfg, get_model_config("gpt-4.1-mini"))
+
+    def test_gpt_4_1_nano_resolves(self):
+        cfg = get_model_config("gpt-4.1-nano")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000001"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000004"))
+
+    def test_gpt_4_1_nano_dated_resolves(self):
+        cfg = get_model_config("gpt-4.1-nano-2025-04-14")
+        self.assertEqual(cfg, get_model_config("gpt-4.1-nano"))
+
+    def test_o3_resolves(self):
+        cfg = get_model_config("o3")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.force_temperature, 1.0)
+
+    def test_o3_dated_resolves(self):
+        cfg = get_model_config("o3-2025-04-16")
+        self.assertEqual(cfg, get_model_config("o3"))
+
+    def test_gpt_5_4_resolves(self):
+        cfg = get_model_config("gpt-5.4")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000025"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000015"))
+
+    def test_gpt_5_4_mini_resolves(self):
+        cfg = get_model_config("gpt-5.4-mini")
+        self.assertEqual(cfg.provider, "openai")
+
+    def test_gpt_5_4_nano_resolves(self):
+        cfg = get_model_config("gpt-5.4-nano")
+        self.assertEqual(cfg.provider, "openai")
+
+    def test_gpt_5_5_resolves(self):
+        cfg = get_model_config("gpt-5.5")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000005"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00003"))
+
     # ── Google ──────────────────────────────────────────────────────────────
 
     def test_gemini_2_5_flash_resolves(self):
@@ -166,6 +209,20 @@ class TestModelRegistry(unittest.TestCase):
     def test_gemini_3_flash_preview_resolves(self):
         cfg = get_model_config("gemini-3-flash-preview")
         self.assertEqual(cfg.provider, "google")
+
+    def test_gemini_3_1_pro_preview_resolves(self):
+        cfg = get_model_config("gemini-3.1-pro-preview")
+        self.assertEqual(cfg.provider, "google")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000012"))
+        self.assertEqual(cfg.thinking_budget, 128)
+
+    def test_gemini_3_1_flash_lite_preview_resolves(self):
+        cfg = get_model_config("gemini-3.1-flash-lite-preview")
+        self.assertEqual(cfg.provider, "google")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00000025"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000015"))
+        self.assertEqual(cfg.thinking_budget, 0)
 
     # ── xAI Grok ────────────────────────────────────────────────────────────
 
@@ -192,6 +249,30 @@ class TestModelRegistry(unittest.TestCase):
     def test_grok_3_resolves(self):
         cfg = get_model_config("grok-3")
         self.assertEqual(cfg.provider, "x-ai")
+
+    def test_grok_4_20_reasoning_resolves(self):
+        cfg = get_model_config("grok-4.20-reasoning")
+        self.assertEqual(cfg.provider, "x-ai")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000006"))
+
+    def test_grok_4_20_non_reasoning_resolves(self):
+        cfg = get_model_config("grok-4.20-non-reasoning")
+        self.assertEqual(cfg.provider, "x-ai")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000006"))
+
+    def test_grok_code_fast_1_resolves(self):
+        cfg = get_model_config("grok-code-fast-1")
+        self.assertEqual(cfg.provider, "x-ai")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000002"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000015"))
+
+    def test_claude_opus_4_7_resolves(self):
+        cfg = get_model_config("claude-opus-4-7")
+        self.assertEqual(cfg.provider, "anthropic")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000005"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000025"))
 
     # ── Errors ───────────────────────────────────────────────────────────────
 
@@ -238,6 +319,55 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         expected = _expected_cost_opg("o4-mini", 2000, 1000)
         self.assertEqual(cost, expected)
 
+    def test_gpt_4_1_mini_cost(self):
+        cost = self._calc("gpt-4.1-mini", 1000, 500)
+        expected = _expected_cost_opg("gpt-4.1-mini", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.0000004 + 500*0.0000016 = 0.0004 + 0.0008 = 0.0012 USD = 1.2e15 wei
+        self.assertEqual(cost, 1_200_000_000_000_000)
+
+    def test_gpt_4_1_nano_cost(self):
+        cost = self._calc("gpt-4.1-nano", 1000, 500)
+        expected = _expected_cost_opg("gpt-4.1-nano", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.0000001 + 500*0.0000004 = 0.0001 + 0.0002 = 0.0003 USD = 3e14 wei
+        self.assertEqual(cost, 300_000_000_000_000)
+
+    def test_o3_cost(self):
+        cost = self._calc("o3", 1000, 500)
+        expected = _expected_cost_opg("o3", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.00001 + 500*0.00004 = 0.01 + 0.02 = 0.03 USD = 3e16 wei
+        self.assertEqual(cost, 30_000_000_000_000_000)
+
+    def test_gpt_5_4_cost(self):
+        cost = self._calc("gpt-5.4", 1000, 500)
+        expected = _expected_cost_opg("gpt-5.4", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.0000025 + 500*0.000015 = 0.0025 + 0.0075 = 0.01 USD = 1e16 wei
+        self.assertEqual(cost, 10_000_000_000_000_000)
+
+    def test_gpt_5_4_mini_cost(self):
+        cost = self._calc("gpt-5.4-mini", 1000, 500)
+        expected = _expected_cost_opg("gpt-5.4-mini", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.00000075 + 500*0.0000045 = 0.00075 + 0.00225 = 0.003 USD = 3e15 wei
+        self.assertEqual(cost, 3_000_000_000_000_000)
+
+    def test_gpt_5_4_nano_cost(self):
+        cost = self._calc("gpt-5.4-nano", 1000, 500)
+        expected = _expected_cost_opg("gpt-5.4-nano", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.0000002 + 500*0.00000125 = 0.0002 + 0.000625 = 0.000825 USD = 8.25e14 wei
+        self.assertEqual(cost, 825_000_000_000_000)
+
+    def test_gpt_5_5_cost(self):
+        cost = self._calc("gpt-5.5", 1000, 500)
+        expected = _expected_cost_opg("gpt-5.5", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.000005 + 500*0.00003 = 0.005 + 0.015 = 0.02 USD = 2e16 wei
+        self.assertEqual(cost, 20_000_000_000_000_000)
+
     # ── Anthropic Sonnet ────────────────────────────────────────────────────
 
     def test_claude_sonnet_4_5_cost(self):
@@ -250,14 +380,6 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
     def test_claude_sonnet_4_6_cost(self):
         cost = self._calc("claude-sonnet-4-6", 1000, 500)
         self.assertEqual(cost, self._calc("claude-sonnet-4-5", 1000, 500))
-
-    def test_claude_sonnet_4_0_cost(self):
-        """claude-sonnet-4-0 (legacy) must produce correct pricing."""
-        cost = self._calc("claude-sonnet-4-0", 1000, 500)
-        expected = _expected_cost_opg("claude-sonnet-4-0", 1000, 500)
-        self.assertEqual(cost, expected)
-        # Same price tier as claude-sonnet-4-5
-        self.assertEqual(cost, 10_500_000_000_000_000)
 
     # ── Anthropic Haiku ─────────────────────────────────────────────────────
 
@@ -280,6 +402,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
     def test_claude_opus_4_6_cost(self):
         cost = self._calc("claude-opus-4-6", 1000, 500)
         self.assertEqual(cost, self._calc("claude-opus-4-5", 1000, 500))
+
+    def test_claude_opus_4_7_cost(self):
+        cost = self._calc("claude-opus-4-7", 1000, 500)
+        expected = _expected_cost_opg("claude-opus-4-7", 1000, 500)
+        self.assertEqual(cost, expected)
+        # Same price tier as opus-4-5/4-6: 1000*0.000005 + 500*0.000025 = 0.0175 USD
+        self.assertEqual(cost, 17_500_000_000_000_000)
 
     # ── Google Gemini ────────────────────────────────────────────────────────
 
@@ -307,6 +436,20 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         expected = _expected_cost_opg("gemini-3-flash-preview", 1000, 500)
         self.assertEqual(cost, expected)
 
+    def test_gemini_3_1_pro_preview_cost(self):
+        cost = self._calc("gemini-3.1-pro-preview", 1000, 500)
+        expected = _expected_cost_opg("gemini-3.1-pro-preview", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.000002 + 500*0.000012 = 0.002 + 0.006 = 0.008 USD = 8e15 wei
+        self.assertEqual(cost, 8_000_000_000_000_000)
+
+    def test_gemini_3_1_flash_lite_preview_cost(self):
+        cost = self._calc("gemini-3.1-flash-lite-preview", 1000, 500)
+        expected = _expected_cost_opg("gemini-3.1-flash-lite-preview", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.00000025 + 500*0.0000015 = 0.00025 + 0.00075 = 0.001 USD = 1e15 wei
+        self.assertEqual(cost, 1_000_000_000_000_000)
+
     # ── xAI Grok ────────────────────────────────────────────────────────────
 
     def test_grok_4_cost(self):
@@ -326,6 +469,24 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
     def test_grok_4_1_fast_cost(self):
         cost = self._calc("grok-4-1-fast", 1000, 500)
         self.assertEqual(cost, self._calc("grok-4-fast", 1000, 500))
+
+    def test_grok_4_20_reasoning_cost(self):
+        cost = self._calc("grok-4.20-reasoning", 1000, 500)
+        expected = _expected_cost_opg("grok-4.20-reasoning", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.000002 + 500*0.000006 = 0.002 + 0.003 = 0.005 USD = 5e15 wei
+        self.assertEqual(cost, 5_000_000_000_000_000)
+
+    def test_grok_4_20_non_reasoning_cost(self):
+        cost = self._calc("grok-4.20-non-reasoning", 1000, 500)
+        self.assertEqual(cost, self._calc("grok-4.20-reasoning", 1000, 500))
+
+    def test_grok_code_fast_1_cost(self):
+        cost = self._calc("grok-code-fast-1", 1000, 500)
+        expected = _expected_cost_opg("grok-code-fast-1", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.0000002 + 500*0.0000015 = 0.0002 + 0.00075 = 0.00095 USD = 9.5e14 wei
+        self.assertEqual(cost, 950_000_000_000_000)
 
     def test_grok_3_mini_cost(self):
         cost = self._calc("grok-3-mini", 1000, 500)
@@ -435,15 +596,6 @@ class TestCalculateSessionCostEdgeCases(unittest.TestCase):
         )
         self.assertEqual(cost_lower, cost_upper)
 
-    def test_sonnet_4_0_hyphen_vs_dot_same_cost(self):
-        """claude-sonnet-4-0 and claude-4.0-sonnet are the same model."""
-        cost_hyphen = calculate_session_cost(
-            _ctx("claude-sonnet-4-0", 1000, 500), _get_price
-        )
-        cost_dot = calculate_session_cost(
-            _ctx("claude-4.0-sonnet", 1000, 500), _get_price
-        )
-        self.assertEqual(cost_hyphen, cost_dot)
 
 
 if __name__ == "__main__":

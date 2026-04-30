@@ -30,6 +30,25 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.000002"),
         output_price_usd=Decimal("0.000008"),
     )
+    GPT_4_1_MINI = ModelConfig(
+        provider="openai",
+        api_name="gpt-4.1-mini",
+        input_price_usd=Decimal("0.0000004"),
+        output_price_usd=Decimal("0.0000016"),
+    )
+    GPT_4_1_NANO = ModelConfig(
+        provider="openai",
+        api_name="gpt-4.1-nano",
+        input_price_usd=Decimal("0.0000001"),
+        output_price_usd=Decimal("0.0000004"),
+    )
+    O3 = ModelConfig(
+        provider="openai",
+        api_name="o3",
+        input_price_usd=Decimal("0.00001"),
+        output_price_usd=Decimal("0.00004"),
+        force_temperature=1.0,
+    )
     O4_MINI = ModelConfig(
         provider="openai",
         api_name="o4-mini",
@@ -54,6 +73,30 @@ class SupportedModel(Enum):
         api_name="gpt-5.2",
         input_price_usd=Decimal("0.00000175"),
         output_price_usd=Decimal("0.000014"),
+    )
+    GPT_5_4 = ModelConfig(
+        provider="openai",
+        api_name="gpt-5.4",
+        input_price_usd=Decimal("0.0000025"),
+        output_price_usd=Decimal("0.000015"),
+    )
+    GPT_5_4_MINI = ModelConfig(
+        provider="openai",
+        api_name="gpt-5.4-mini",
+        input_price_usd=Decimal("0.00000075"),
+        output_price_usd=Decimal("0.0000045"),
+    )
+    GPT_5_4_NANO = ModelConfig(
+        provider="openai",
+        api_name="gpt-5.4-nano",
+        input_price_usd=Decimal("0.0000002"),
+        output_price_usd=Decimal("0.00000125"),
+    )
+    GPT_5_5 = ModelConfig(
+        provider="openai",
+        api_name="gpt-5.5",
+        input_price_usd=Decimal("0.000005"),
+        output_price_usd=Decimal("0.00003"),
     )
 
     # ── Anthropic ───────────────────────────────────────────────────────
@@ -87,8 +130,17 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.000005"),
         output_price_usd=Decimal("0.000025"),
     )
+    CLAUDE_OPUS_4_7 = ModelConfig(
+        provider="anthropic",
+        api_name="claude-opus-4-7",
+        input_price_usd=Decimal("0.000005"),
+        output_price_usd=Decimal("0.000025"),
+    )
 
     # ── Google Gemini ───────────────────────────────────────────────────
+    # Note: gemini-2.5-flash, gemini-2.5-pro, and gemini-2.5-flash-lite are scheduled
+    # for deprecation on June 17, 2026 (flash-lite: July 22, 2026). Use the Gemini 3
+    # replacements below for new integrations.
     GEMINI_2_5_FLASH = ModelConfig(
         provider="google",
         api_name="gemini-2.5-flash",
@@ -116,6 +168,20 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000005"),
         output_price_usd=Decimal("0.000003"),
     )
+    GEMINI_3_1_PRO_PREVIEW = ModelConfig(
+        provider="google",
+        api_name="gemini-3.1-pro-preview",
+        input_price_usd=Decimal("0.000002"),
+        output_price_usd=Decimal("0.000012"),
+        thinking_budget=128,
+    )
+    GEMINI_3_1_FLASH_LITE_PREVIEW = ModelConfig(
+        provider="google",
+        api_name="gemini-3.1-flash-lite-preview",
+        input_price_usd=Decimal("0.00000025"),
+        output_price_usd=Decimal("0.0000015"),
+        thinking_budget=0,
+    )
 
     # ── xAI Grok ────────────────────────────────────────────────────────
     GROK_4 = ModelConfig(
@@ -142,14 +208,26 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000002"),
         output_price_usd=Decimal("0.0000005"),
     )
+    GROK_4_20_REASONING = ModelConfig(
+        provider="x-ai",
+        api_name="grok-4.20-reasoning",
+        input_price_usd=Decimal("0.000002"),
+        output_price_usd=Decimal("0.000006"),
+    )
+    GROK_4_20_NON_REASONING = ModelConfig(
+        provider="x-ai",
+        api_name="grok-4.20-non-reasoning",
+        input_price_usd=Decimal("0.000002"),
+        output_price_usd=Decimal("0.000006"),
+    )
+    GROK_CODE_FAST_1 = ModelConfig(
+        provider="x-ai",
+        api_name="grok-code-fast-1",
+        input_price_usd=Decimal("0.0000002"),
+        output_price_usd=Decimal("0.0000015"),
+    )
 
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──
-    CLAUDE_4_0_SONNET = ModelConfig(
-        provider="anthropic",
-        api_name="claude-sonnet-4-0",
-        input_price_usd=Decimal("0.000003"),
-        output_price_usd=Decimal("0.000015"),
-    )
     GROK_3_MINI = ModelConfig(
         provider="x-ai",
         api_name="grok-3-mini",
@@ -170,30 +248,44 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     # OpenAI
     "gpt-4.1-2025-04-14": SupportedModel.GPT_4_1,
     "gpt-4.1": SupportedModel.GPT_4_1,
+    "gpt-4.1-mini": SupportedModel.GPT_4_1_MINI,
+    "gpt-4.1-mini-2025-04-14": SupportedModel.GPT_4_1_MINI,
+    "gpt-4.1-nano": SupportedModel.GPT_4_1_NANO,
+    "gpt-4.1-nano-2025-04-14": SupportedModel.GPT_4_1_NANO,
+    "o3": SupportedModel.O3,
+    "o3-2025-04-16": SupportedModel.O3,
     "o4-mini": SupportedModel.O4_MINI,
     "gpt-5": SupportedModel.GPT_5,
     "gpt-5-mini": SupportedModel.GPT_5_MINI,
     "gpt-5.2": SupportedModel.GPT_5_2,
+    "gpt-5.4": SupportedModel.GPT_5_4,
+    "gpt-5.4-mini": SupportedModel.GPT_5_4_MINI,
+    "gpt-5.4-nano": SupportedModel.GPT_5_4_NANO,
+    "gpt-5.5": SupportedModel.GPT_5_5,
     # Anthropic
     "claude-sonnet-4-5": SupportedModel.CLAUDE_SONNET_4_5,
     "claude-sonnet-4-6": SupportedModel.CLAUDE_SONNET_4_6,
     "claude-haiku-4-5": SupportedModel.CLAUDE_HAIKU_4_5,
     "claude-opus-4-5": SupportedModel.CLAUDE_OPUS_4_5,
     "claude-opus-4-6": SupportedModel.CLAUDE_OPUS_4_6,
+    "claude-opus-4-7": SupportedModel.CLAUDE_OPUS_4_7,
     # Google
     "gemini-2.5-flash": SupportedModel.GEMINI_2_5_FLASH,
     "gemini-2.5-pro": SupportedModel.GEMINI_2_5_PRO,
     "gemini-2.5-flash-lite": SupportedModel.GEMINI_2_5_FLASH_LITE,
     "gemini-3-flash-preview": SupportedModel.GEMINI_3_FLASH_PREVIEW,
+    "gemini-3.1-pro-preview": SupportedModel.GEMINI_3_1_PRO_PREVIEW,
+    "gemini-3.1-flash-lite-preview": SupportedModel.GEMINI_3_1_FLASH_LITE_PREVIEW,
     # xAI
     "grok-4": SupportedModel.GROK_4,
     "grok-4-fast": SupportedModel.GROK_4_FAST,
     "grok-4-1-fast": SupportedModel.GROK_4_1_FAST,
     "grok-4.1-fast": SupportedModel.GROK_4_1_FAST,
     "grok-4-1-fast-non-reasoning": SupportedModel.GROK_4_1_FAST_NON_REASONING,
+    "grok-4.20-reasoning": SupportedModel.GROK_4_20_REASONING,
+    "grok-4.20-non-reasoning": SupportedModel.GROK_4_20_NON_REASONING,
+    "grok-code-fast-1": SupportedModel.GROK_CODE_FAST_1,
     # Legacy — not in current SDK, retained for older SDK versions
-    "claude-sonnet-4-0": SupportedModel.CLAUDE_4_0_SONNET,
-    "claude-4.0-sonnet": SupportedModel.CLAUDE_4_0_SONNET,  # alternate dot notation
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
     "grok-3-mini": SupportedModel.GROK_3_MINI,
     "grok-3-beta": SupportedModel.GROK_3,  # old beta alias

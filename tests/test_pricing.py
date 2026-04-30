@@ -597,6 +597,5 @@ class TestCalculateSessionCostEdgeCases(unittest.TestCase):
         self.assertEqual(cost_lower, cost_upper)
 
 
-
 if __name__ == "__main__":
     unittest.main()

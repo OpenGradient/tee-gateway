@@ -65,6 +65,7 @@ API keys (injected at runtime via POST /v1/keys — do NOT bake into the image):
 - `ANTHROPIC_API_KEY`
 - `GOOGLE_API_KEY`
 - `XAI_API_KEY`
+- `ARK_API_KEY` (BytePlus / ByteDance ModelArk; injected as `bytedance_api_key`)
 
 Server configuration:
 - `API_SERVER_PORT` (default: 8000)

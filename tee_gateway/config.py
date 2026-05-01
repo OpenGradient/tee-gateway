@@ -27,6 +27,7 @@ class ProviderConfig:
     anthropic_api_key: Optional[str] = None
     google_api_key: Optional[str] = None
     xai_api_key: Optional[str] = None
+    bytedance_api_key: Optional[str] = None
 
 
 @dataclass(frozen=True)

@@ -272,6 +272,7 @@ def set_provider_keys():
             anthropic_api_key=body.get("anthropic_api_key") or None,
             google_api_key=body.get("google_api_key") or None,
             xai_api_key=body.get("xai_api_key") or None,
+            bytedance_api_key=body.get("bytedance_api_key") or None,
         )
         set_provider_config(provider_config)
 
@@ -327,6 +328,10 @@ def set_provider_keys():
         logger.info(
             "  xai_api_key                 : %s", _set(provider_config.xai_api_key)
         )
+        logger.info(
+            "  bytedance_api_key           : %s",
+            _set(provider_config.bytedance_api_key),
+        )
         logger.info("  facilitator_url             : %s", facilitator_url)
         logger.info(
             "  heartbeat_contract_address  : %s",
@@ -357,6 +362,7 @@ def set_provider_keys():
             "google": provider_config.google_api_key,
             "anthropic": provider_config.anthropic_api_key,
             "xai": provider_config.xai_api_key,
+            "bytedance": provider_config.bytedance_api_key,
         }.items()
         if k
     ]

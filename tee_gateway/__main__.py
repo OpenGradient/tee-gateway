@@ -175,7 +175,7 @@ def _init_payment_middleware(facilitator_url: str) -> None:
     Swaps application.wsgi_app so all subsequent requests flow through it.
     """
     facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=facilitator_url))
-    server = x402ResourceServerSync(facilitator)
+    server = x402ResourceServerSync(facilitator)  # type: ignore[arg-type]
     store = SessionStore()
 
     server.register(BASE_MAINNET_NETWORK, ExactEvmServerScheme())

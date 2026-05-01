@@ -47,8 +47,8 @@ _LIMITS = httpx.Limits(
     keepalive_expiry=60 * 20,  # 20 minutes
 )
 
-# BytePlus ModelArk OpenAI-compatible endpoint (ap-southeast-1)
-BYTEDANCE_BASE_URL = "https://ark.ap-southeast-1.bytepluses.com/api/v3"
+# BytePlus ModelArk OpenAI-compatible endpoint (ap-southeast)
+BYTEDANCE_BASE_URL = "https://ark.ap-southeast.bytepluses.com/api/v3"
 
 # Shared synchronous HTTP clients for each provider.
 # Initialized to None; built by set_provider_config() after key injection.

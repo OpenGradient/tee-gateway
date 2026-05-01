@@ -115,6 +115,7 @@ Model name prefixes determine routing:
 - **Anthropic**: claude-sonnet-4-0/4-5/4-6, claude-haiku-4-5, claude-opus-4-5/4-6, claude-3-7-sonnet, claude-3-5-haiku
 - **Google**: gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview
 - **xAI**: grok-2, grok-3, grok-3-mini, grok-4, grok-4-fast, grok-4-1-fast
+- **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite
 
 ## Verification Examples
 

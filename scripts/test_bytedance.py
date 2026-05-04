@@ -28,7 +28,7 @@ def main() -> int:
         print("ERROR: ARK_API_KEY env var is not set", file=sys.stderr)
         return 2
 
-    model = sys.argv[1] if len(sys.argv) > 1 else "seed-1.6"
+    model = sys.argv[1] if len(sys.argv) > 1 else "seed-2.0-lite"
     print(f"Using model: {model}")
 
     set_provider_config(ProviderConfig(bytedance_api_key=key))

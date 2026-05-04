@@ -47,6 +47,7 @@ export OPENAI_API_KEY=sk-...
 export ANTHROPIC_API_KEY=sk-ant-...
 export GOOGLE_API_KEY=...
 export XAI_API_KEY=...
+export ARK_API_KEY=...   # BytePlus / ByteDance ModelArk
 
 # Run server (starts the Flask/connexion app on port 8000)
 make test-local
@@ -288,6 +289,7 @@ Clients use an x402-compatible client (e.g., the [x402 SDK](https://github.com/o
 | `ANTHROPIC_API_KEY` | - | Anthropic API key |
 | `GOOGLE_API_KEY` | - | Google AI API key |
 | `XAI_API_KEY` | - | xAI API key |
+| `ARK_API_KEY` | - | BytePlus / ByteDance ModelArk API key (injected as `bytedance_api_key`) |
 | `EVM_PAYMENT_ADDRESS` | - | Wallet address to receive x402 payments |
 | `FACILITATOR_URL` | see `tee_gateway/__main__.py` | x402 payment facilitator endpoint |
 

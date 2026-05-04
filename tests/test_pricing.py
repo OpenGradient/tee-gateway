@@ -274,6 +274,41 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.000005"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000025"))
 
+    # ── ByteDance (BytePlus ModelArk) ───────────────────────────────────────
+
+    def test_seed_1_6_resolves(self):
+        cfg = get_model_config("seed-1.6")
+        self.assertEqual(cfg.provider, "bytedance")
+        self.assertEqual(cfg.api_name, "seed-1-6-250615")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000008"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000008"))
+
+    def test_seed_1_6_dated_alias_resolves(self):
+        cfg = get_model_config("seed-1-6-250615")
+        self.assertEqual(cfg, get_model_config("seed-1.6"))
+
+    def test_seed_1_8_resolves(self):
+        cfg = get_model_config("seed-1.8")
+        self.assertEqual(cfg.provider, "bytedance")
+        self.assertEqual(cfg.api_name, "seed-1-8-251228")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000008"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000008"))
+
+    def test_seed_1_8_dated_alias_resolves(self):
+        cfg = get_model_config("seed-1-8-251228")
+        self.assertEqual(cfg, get_model_config("seed-1.8"))
+
+    def test_seed_2_0_lite_resolves(self):
+        cfg = get_model_config("seed-2.0-lite")
+        self.assertEqual(cfg.provider, "bytedance")
+        self.assertEqual(cfg.api_name, "seed-2-0-lite-260228")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000004"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000016"))
+
+    def test_seed_2_0_lite_dated_alias_resolves(self):
+        cfg = get_model_config("seed-2-0-lite-260228")
+        self.assertEqual(cfg, get_model_config("seed-2.0-lite"))
+
     # ── Errors ───────────────────────────────────────────────────────────────
 
     def test_unknown_model_raises(self):
@@ -497,6 +532,32 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         cost = self._calc("grok-3", 1000, 500)
         expected = _expected_cost_opg("grok-3", 1000, 500)
         self.assertEqual(cost, expected)
+
+    # ── ByteDance (BytePlus ModelArk) ───────────────────────────────────────
+
+    def test_seed_1_6_cost(self):
+        cost = self._calc("seed-1.6", 1000, 500)
+        expected = _expected_cost_opg("seed-1.6", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.0000008 + 500*0.000008 = 0.0008 + 0.004 = 0.0048 USD = 4.8e15 wei
+        self.assertEqual(cost, 4_800_000_000_000_000)
+
+    def test_seed_1_8_cost(self):
+        cost = self._calc("seed-1.8", 1000, 500)
+        # Same pricing tier as seed-1.6
+        self.assertEqual(cost, self._calc("seed-1.6", 1000, 500))
+
+    def test_seed_2_0_lite_cost(self):
+        cost = self._calc("seed-2.0-lite", 1000, 500)
+        expected = _expected_cost_opg("seed-2.0-lite", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.0000004 + 500*0.0000016 = 0.0004 + 0.0008 = 0.0012 USD = 1.2e15 wei
+        self.assertEqual(cost, 1_200_000_000_000_000)
+
+    def test_seed_2_0_lite_cheaper_than_seed_1_6(self):
+        lite = self._calc("seed-2.0-lite", 1000, 1000)
+        full = self._calc("seed-1.6", 1000, 1000)
+        self.assertLess(lite, full)
 
     # ── Haiku is cheaper than Sonnet ────────────────────────────────────────
 

@@ -13,7 +13,7 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class ModelConfig:
-    provider: str  # "openai" | "anthropic" | "google" | "x-ai"
+    provider: str  # "openai" | "anthropic" | "google" | "x-ai" | "bytedance"
     api_name: str  # model name sent to provider API
     input_price_usd: Decimal  # USD per token
     output_price_usd: Decimal  # USD per token
@@ -227,6 +227,26 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.0000015"),
     )
 
+    # ── ByteDance (BytePlus ModelArk, OpenAI-compatible) ────────────────
+    SEED_1_6 = ModelConfig(
+        provider="bytedance",
+        api_name="seed-1-6-250615",
+        input_price_usd=Decimal("0.0000008"),
+        output_price_usd=Decimal("0.000008"),
+    )
+    SEED_1_8 = ModelConfig(
+        provider="bytedance",
+        api_name="seed-1-8-251228",
+        input_price_usd=Decimal("0.0000008"),
+        output_price_usd=Decimal("0.000008"),
+    )
+    SEED_2_0_LITE = ModelConfig(
+        provider="bytedance",
+        api_name="seed-2-0-lite-260228",
+        input_price_usd=Decimal("0.0000004"),
+        output_price_usd=Decimal("0.0000016"),
+    )
+
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──
     GROK_3_MINI = ModelConfig(
         provider="x-ai",
@@ -285,6 +305,13 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "grok-4.20-reasoning": SupportedModel.GROK_4_20_REASONING,
     "grok-4.20-non-reasoning": SupportedModel.GROK_4_20_NON_REASONING,
     "grok-code-fast-1": SupportedModel.GROK_CODE_FAST_1,
+    # ByteDance
+    "seed-1-6-250615": SupportedModel.SEED_1_6,
+    "seed-1.6": SupportedModel.SEED_1_6,
+    "seed-1-8-251228": SupportedModel.SEED_1_8,
+    "seed-1.8": SupportedModel.SEED_1_8,
+    "seed-2-0-lite-260228": SupportedModel.SEED_2_0_LITE,
+    "seed-2.0-lite": SupportedModel.SEED_2_0_LITE,
     # Legacy — not in current SDK, retained for older SDK versions
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
     "grok-3-mini": SupportedModel.GROK_3_MINI,

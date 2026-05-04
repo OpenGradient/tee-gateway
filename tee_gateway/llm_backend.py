@@ -47,10 +47,14 @@ _LIMITS = httpx.Limits(
     keepalive_expiry=60 * 20,  # 20 minutes
 )
 
+# BytePlus ModelArk OpenAI-compatible endpoint (ap-southeast)
+BYTEDANCE_BASE_URL = "https://ark.ap-southeast.bytepluses.com/api/v3"
+
 # Shared synchronous HTTP clients for each provider.
 # Initialized to None; built by set_provider_config() after key injection.
 openai_http_client: Optional[httpx.Client] = None
 xai_http_client: Optional[httpx.Client] = None
+bytedance_http_client: Optional[httpx.Client] = None
 
 
 _provider_config: Optional[ProviderConfig] = None
@@ -58,10 +62,11 @@ _provider_config: Optional[ProviderConfig] = None
 
 def set_provider_config(config: ProviderConfig) -> None:
     """Store the provider config and rebuild HTTP clients. Called once after key injection."""
-    global _provider_config, openai_http_client, xai_http_client
+    global _provider_config, openai_http_client, xai_http_client, bytedance_http_client
 
     old_openai = openai_http_client
     old_xai = xai_http_client
+    old_bytedance = bytedance_http_client
 
     openai_http_client = httpx.Client(
         base_url="https://api.openai.com/v1",
@@ -79,6 +84,14 @@ def set_provider_config(config: ProviderConfig) -> None:
         http2=True,
         follow_redirects=False,
     )
+    bytedance_http_client = httpx.Client(
+        base_url=BYTEDANCE_BASE_URL,
+        headers={"Authorization": f"Bearer {config.bytedance_api_key or ''}"},
+        timeout=_TIMEOUT,
+        limits=_LIMITS,
+        http2=True,
+        follow_redirects=False,
+    )
 
     get_chat_model_cached.cache_clear()
     _provider_config = config
@@ -87,6 +100,8 @@ def set_provider_config(config: ProviderConfig) -> None:
         old_openai.close()
     if old_xai is not None:
         old_xai.close()
+    if old_bytedance is not None:
+        old_bytedance.close()
 
 
 def get_provider_config() -> Optional[ProviderConfig]:
@@ -179,6 +194,28 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
             streaming=True,
             stream_usage=True,
         )
+
+    elif provider == "bytedance":
+        if not config.bytedance_api_key:
+            raise ValueError("bytedance_api_key not set in ProviderConfig")
+
+        if bytedance_http_client is None:
+            raise RuntimeError("ByteDance HTTP client has not been initialized")
+
+        return ChatOpenAI(
+            model=api_name,
+            temperature=effective_temp,
+            max_tokens=max_tokens,
+            http_client=bytedance_http_client,
+            api_key=SecretStr(config.bytedance_api_key),
+            base_url=BYTEDANCE_BASE_URL,
+            streaming=True,
+            stream_usage=True,
+            extra_body={
+                "thinking": {"type": "enabled"},
+                "reasoning_effort": "low",
+            },
+        )  # type: ignore [call-arg]
 
     else:
         raise ValueError(f"Unsupported provider: {provider}")

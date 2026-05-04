@@ -18,7 +18,7 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 
 ## Features
 
-- **Multi-provider routing** - OpenAI, Anthropic, Google Gemini, xAI Grok
+- **Multi-provider routing** - OpenAI, Anthropic, Google Gemini, xAI Grok, ByteDance (BytePlus ModelArk)
 - **Remote attestation** - AWS Nitro attestation documents with PCR measurements
 - **Response signing** - RSA-PSS signatures on all inference results
 - **Request integrity** - SHA256 hash of original request included in signed response
@@ -33,6 +33,7 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 | Anthropic | claude-sonnet-4-5, claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-5, claude-opus-4-6 |
 | Google | gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview |
 | xAI | grok-4, grok-4-fast, grok-4-1-fast, grok-4-1-fast-non-reasoning |
+| ByteDance | seed-1.6, seed-1.8, seed-2.0-lite |
 
 ## Quick Start
 
@@ -47,6 +48,7 @@ export OPENAI_API_KEY=sk-...
 export ANTHROPIC_API_KEY=sk-ant-...
 export GOOGLE_API_KEY=...
 export XAI_API_KEY=...
+export ARK_API_KEY=...   # BytePlus / ByteDance ModelArk
 
 # Run server (starts the Flask/connexion app on port 8000)
 make test-local
@@ -288,6 +290,7 @@ Clients use an x402-compatible client (e.g., the [x402 SDK](https://github.com/o
 | `ANTHROPIC_API_KEY` | - | Anthropic API key |
 | `GOOGLE_API_KEY` | - | Google AI API key |
 | `XAI_API_KEY` | - | xAI API key |
+| `ARK_API_KEY` | - | BytePlus / ByteDance ModelArk API key (injected as `bytedance_api_key`) |
 | `EVM_PAYMENT_ADDRESS` | - | Wallet address to receive x402 payments |
 | `FACILITATOR_URL` | see `tee_gateway/__main__.py` | x402 payment facilitator endpoint |
 

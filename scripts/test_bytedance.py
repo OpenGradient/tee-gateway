@@ -33,10 +33,10 @@ def main() -> int:
 
     set_provider_config(ProviderConfig(bytedance_api_key=key))
 
-    chat = get_chat_model_cached(model=model, temperature=0.2, max_tokens=128)
+    chat = get_chat_model_cached(model=model, temperature=0.2, max_tokens=1000)
     print(f"Instantiated: {type(chat).__name__}")
 
-    response = chat.invoke([HumanMessage(content="Reply with exactly: pong")])
+    response = chat.invoke([HumanMessage(content="What model are you?")])
     print("---- response ----")
     print(response.content)
     print("---- usage ----")

@@ -29,6 +29,21 @@ class ProviderConfig:
     xai_api_key: Optional[str] = None
     bytedance_api_key: Optional[str] = None
 
+    def initialized_providers(self) -> list[str]:
+        """Return provider names whose API key is set (non-empty)."""
+        providers = []
+        if self.openai_api_key:
+            providers.append("openai")
+        if self.anthropic_api_key:
+            providers.append("anthropic")
+        if self.google_api_key:
+            providers.append("google")
+        if self.xai_api_key:
+            providers.append("xai")
+        if self.bytedance_api_key:
+            providers.append("bytedance")
+        return providers
+
 
 @dataclass(frozen=True)
 class HeartbeatConfig:

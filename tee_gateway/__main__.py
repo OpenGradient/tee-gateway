@@ -393,21 +393,7 @@ def set_provider_keys():
 
 def health():
     cfg = get_provider_config()
-    providers = (
-        sorted(
-            name
-            for name, key in {
-                "openai": cfg.openai_api_key if cfg else None,
-                "anthropic": cfg.anthropic_api_key if cfg else None,
-                "google": cfg.google_api_key if cfg else None,
-                "xai": cfg.xai_api_key if cfg else None,
-                "bytedance": cfg.bytedance_api_key if cfg else None,
-            }.items()
-            if key
-        )
-        if cfg
-        else []
-    )
+    providers = cfg.initialized_providers() if cfg else []
 
     tee_info: dict[str, str | None] = {"tee_id": None, "wallet_address": None}
     try:

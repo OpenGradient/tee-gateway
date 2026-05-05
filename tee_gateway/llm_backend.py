@@ -211,10 +211,6 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
             base_url=BYTEDANCE_BASE_URL,
             streaming=True,
             stream_usage=True,
-            extra_body={
-                "thinking": {"type": "enabled"},
-                "reasoning_effort": "low",
-            },
         )  # type: ignore [call-arg]
 
     else:

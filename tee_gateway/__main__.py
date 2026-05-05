@@ -395,13 +395,6 @@ def health():
     cfg = get_provider_config()
     providers = cfg.initialized_providers() if cfg else []
 
-    heartbeat_info: dict[str, object] = {"enabled": False}
-    if _heartbeat_service is not None:
-        try:
-            heartbeat_info = {"enabled": True, **_heartbeat_service.status()}
-        except Exception as e:
-            heartbeat_info = {"enabled": True, "error": type(e).__name__}
-
     return {
         "status": "OK",
         "version": _gateway_version(),
@@ -409,7 +402,6 @@ def health():
         "uptime_seconds": int(time.time() - _started_at),
         "providers": providers,
         "facilitator_url": _active_facilitator_url,
-        "heartbeat": heartbeat_info,
         "price_feed": _price_feed.get_status(),
     }, 200
 

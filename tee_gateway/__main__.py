@@ -395,16 +395,6 @@ def health():
     cfg = get_provider_config()
     providers = cfg.initialized_providers() if cfg else []
 
-    tee_info: dict[str, str | None] = {"tee_id": None, "wallet_address": None}
-    try:
-        tee_keys = get_tee_keys()
-        tee_info = {
-            "tee_id": f"0x{tee_keys.get_tee_id()}",
-            "wallet_address": tee_keys.get_wallet_address(),
-        }
-    except Exception as e:
-        logger.warning("health: TEE keys unavailable: %s", e)
-
     heartbeat_info: dict[str, object] = {"enabled": False}
     if _heartbeat_service is not None:
         try:
@@ -417,10 +407,8 @@ def health():
         "version": _gateway_version(),
         "tee_enabled": True,
         "uptime_seconds": int(time.time() - _started_at),
-        "keys_initialized": _keys_initialized,
         "providers": providers,
         "facilitator_url": _active_facilitator_url,
-        "tee": tee_info,
         "heartbeat": heartbeat_info,
         "price_feed": _price_feed.get_status(),
     }, 200

@@ -7,7 +7,9 @@ import logging
 import sys
 import os
 import threading
+import time
 import atexit
+from importlib.metadata import PackageNotFoundError, version as pkg_version
 
 import connexion
 from flask import jsonify, request
@@ -19,7 +21,7 @@ from tee_gateway.config import (
     DEFAULT_HEARTBEAT_BUFFER,
     DEFAULT_HEARTBEAT_INTERVAL,
 )
-from tee_gateway.llm_backend import set_provider_config
+from tee_gateway.llm_backend import get_provider_config, set_provider_config
 from tee_gateway.heartbeat import create_heartbeat_service
 
 from x402.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
@@ -115,6 +117,18 @@ atexit.register(_shutdown_heartbeat)
 # ---------------------------------------------------------------------------
 _price_feed = OPGPriceFeed()
 _price_feed.start()
+
+_started_at = time.time()
+
+
+def _gateway_version() -> str:
+    try:
+        return pkg_version("tee-gateway")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+_active_facilitator_url: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +268,7 @@ def set_provider_keys():
     x402 payment verification and the heartbeat relay), and optional heartbeat
     parameters. Can only be called once; subsequent calls return HTTP 409.
     """
-    global _keys_initialized
+    global _keys_initialized, _active_facilitator_url
 
     with _keys_lock:
         if _keys_initialized:
@@ -353,6 +367,7 @@ def set_provider_keys():
 
         _init_payment_middleware(facilitator_url)
 
+        _active_facilitator_url = facilitator_url
         _keys_initialized = True
 
     providers_set = [
@@ -377,10 +392,16 @@ def set_provider_keys():
 
 
 def health():
+    cfg = get_provider_config()
+    providers = cfg.initialized_providers() if cfg else []
+
     return {
         "status": "OK",
-        "version": "1.0.0",
+        "version": _gateway_version(),
         "tee_enabled": True,
+        "uptime_seconds": int(time.time() - _started_at),
+        "providers": providers,
+        "facilitator_url": _active_facilitator_url,
         "price_feed": _price_feed.get_status(),
     }, 200
 

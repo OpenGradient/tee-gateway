@@ -79,4 +79,7 @@ def create_completion(body):
 
     except Exception as e:
         logger.error(f"Completion error: {str(e)}", exc_info=True)
-        return {"error": "Request processing failed"}, 500
+        return {
+            "error": "Request processing failed",
+            "exception_type": type(e).__name__,
+        }, 500

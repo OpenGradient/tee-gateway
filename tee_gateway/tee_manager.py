@@ -17,6 +17,8 @@ from cryptography.hazmat.backends import default_backend
 from eth_account import Account
 from eth_hash.auto import keccak
 
+from tee_gateway import ohttp
+
 logger = logging.getLogger(__name__)
 
 NITRIDING_BASE_URL = "http://127.0.0.1:8080"
@@ -36,6 +38,11 @@ class TEEKeyManager:
         self.public_key_pem = None
         self.tee_id = None
         self.wallet_address = None
+        # HPKE keypair for OHTTP-style anonymous inference. Generated in the
+        # same enclave boot so the X25519 public key is covered by the same
+        # attestation that covers the RSA signing key.
+        self.hpke_private_key = None
+        self.hpke_public_key_raw: bytes | None = None
         self._generate_keys()
         if register:
             self.register_with_nitriding()
@@ -70,19 +77,39 @@ class TEEKeyManager:
         wallet_account = Account.from_key(wallet_key_bytes)
         self.wallet_address = wallet_account.address
 
+        # HPKE X25519 keypair — never leaves the enclave; clients address it
+        # via the public-key fingerprint published with the attestation.
+        self.hpke_private_key, self.hpke_public_key_raw = ohttp.generate_keypair()
+
         logger.info("TEE key pair generated successfully")
         logger.info(f"tee_id: 0x{self.tee_id}")
         logger.info(f"wallet_address: {self.wallet_address}")
+        logger.info(
+            f"hpke_public_key (X25519, raw, hex): {self.hpke_public_key_raw.hex()}"
+        )
 
     def register_with_nitriding(self):
-        """Register public key hash with nitriding."""
+        """Register public key hash with nitriding.
+
+        The hash covers both the RSA signing key (DER-encoded SPKI) and the
+        raw X25519 HPKE public key. Including both in a single attested digest
+        means a verifier who validates the attestation document automatically
+        gets binding for the HPKE config used for anonymous inference — no
+        separate trust anchor required.
+        """
         try:
             public_key_der = self.public_key.public_bytes(
                 encoding=serialization.Encoding.DER,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
 
-            key_hash = hashlib.sha256(public_key_der).digest()
+            # Domain-separated transcript so a future addition of more keys
+            # can't be confused with the existing layout.
+            transcript = (
+                b"og-tee-keys|v2|rsa-spki=" + public_key_der
+                + b"|hpke-x25519=" + (self.hpke_public_key_raw or b"")
+            )
+            key_hash = hashlib.sha256(transcript).digest()
             key_hash_b64 = base64.b64encode(key_hash).decode("utf-8")
 
             logger.info(f"Public key DER length: {len(public_key_der)} bytes")
@@ -149,12 +176,34 @@ class TEEKeyManager:
         """Return the TEE-generated Ethereum wallet address (checksum)."""
         return self.wallet_address
 
+    def get_hpke_config(self) -> dict:
+        """Return the HPKE key configuration for anonymous inference.
+
+        ``key_config`` is the RFC 9458 §3 binary key-config blob, base64-encoded.
+        Clients should treat this as authoritative only when fetched alongside
+        the Nitro attestation document (which commits to the same key hash via
+        nitriding registration).
+        """
+        if self.hpke_public_key_raw is None:
+            raise RuntimeError("HPKE keypair not initialized")
+        return {
+            "key_id": ohttp.KEY_CONFIG_ID,
+            "kem_id": ohttp.KEM_ID_X25519,
+            "kdf_id": ohttp.KDF_ID_HKDF_SHA256,
+            "aead_id": ohttp.AEAD_ID_CHACHA20_POLY1305,
+            "public_key": self.hpke_public_key_raw.hex(),
+            "key_config": base64.b64encode(
+                ohttp.key_config(self.hpke_public_key_raw)
+            ).decode("ascii"),
+        }
+
     def get_attestation_document(self) -> dict:
         """Return TEE attestation document."""
         return {
             "public_key": self.public_key_pem,
             "tee_id": f"0x{self.tee_id}",
             "wallet_address": self.wallet_address,
+            "hpke": self.get_hpke_config() if self.hpke_public_key_raw else None,
             "timestamp": datetime.now(UTC).isoformat(),
             "enclave_info": {
                 "platform": "aws-nitro",

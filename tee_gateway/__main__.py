@@ -23,6 +23,10 @@ from tee_gateway.config import (
 )
 from tee_gateway.llm_backend import get_provider_config, set_provider_config
 from tee_gateway.heartbeat import create_heartbeat_service
+from tee_gateway.controllers.ohttp_controller import (
+    create_anonymous_chat_completion,
+    get_hpke_config,
+)
 
 from x402.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
 from x402.http.middleware.flask import payment_middleware
@@ -435,6 +439,20 @@ def create_app():
     )
     app.app.add_url_rule(
         "/heartbeat/status", "heartbeat-status", heartbeat_status, methods=["GET"]
+    )
+
+    # Anonymous inference (OHTTP-wrapped chat completions). Deliberately
+    # mounted via add_url_rule rather than the OpenAPI spec because the body
+    # is raw binary and connexion's request-validation pipeline would reject
+    # it as malformed JSON.
+    app.app.add_url_rule(
+        "/v1/ohttp",
+        "anonymous-chat",
+        create_anonymous_chat_completion,
+        methods=["POST"],
+    )
+    app.app.add_url_rule(
+        "/v1/ohttp/config", "ohttp-config", get_hpke_config, methods=["GET"]
     )
 
     # Initialize TEE here so it runs under both Gunicorn and direct execution.

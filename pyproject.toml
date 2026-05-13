@@ -34,6 +34,7 @@ dependencies = [
     "psutil>=7.2.1",
     "python-dotenv>=1.2.1",
     "eth-account>=0.13.0",
+    "pyhpke>=0.6.0",
 ]
 
 [dependency-groups]

@@ -12,7 +12,7 @@ import atexit
 from importlib.metadata import PackageNotFoundError, version as pkg_version
 
 import connexion
-from flask import jsonify, request
+from flask import g, jsonify, request
 from tee_gateway import encoder
 from tee_gateway.tee_manager import initialize_tee, get_tee_keys
 from tee_gateway.config import (
@@ -37,15 +37,18 @@ from x402.server import x402ResourceServerSync
 from x402.session import SessionStore
 import x402.http.middleware.flask as x402_flask
 
-from .util import calculate_session_cost
+from .util import calculate_session_cost, get_payment_asset_address
 from .model_registry import get_model_config
 from .price_feed import OPGPriceFeed
 from .definitions import (
     EVM_PAYMENT_ADDRESS,
     BASE_MAINNET_NETWORK,
     BASE_MAINNET_OPG_ADDRESS,
+    BASE_MAINNET_USDC_ADDRESS,
     CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
+    CHAT_COMPLETIONS_USDC_SESSION_MAX_SPEND,
     COMPLETIONS_OPG_SESSION_MAX_SPEND,
+    COMPLETIONS_USDC_SESSION_MAX_SPEND,
     FACILITATOR_URL,
 )
 
@@ -195,22 +198,36 @@ def _init_payment_middleware(facilitator_url: str) -> None:
     server.register(BASE_MAINNET_NETWORK, ExactEvmServerScheme())
     server.register(BASE_MAINNET_NETWORK, UptoEvmServerScheme())
 
+    def _upto_payment_option(amount: str, asset: str, name: str, version: str):
+        return PaymentOption(
+            scheme="upto",
+            pay_to=EVM_PAYMENT_ADDRESS,
+            price=AssetAmount(
+                amount=amount,
+                asset=asset,
+                extra={
+                    "name": name,
+                    "version": version,
+                    "assetTransferMethod": "permit2",
+                },
+            ),
+            network=BASE_MAINNET_NETWORK,
+        )
+
     routes = {
         "POST /v1/chat/completions": RouteConfig(
             accepts=[
-                PaymentOption(
-                    scheme="upto",
-                    pay_to=EVM_PAYMENT_ADDRESS,
-                    price=AssetAmount(
-                        amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
-                        asset=BASE_MAINNET_OPG_ADDRESS,
-                        extra={
-                            "name": "OpenGradient",
-                            "version": "1",
-                            "assetTransferMethod": "permit2",
-                        },
-                    ),
-                    network=BASE_MAINNET_NETWORK,
+                _upto_payment_option(
+                    CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
+                    BASE_MAINNET_OPG_ADDRESS,
+                    "OpenGradient",
+                    "1",
+                ),
+                _upto_payment_option(
+                    CHAT_COMPLETIONS_USDC_SESSION_MAX_SPEND,
+                    BASE_MAINNET_USDC_ADDRESS,
+                    "USD Coin",
+                    "2",
                 ),
             ],
             extensions={
@@ -221,19 +238,17 @@ def _init_payment_middleware(facilitator_url: str) -> None:
         ),
         "POST /v1/completions": RouteConfig(
             accepts=[
-                PaymentOption(
-                    scheme="upto",
-                    pay_to=EVM_PAYMENT_ADDRESS,
-                    price=AssetAmount(
-                        amount=COMPLETIONS_OPG_SESSION_MAX_SPEND,
-                        asset=BASE_MAINNET_OPG_ADDRESS,
-                        extra={
-                            "name": "OpenGradient",
-                            "version": "1",
-                            "assetTransferMethod": "permit2",
-                        },
-                    ),
-                    network=BASE_MAINNET_NETWORK,
+                _upto_payment_option(
+                    COMPLETIONS_OPG_SESSION_MAX_SPEND,
+                    BASE_MAINNET_OPG_ADDRESS,
+                    "OpenGradient",
+                    "1",
+                ),
+                _upto_payment_option(
+                    COMPLETIONS_USDC_SESSION_MAX_SPEND,
+                    BASE_MAINNET_USDC_ADDRESS,
+                    "USD Coin",
+                    "2",
                 ),
             ],
             extensions={
@@ -472,11 +487,26 @@ application = create_app()
 def _check_pricing_ready():
     if request.path not in ("/v1/chat/completions", "/v1/completions"):
         return
+
+    payment_requirements = getattr(g, "payment_requirements", None)
     try:
-        _price_feed.get_price()
+        payment_asset = (
+            get_payment_asset_address(payment_requirements)
+            if payment_requirements is not None
+            else None
+        )
     except ValueError as exc:
-        logger.warning("Rejecting inference request — price feed unavailable: %s", exc)
+        logger.warning("Rejecting inference request — invalid payment asset: %s", exc)
         return jsonify({"error": f"Pricing unavailable: {exc}"}), 503
+
+    if payment_asset is None or payment_asset.lower() == BASE_MAINNET_OPG_ADDRESS.lower():
+        try:
+            _price_feed.get_price()
+        except ValueError as exc:
+            logger.warning(
+                "Rejecting inference request — price feed unavailable: %s", exc
+            )
+            return jsonify({"error": f"Pricing unavailable: {exc}"}), 503
 
     body = request.get_json(silent=True, cache=True) or {}
     model = body.get("model")

@@ -155,6 +155,7 @@ def _deserialize_dict(data, boxed_type):
 
 from tee_gateway.definitions import (  # noqa: E402
     ASSET_DECIMALS_BY_ADDRESS,
+    ASSET_FIXED_USD_PRICE_BY_ADDRESS,
 )
 from tee_gateway.model_registry import get_model_config  # noqa: E402
 
@@ -243,7 +244,7 @@ def _extract_model_from_context(
     return normalized
 
 
-def _extract_asset_decimals_from_requirements(payment_requirements: Any) -> int:
+def get_payment_asset_address(payment_requirements: Any) -> str:
     req = _as_dict(payment_requirements) or {}
 
     asset = req.get("asset")
@@ -256,6 +257,11 @@ def _extract_asset_decimals_from_requirements(payment_requirements: Any) -> int:
             f"cannot determine token decimals: {req!r}"
         )
 
+    return asset
+
+
+def _extract_asset_decimals_from_requirements(payment_requirements: Any) -> int:
+    asset = get_payment_asset_address(payment_requirements)
     asset_lower = asset.lower()
     if asset_lower not in ASSET_DECIMALS_BY_ADDRESS:
         raise ValueError(
@@ -265,13 +271,24 @@ def _extract_asset_decimals_from_requirements(payment_requirements: Any) -> int:
     return ASSET_DECIMALS_BY_ADDRESS[asset_lower]
 
 
+def _token_price_usd_for_asset(
+    asset_address: str,
+    get_price: Callable[[], Decimal],
+) -> Decimal:
+    fixed_price = ASSET_FIXED_USD_PRICE_BY_ADDRESS.get(asset_address.lower())
+    if fixed_price is not None:
+        return Decimal(fixed_price)
+    return get_price()
+
+
 def calculate_session_cost(
     context: dict[str, Any], get_price: Callable[[], Decimal]
 ) -> int:
     """Calculate the x402 session cost in token smallest units for a completed request.
 
-    ``get_price`` is called on every invocation to fetch the current OPG/USD
-    price — pass ``price_feed.get_price`` so the latest cached value is used.
+    ``get_price`` is called for floating-price assets such as OPG to fetch the
+    current token/USD price. Fixed-price assets such as USDC use their configured
+    USD price directly.
     Raises ``ValueError`` on any missing/invalid data.  Predictable failures
     (unavailable price, unknown model) are blocked before inference by the
     pre-inference gate in ``__main__.py``; post-inference failures are logged
@@ -292,14 +309,14 @@ def calculate_session_cost(
     total_usd = (Decimal(input_tokens) * cfg.input_price_usd) + (
         Decimal(output_tokens) * cfg.output_price_usd
     )
-    token_price_usd = get_price()
+    payment_requirements = context.get("payment_requirements")
+    asset_address = get_payment_asset_address(payment_requirements)
+    decimals = _extract_asset_decimals_from_requirements(payment_requirements)
+    token_price_usd = _token_price_usd_for_asset(asset_address, get_price)
     if token_price_usd <= 0:
         raise ValueError(f"Token price is non-positive: {token_price_usd}")
 
     token_amount = total_usd / token_price_usd
-    decimals = _extract_asset_decimals_from_requirements(
-        context.get("payment_requirements")
-    )
     scale = Decimal(10) ** decimals
     cost_smallest_units = int(
         (token_amount * scale).to_integral_value(rounding=ROUND_CEILING)
@@ -307,11 +324,12 @@ def calculate_session_cost(
 
     logger.info(
         "DYNAMIC_SESSION_COST model=%s input_tokens=%d output_tokens=%d "
-        "total_usd=%s token_price_usd=%s decimals=%d cost=%d",
+        "total_usd=%s asset=%s token_price_usd=%s decimals=%d cost=%d",
         model,
         input_tokens,
         output_tokens,
         str(total_usd),
+        asset_address,
         str(token_price_usd),
         decimals,
         cost_smallest_units,

@@ -10,8 +10,9 @@ Tests verify that:
 
 import unittest
 from decimal import Decimal
+from unittest.mock import MagicMock
 
-from tee_gateway.definitions import BASE_MAINNET_OPG_ADDRESS
+from tee_gateway.definitions import BASE_MAINNET_OPG_ADDRESS, BASE_MAINNET_USDC_ADDRESS
 from tee_gateway.model_registry import (
     _MODEL_LOOKUP,
     get_model_config,
@@ -31,6 +32,11 @@ _get_price = lambda: _OPG_PRICE_USD  # noqa: E731
 def _opg_requirements() -> dict:
     """Fake PaymentRequirements dict for OPG (18 decimals)."""
     return {"asset": BASE_MAINNET_OPG_ADDRESS, "amount": "50000000000000000"}
+
+
+def _usdc_requirements() -> dict:
+    """Fake PaymentRequirements dict for Base USDC (6 decimals)."""
+    return {"asset": BASE_MAINNET_USDC_ADDRESS, "amount": "100000"}
 
 
 def _ctx(model: str, input_tokens: int, output_tokens: int, requirements=None) -> dict:
@@ -59,6 +65,18 @@ def _expected_cost_opg(model: str, input_tokens: int, output_tokens: int) -> int
         + Decimal(output_tokens) * cfg.output_price_usd
     )
     return int((total_usd * Decimal(10**18)).to_integral_value(rounding=ROUND_CEILING))
+
+
+def _expected_cost_usdc(model: str, input_tokens: int, output_tokens: int) -> int:
+    """Compute expected cost in USDC smallest units (6 decimals, ROUND_CEILING)."""
+    from decimal import ROUND_CEILING
+
+    cfg = get_model_config(model)
+    total_usd = (
+        Decimal(input_tokens) * cfg.input_price_usd
+        + Decimal(output_tokens) * cfg.output_price_usd
+    )
+    return int((total_usd * Decimal(10**6)).to_integral_value(rounding=ROUND_CEILING))
 
 
 # ---------------------------------------------------------------------------
@@ -575,6 +593,40 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         fast = self._calc("grok-4-fast", 1000, 1000)
         full = self._calc("grok-4", 1000, 1000)
         self.assertLess(fast, full)
+
+
+class TestCalculateSessionCostUSDC(unittest.TestCase):
+    """calculate_session_cost with Base USDC (6 decimals, fixed $1 price)."""
+
+    def _calc(self, model, input_tokens, output_tokens, get_price=_get_price):
+        return calculate_session_cost(
+            _ctx(model, input_tokens, output_tokens, _usdc_requirements()), get_price
+        )
+
+    def test_gpt_4_1_cost(self):
+        cost = self._calc("gpt-4.1", 1000, 500)
+        expected = _expected_cost_usdc("gpt-4.1", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 0.006 USD = 0.006 USDC = 6000 USDC base units.
+        self.assertEqual(cost, 6_000)
+
+    def test_gpt_4_1_mini_cost(self):
+        cost = self._calc("gpt-4.1-mini", 1000, 500)
+        expected = _expected_cost_usdc("gpt-4.1-mini", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 0.0012 USD = 0.0012 USDC = 1200 USDC base units.
+        self.assertEqual(cost, 1_200)
+
+    def test_usdc_does_not_call_opg_price_feed(self):
+        get_price = MagicMock(side_effect=AssertionError("OPG feed not needed"))
+        cost = self._calc("gpt-4.1", 1000, 500, get_price)
+        self.assertEqual(cost, 6_000)
+        get_price.assert_not_called()
+
+    def test_rounding_ceiling_for_sub_unit_usdc_costs(self):
+        cost = self._calc("gemini-2.5-flash-lite", 1, 0)
+        # 0.0000001 USD * 10^6 USDC units = 0.1, rounded up to 1.
+        self.assertEqual(cost, 1)
 
 
 class TestCalculateSessionCostEdgeCases(unittest.TestCase):

@@ -276,7 +276,7 @@ This gateway uses [x402](https://github.com/opengradient/x402) micropayments for
 To operate your own gateway:
 1. Set `EVM_PAYMENT_ADDRESS` to your wallet address in `.env`
 2. Set `FACILITATOR_URL` to point to your facilitator service (or use the default)
-3. Configure payment amounts in `tee_gateway/definitions.py` (`CHAT_COMPLETIONS_USDC_AMOUNT`, etc.)
+3. Configure payment caps in `tee_gateway/definitions.py` (`CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND`, `CHAT_COMPLETIONS_USDC_SESSION_MAX_SPEND`, etc.)
 
 Clients use an x402-compatible client (e.g., the [x402 SDK](https://github.com/opengradient/x402)) to authorize payments and include them in request headers.
 

@@ -24,7 +24,7 @@ FACILITATOR_URL = os.getenv("FACILITATOR_URL", "https://facilitator.memchat.io")
 # ---------------------------------------------------------------------------
 
 
-# Base Mainnet — where OPG payments are accepted
+# Base Mainnet — where OPG and USDC payments are accepted
 BASE_MAINNET_NETWORK: str = "eip155:8453"
 
 # ---------------------------------------------------------------------------
@@ -46,6 +46,9 @@ EVM_PAYMENT_ADDRESS: str = os.getenv(
 # OpenGradient token (OPG) on Base Mainnet
 BASE_MAINNET_OPG_ADDRESS: str = "0xFbC2051AE2265686a469421b2C5A2D5462FbF5eB"
 
+# Native USDC on Base Mainnet
+BASE_MAINNET_USDC_ADDRESS: str = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+
 # ---------------------------------------------------------------------------
 # Token decimal places
 # ---------------------------------------------------------------------------
@@ -53,10 +56,16 @@ BASE_MAINNET_OPG_ADDRESS: str = "0xFbC2051AE2265686a469421b2C5A2D5462FbF5eB"
 # Maps lowercase contract address → number of decimals for unit conversion.
 ASSET_DECIMALS_BY_ADDRESS: dict[str, int] = {
     BASE_MAINNET_OPG_ADDRESS.lower(): 18,  # OPG: 18 decimals (ERC-20 standard)
+    BASE_MAINNET_USDC_ADDRESS.lower(): 6,  # USDC: 6 decimals
 }
 
 # Fallback for any asset not explicitly listed above
 DEFAULT_ASSET_DECIMALS: int = 18
+
+# Assets with fixed USD pricing. Assets not listed here use the live OPG/USD feed.
+ASSET_FIXED_USD_PRICE_BY_ADDRESS: dict[str, str] = {
+    BASE_MAINNET_USDC_ADDRESS.lower(): "1",
+}
 
 # ---------------------------------------------------------------------------
 # Pre-check / static fallback payment amounts (in token smallest units)
@@ -79,3 +88,9 @@ CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"
 # the real per-request cost is settled dynamically by dynamic_session_cost_calculator() in util.py
 # based on actual token usage, so clients are never overcharged beyond what they consumed.
 COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"
+
+# /v1/chat/completions — maximum USDC spend per session (6 decimals: 100000 = 0.1 USDC).
+CHAT_COMPLETIONS_USDC_SESSION_MAX_SPEND: str = "100000"
+
+# /v1/completions — maximum USDC spend per session (6 decimals: 100000 = 0.1 USDC).
+COMPLETIONS_USDC_SESSION_MAX_SPEND: str = "100000"

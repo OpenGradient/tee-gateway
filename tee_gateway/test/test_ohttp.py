@@ -45,8 +45,6 @@ def test_round_trip_request_and_response():
     response = b'{"ok":true}'
     sealed = ohttp.encapsulate_response(decap.response_key, decap.enc, response)
 
-    # Round-trip the response on the "client" side using the same primitives.
-    import os
     from cryptography.hazmat.primitives import hashes, hmac
     from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
     from cryptography.hazmat.primitives.kdf.hkdf import HKDFExpand

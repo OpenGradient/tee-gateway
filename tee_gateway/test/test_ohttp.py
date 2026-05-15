@@ -80,6 +80,14 @@ def test_rejects_short_input():
         ohttp.decapsulate_request(sk, b"\x01")
 
 
+def test_generate_keypair_is_independent():
+    """Each invocation must produce an independent keypair — the HPKE key
+    is intentionally not derived from any shared seed."""
+    _, pk_a = ohttp.generate_keypair()
+    _, pk_b = ohttp.generate_keypair()
+    assert pk_a != pk_b
+
+
 def test_rejects_tampered_ciphertext():
     sk, pk_raw = ohttp.generate_keypair()
     import struct

@@ -120,9 +120,8 @@ def decapsulate_request(
     plaintext = recipient.open(aead_ct, aad=b"")
 
     # Export a fresh secret bound to this HPKE context, used to derive the
-    # response AEAD key. This is the OHTTP-defined separation between the
-    # request and response halves of the same exchange.
-    response_secret = recipient.export(_LABEL_RESPONSE, _NK)
+    # response AEAD key. RFC 9458 §4.5 specifies export length max(Nn, Nk).
+    response_secret = recipient.export(_LABEL_RESPONSE, max(_NN, _NK))
     return DecapsulatedRequest(
         plaintext=plaintext, response_key=response_secret, enc=enc
     )
@@ -152,13 +151,18 @@ def encapsulate_response(response_secret: bytes, enc: bytes, plaintext: bytes) -
 
 
 def generate_keypair() -> tuple[KEMKeyInterface, bytes]:
-    """Generate an X25519 keypair for HPKE. Returns (private_key, public_key_raw).
+    """Generate a fresh X25519 keypair for HPKE.
 
-    pyhpke 0.6 derives keys from random IKM via ``kem.derive_key_pair(ikm)``,
-    which returns a ``KEMKeyPair`` wrapper. We hold onto the private side for
-    decapsulation and serialize the public side to raw 32-byte form for the
-    key configuration blob.
+    The HPKE keypair is intentionally independent of the RSA TEE signing
+    key: deriving one from the other would create a single point of
+    compromise (a leak of the RSA private key would also leak the OHTTP
+    private key, and vice versa). Both public keys are still covered by
+    the same nitriding attestation transcript, so verifiers get binding
+    without sharing key material.
+
+    pyhpke 0.6 derives the keypair from random IKM via
+    ``kem.derive_key_pair(ikm)``; we feed it ``os.urandom(32)`` so each
+    enclave boot produces an independent keypair.
     """
     pair = _SUITE.kem.derive_key_pair(os.urandom(32))
-    pk_raw = pair.public_key.to_public_bytes()
-    return pair.private_key, pk_raw
+    return pair.private_key, pair.public_key.to_public_bytes()

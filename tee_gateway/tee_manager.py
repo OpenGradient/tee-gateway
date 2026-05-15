@@ -77,8 +77,11 @@ class TEEKeyManager:
         wallet_account = Account.from_key(wallet_key_bytes)
         self.wallet_address = wallet_account.address
 
-        # HPKE X25519 keypair — never leaves the enclave; clients address it
-        # via the public-key fingerprint published with the attestation.
+        # HPKE X25519 keypair — independent random material from the RSA
+        # signing key. Both public keys are bound to the enclave by the
+        # nitriding attestation transcript (register_with_nitriding below),
+        # so verifiers still get a single attested fingerprint covering both,
+        # without sharing private-key material between them.
         self.hpke_private_key, self.hpke_public_key_raw = ohttp.generate_keypair()
 
         logger.info("TEE key pair generated successfully")

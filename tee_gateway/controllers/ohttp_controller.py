@@ -112,7 +112,41 @@ def create_anonymous_chat_completion():
     try:
         chat_body = json.loads(decap.plaintext.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return _error(400, "inner payload is not valid JSON")
+        return _seal_inner(decap, 400, {}, {"error": "inner payload is not valid JSON"})
+
+    if not isinstance(envelope, dict):
+        return _seal_inner(
+            decap, 400, {}, {"error": "inner payload must be a JSON object"}
+        )
+
+    body_obj = envelope.get("body")
+    if not isinstance(body_obj, dict):
+        return _seal_inner(
+            decap, 400, {}, {"error": "inner 'body' must be a JSON object"}
+        )
+
+    if body_obj.get("stream"):
+        # Streaming is rejected on principle: SSE re-introduces per-chunk
+        # timing/length side channels that defeat the point of sealing
+        # everything into one response.
+        return _seal_inner(
+            decap, 400, {}, {"error": "stream=true is not supported over OHTTP"}
+        )
+
+    body_obj = _scrub(body_obj)
+    body_bytes = json.dumps(body_obj, separators=(",", ":")).encode("utf-8")
+
+    payment_header = envelope.get("x-payment")
+    if payment_header is not None and not isinstance(payment_header, str):
+        return _seal_inner(
+            decap, 400, {}, {"error": "'x-payment' must be a string if present"}
+        )
+
+    status_code, response_headers, response_body = _wsgi_subrequest(
+        path="/v1/chat/completions",
+        body_bytes=body_bytes,
+        payment_header=payment_header,
+    )
 
     if not isinstance(chat_body, dict):
         return _error(400, "inner payload must be a JSON object")
@@ -133,6 +167,8 @@ def create_anonymous_chat_completion():
         body_bytes=body_bytes,
         payment_header=payment_header,
     )
+    if payment_header:
+        sub_env["HTTP_X_PAYMENT"] = payment_header
 
     return _build_outer_response(decap, sub_status, sub_headers, sub_body)
 

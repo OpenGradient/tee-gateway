@@ -20,14 +20,12 @@ def test_round_trip_request_and_response():
 
     # Build a wire payload exactly as the SDK does.
     import struct
-    hdr = (
-        bytes([ohttp.KEY_CONFIG_ID])
-        + struct.pack(
-            ">HHH",
-            ohttp.KEM_ID_X25519,
-            ohttp.KDF_ID_HKDF_SHA256,
-            ohttp.AEAD_ID_CHACHA20_POLY1305,
-        )
+
+    hdr = bytes([ohttp.KEY_CONFIG_ID]) + struct.pack(
+        ">HHH",
+        ohttp.KEM_ID_X25519,
+        ohttp.KDF_ID_HKDF_SHA256,
+        ohttp.AEAD_ID_CHACHA20_POLY1305,
     )
     info = b"message/bhttp request" + b"\x00" + hdr
     pkr = ohttp._SUITE.kem.deserialize_public_key(pk_raw)
@@ -64,8 +62,12 @@ def test_rejects_wrong_suite():
     sk, pk_raw = ohttp.generate_keypair()
     # Build a wire with the wrong AEAD ID
     import struct
+
     hdr = bytes([ohttp.KEY_CONFIG_ID]) + struct.pack(
-        ">HHH", ohttp.KEM_ID_X25519, ohttp.KDF_ID_HKDF_SHA256, 0x0001  # AES-128-GCM
+        ">HHH",
+        ohttp.KEM_ID_X25519,
+        ohttp.KDF_ID_HKDF_SHA256,
+        0x0001,  # AES-128-GCM
     )
     fake_wire = hdr + b"\x00" * 32 + b"\x00" * 16
     with pytest.raises(ValueError, match="unsupported"):
@@ -81,6 +83,7 @@ def test_rejects_short_input():
 def test_rejects_tampered_ciphertext():
     sk, pk_raw = ohttp.generate_keypair()
     import struct
+
     hdr = bytes([ohttp.KEY_CONFIG_ID]) + struct.pack(
         ">HHH",
         ohttp.KEM_ID_X25519,

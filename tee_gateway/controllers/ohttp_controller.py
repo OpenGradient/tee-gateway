@@ -111,9 +111,7 @@ def create_anonymous_chat_completion():
         separators=(",", ":"),
     ).encode("utf-8")
 
-    sealed = ohttp.encapsulate_response(
-        decap.response_key, decap.enc, inner_json
-    )
+    sealed = ohttp.encapsulate_response(decap.response_key, decap.enc, inner_json)
     return Response(
         sealed,
         status=200,

@@ -106,8 +106,10 @@ class TEEKeyManager:
             # Domain-separated transcript so a future addition of more keys
             # can't be confused with the existing layout.
             transcript = (
-                b"og-tee-keys|v2|rsa-spki=" + public_key_der
-                + b"|hpke-x25519=" + (self.hpke_public_key_raw or b"")
+                b"og-tee-keys|v2|rsa-spki="
+                + public_key_der
+                + b"|hpke-x25519="
+                + (self.hpke_public_key_raw or b"")
             )
             key_hash = hashlib.sha256(transcript).digest()
             key_hash_b64 = base64.b64encode(key_hash).decode("utf-8")

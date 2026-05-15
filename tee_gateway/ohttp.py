@@ -128,9 +128,7 @@ def decapsulate_request(
     )
 
 
-def encapsulate_response(
-    response_secret: bytes, enc: bytes, plaintext: bytes
-) -> bytes:
+def encapsulate_response(response_secret: bytes, enc: bytes, plaintext: bytes) -> bytes:
     """Seal a response under the per-request derived key (RFC 9458 §4.2).
 
     Wire format: response_nonce(max(Nn, Nk)=Nk=32) || AEAD ciphertext
@@ -142,9 +140,9 @@ def encapsulate_response(
     h.update(response_secret)
     prk = h.finalize()
 
-    aead_key = HKDFExpand(
-        algorithm=hashes.SHA256(), length=_NK, info=b"key"
-    ).derive(prk)
+    aead_key = HKDFExpand(algorithm=hashes.SHA256(), length=_NK, info=b"key").derive(
+        prk
+    )
     aead_nonce = HKDFExpand(
         algorithm=hashes.SHA256(), length=_NN, info=b"nonce"
     ).derive(prk)

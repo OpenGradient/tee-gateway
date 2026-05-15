@@ -1,39 +1,54 @@
 """
-Oblivious HTTP endpoint for anonymous inference.
+Oblivious HTTP endpoint for anonymous inference (relay-pays model).
 
-This handler is intentionally a thin shell: it does HPKE decapsulation and
-then re-issues the inner request as a real WSGI sub-request against the
-enclave's own ``/v1/chat/completions``. That means x402 payment handling,
-the pre-inference pricing gate, LangChain routing, the post-inference cost
-calculator and TEE response signing all execute via the same code paths as
-the public chat endpoint — no duplicate routing tables, no thread-local
-side channels, no parallel pricing logic. ``/v1/ohttp`` itself is NOT
-gated by x402: payment travels inside the sealed envelope as an
-``x-payment`` header on the inner request, and the gating happens
-naturally when the sub-request hits the chat endpoint.
+This handler is a thin shell: it HPKE-decapsulates the inner request, re-issues
+it as an in-process WSGI sub-request against the enclave's own
+``/v1/chat/completions``, then encapsulates the response. All x402 payment,
+LangChain routing, cost settlement and TEE response signing reuse the public
+chat code paths — there is no duplicated routing or pricing logic here.
 
-Wire format of the (HPKE-decrypted) inner payload — a JSON object:
-    {
-      "x-payment": "<base64 x402 payment payload, optional>",
-      "body":      { ... standard /v1/chat/completions JSON body ... }
-    }
+Trust / payment model:
+  * The CLIENT encrypts only an LLM chat-completion request. It does not see,
+    sign, or carry x402 payment material.
+  * A RELAY sits between the client and the enclave. The relay holds the
+    x402 wallet and forwards the (still-encrypted) inner request to the
+    enclave, attaching its own ``x-payment`` header on the OUTER HTTP
+    request.
+  * The ENCLAVE decrypts the inner payload, forwards the request to its own
+    chat endpoint with the relay's ``x-payment`` header, and returns. The
+    relay sees status, settlement headers, and token-usage headers, but
+    never sees the inner prompt or completion.
 
-Wire format of the (pre-HPKE) inner response:
-    {
-      "status":  <int>,
-      "headers": { "x-payment-response": "...", "x-upto-session": "..." },
-      "body":    <parsed JSON object or string>
-    }
+Wire format — outer HTTP request to /v1/ohttp:
+    Headers:
+        x-payment: <base64 x402 payload, supplied by the relay>
+        content-type: message/ohttp-req
+    Body: HPKE-encapsulated chat-completion JSON (just the inner body,
+          no JSON envelope — the inner payload IS the chat request).
 
-Threat model nuances:
-  * The relay in front of this endpoint sees the encapsulated ciphertext
-    and the client IP, but no request content or payment header.
-  * The enclave sees plaintext and the relay's IP, never the client's.
-  * If the inner JSON body contains identifiers (``user``, cookies,
-    custom request IDs), unlinkability is broken at the application
-    layer — we strip the obvious ones below.
-  * Streaming is intentionally rejected; the inner sub-request must
-    return a single sealed response.
+Wire format — outer HTTP response from /v1/ohttp:
+    On 2xx (inference succeeded):
+        Headers:
+            content-type: message/ohttp-res
+            x-payment-response, x-upto-session, ...   (forwarded from x402)
+            x-usage-prompt-tokens, x-usage-completion-tokens,
+            x-usage-total-tokens, x-usage-model       (so the relay can bill)
+        Body: HPKE-encapsulated chat-completion response JSON. The relay
+              cannot decrypt; only the client (who has the HPKE response
+              key from its sender context) can read prompts/completions.
+    On non-2xx (402 payment required, validation errors, etc.):
+        Body forwarded as plaintext so the relay can act on it (read x402
+        payment requirements, retry with a larger payment, surface errors
+        to the user). These bodies never contain user prompts/completions.
+
+Privacy properties:
+  * Relay sees ciphertext + relay-side wallet + token usage + relay's IP.
+    Never sees prompts, completions, or the client's IP.
+  * Enclave sees plaintext prompts/completions + relay's IP. Never sees
+    the client's IP.
+  * Unlinkability holds unless the relay and the enclave collude.
+  * Streaming is rejected; SSE re-introduces per-chunk timing/length side
+    channels that would defeat sealing.
 """
 
 from __future__ import annotations
@@ -60,8 +75,7 @@ OHTTP_RESPONSE_MEDIA_TYPE = "message/ohttp-res"
 _IDENTIFYING_FIELDS = ("user", "metadata", "x-request-id", "request_id")
 
 # Response headers we propagate from the inner /v1/chat/completions response
-# back to the client (encrypted). Includes x402 settlement metadata and
-# anything the standard chat endpoint exposes via the TEE-signed response.
+# back through the relay to the client.
 _FORWARDED_HEADER_PREFIXES = ("x-payment", "x-upto", "x-settlement", "x-tee")
 _FORWARDED_HEADER_NAMES = ("www-authenticate",)
 
@@ -96,61 +110,115 @@ def create_anonymous_chat_completion():
         return _error(400, "malformed encapsulated request")
 
     try:
-        envelope = json.loads(decap.plaintext.decode("utf-8"))
+        chat_body = json.loads(decap.plaintext.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return _seal_inner(decap, 400, {}, {"error": "inner payload is not valid JSON"})
+        return _error(400, "inner payload is not valid JSON")
 
-    if not isinstance(envelope, dict):
-        return _seal_inner(
-            decap, 400, {}, {"error": "inner payload must be a JSON object"}
-        )
+    if not isinstance(chat_body, dict):
+        return _error(400, "inner payload must be a JSON object")
 
-    body_obj = envelope.get("body")
-    if not isinstance(body_obj, dict):
-        return _seal_inner(
-            decap, 400, {}, {"error": "inner 'body' must be a JSON object"}
-        )
+    if chat_body.get("stream"):
+        return _error(400, "stream=true is not supported over OHTTP")
 
-    if body_obj.get("stream"):
-        # Streaming is rejected on principle: SSE re-introduces per-chunk
-        # timing/length side channels that defeat the point of sealing
-        # everything into one response.
-        return _seal_inner(
-            decap, 400, {}, {"error": "stream=true is not supported over OHTTP"}
-        )
+    chat_body = _scrub(chat_body)
+    body_bytes = json.dumps(chat_body, separators=(",", ":")).encode("utf-8")
 
-    body_obj = _scrub(body_obj)
-    body_bytes = json.dumps(body_obj, separators=(",", ":")).encode("utf-8")
+    # The relay pays — x-payment is a standard outer-request header, not
+    # inside the encrypted envelope. Pass it through to the inner endpoint
+    # so x402 verifies and settles exactly as it does for a normal call.
+    payment_header = flask_request.headers.get("X-Payment")
 
-    payment_header = envelope.get("x-payment")
-    if payment_header is not None and not isinstance(payment_header, str):
-        return _seal_inner(
-            decap, 400, {}, {"error": "'x-payment' must be a string if present"}
-        )
-
-    status_code, response_headers, response_body = _wsgi_subrequest(
+    sub_status, sub_headers, sub_body = _wsgi_subrequest(
         path="/v1/chat/completions",
         body_bytes=body_bytes,
         payment_header=payment_header,
     )
 
-    return _seal_inner(decap, status_code, response_headers, response_body)
+    return _build_outer_response(decap, sub_status, sub_headers, sub_body)
+
+
+def _build_outer_response(
+    decap: ohttp.DecapsulatedRequest,
+    status: int,
+    headers: list[tuple[str, str]],
+    body_bytes: bytes,
+) -> Response:
+    """Translate the inner sub-response into the outer OHTTP response.
+
+    On 2xx we seal the body (which contains user prompts/completions) and
+    surface token-usage headers so the relay can bill. On non-2xx we pass
+    through the inner body verbatim — those responses carry x402 payment
+    requirements or error messages that the relay needs to read, and never
+    contain user content.
+    """
+    forwarded = {name: value for name, value in headers if _should_forward_header(name)}
+    inner_content_type = next(
+        (v for k, v in headers if k.lower() == "content-type"),
+        "application/json",
+    )
+
+    if not (200 <= status < 300):
+        return Response(
+            body_bytes,
+            status=status,
+            headers=forwarded,
+            content_type=inner_content_type,
+        )
+
+    forwarded.update(_extract_usage_headers(body_bytes))
+    sealed = ohttp.encapsulate_response(decap.response_key, decap.enc, body_bytes)
+    return Response(
+        sealed,
+        status=status,
+        headers=forwarded,
+        mimetype=OHTTP_RESPONSE_MEDIA_TYPE,
+    )
+
+
+def _extract_usage_headers(body_bytes: bytes) -> dict[str, str]:
+    """Pull token-usage + model name out of a chat-completion response and
+    project them onto outer HTTP headers for the relay's billing pipeline.
+    These are the ONLY pieces of metadata the relay needs to charge; the
+    prompt and completion themselves stay sealed."""
+    try:
+        body = json.loads(body_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(body, dict):
+        return {}
+
+    headers: dict[str, str] = {}
+    usage = body.get("usage")
+    if isinstance(usage, dict):
+        prompt_tokens = usage.get("prompt_tokens", usage.get("input_tokens"))
+        completion_tokens = usage.get("completion_tokens", usage.get("output_tokens"))
+        total_tokens = usage.get("total_tokens")
+        if prompt_tokens is not None:
+            headers["X-Usage-Prompt-Tokens"] = str(prompt_tokens)
+        if completion_tokens is not None:
+            headers["X-Usage-Completion-Tokens"] = str(completion_tokens)
+        if total_tokens is not None:
+            headers["X-Usage-Total-Tokens"] = str(total_tokens)
+
+    model = body.get("model")
+    if isinstance(model, str):
+        headers["X-Usage-Model"] = model
+    return headers
 
 
 def _wsgi_subrequest(
     path: str,
     body_bytes: bytes,
     payment_header: str | None,
-) -> tuple[int, dict[str, str], Any]:
+) -> tuple[int, list[tuple[str, str]], bytes]:
     """Issue an in-process WSGI request through the app's full middleware stack.
 
-    Returns ``(status_code, forwarded_headers, parsed_body_or_text)``. The
-    parsed body is the decoded JSON object on JSON responses, otherwise the
-    raw response text. We invoke ``current_app.wsgi_app`` directly so the
-    x402 payment middleware (which wraps ``wsgi_app`` at injection time)
-    runs the same way it would for an external HTTP request to the same
-    path — including the pre-inference pricing gate, payment verification,
-    cost settlement and TEE response signing.
+    Returns ``(status_code, headers, body_bytes)``. We invoke
+    ``current_app.wsgi_app`` directly so the x402 payment middleware (which
+    wraps ``wsgi_app`` at injection time) runs the same way it would for an
+    external HTTP request to the same path — including the pre-inference
+    pricing gate, payment verification, cost settlement and TEE response
+    signing.
     """
     outer_env = flask_request.environ
     sub_env: dict[str, Any] = {
@@ -195,39 +263,7 @@ def _wsgi_subrequest(
             close()
 
     status_code = int(captured["status"].split(" ", 1)[0])
-    forwarded_headers = {
-        name: value
-        for name, value in captured["headers"]
-        if _should_forward_header(name)
-    }
-
-    raw_body = b"".join(body_chunks)
-    parsed_body: Any
-    if not raw_body:
-        parsed_body = ""
-    else:
-        try:
-            parsed_body = json.loads(raw_body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            parsed_body = raw_body.decode("utf-8", errors="replace")
-
-    return status_code, forwarded_headers, parsed_body
-
-
-def _seal_inner(
-    decap: ohttp.DecapsulatedRequest,
-    status_code: int,
-    headers: dict[str, str],
-    body: Any,
-) -> Response:
-    """Encapsulate a ``{status, headers, body}`` triple as an OHTTP response."""
-    plaintext = json.dumps(
-        {"status": status_code, "headers": headers, "body": body},
-        separators=(",", ":"),
-        ensure_ascii=False,
-    ).encode("utf-8")
-    sealed = ohttp.encapsulate_response(decap.response_key, decap.enc, plaintext)
-    return Response(sealed, status=200, mimetype=OHTTP_RESPONSE_MEDIA_TYPE)
+    return status_code, captured["headers"], b"".join(body_chunks)
 
 
 def get_hpke_config():
@@ -247,7 +283,8 @@ def get_hpke_config():
 
 
 def _error(status: int, message: str) -> tuple[dict, int]:
-    """Plaintext error response (not sealed) — only used before HPKE decap
-    succeeds. Once we have a recipient context we always seal errors so the
-    relay can't distinguish them from real failures."""
+    """Plaintext error for cases where we never have a recipient context
+    (empty body, malformed encapsulation). Post-decap input errors are
+    also returned plaintext so the relay can surface them to the client —
+    they never contain user prompts."""
     return {"error": message}, status

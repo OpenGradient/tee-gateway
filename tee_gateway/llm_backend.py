@@ -168,10 +168,16 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         if not config.anthropic_api_key:
             raise ValueError("anthropic_api_key not set in ProviderConfig")
 
+        # Opus 4.7+ rejects `temperature` outright (HTTP 400). Pass None so
+        # langchain-anthropic strips the field from the outgoing payload.
+        anthropic_temperature: Optional[float] = (
+            effective_temp if cfg.supports_temperature else None
+        )
+
         return ChatAnthropic(
             model=api_name,
             api_key=SecretStr(config.anthropic_api_key),
-            temperature=effective_temp,
+            temperature=anthropic_temperature,
             max_tokens=max_tokens,
             timeout=ANTHROPIC_TIMEOUT,
             streaming=True,

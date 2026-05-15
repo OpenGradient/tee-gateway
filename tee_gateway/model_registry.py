@@ -19,6 +19,9 @@ class ModelConfig:
     output_price_usd: Decimal  # USD per token
     force_temperature: Optional[float] = None
     thinking_budget: Optional[int] = None
+    # Anthropic deprecated `temperature` for Opus 4.7 — the API returns 400 if
+    # the field is present at all. Set False on models that reject it.
+    supports_temperature: bool = True
 
 
 @unique
@@ -135,6 +138,7 @@ class SupportedModel(Enum):
         api_name="claude-opus-4-7",
         input_price_usd=Decimal("0.000005"),
         output_price_usd=Decimal("0.000025"),
+        supports_temperature=False,
     )
 
     # ── Google Gemini ───────────────────────────────────────────────────

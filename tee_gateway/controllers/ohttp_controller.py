@@ -279,7 +279,7 @@ def get_hpke_config():
         return tee.get_hpke_config(), 200
     except Exception as exc:
         logger.error("HPKE config error: %s", exc, exc_info=True)
-        return {"error": str(exc)}, 500
+        return {"error": "Failed to retrieve HPKE config"}, 500
 
 
 def _error(status: int, message: str) -> tuple[dict, int]:

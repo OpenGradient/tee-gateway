@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -10,7 +11,7 @@ from tee_gateway import ohttp
 
 
 def test_round_trip_request_and_response():
-    sk, pk_raw = ohttp.generate_keypair()
+    sk, pk_raw = ohttp.derive_keypair(os.urandom(32))
 
     plaintext = json.dumps({"model": "gpt-4.1", "n": 1}).encode()
     # Encapsulate using the same code paths a client would, since pyhpke is
@@ -59,7 +60,7 @@ def test_round_trip_request_and_response():
 
 
 def test_rejects_wrong_suite():
-    sk, pk_raw = ohttp.generate_keypair()
+    sk, pk_raw = ohttp.derive_keypair(os.urandom(32))
     # Build a wire with the wrong AEAD ID
     import struct
 
@@ -75,13 +76,27 @@ def test_rejects_wrong_suite():
 
 
 def test_rejects_short_input():
-    sk, _ = ohttp.generate_keypair()
+    sk, _ = ohttp.derive_keypair(os.urandom(32))
     with pytest.raises(ValueError, match="too short"):
         ohttp.decapsulate_request(sk, b"\x01")
 
 
+def test_derive_keypair_is_deterministic():
+    seed = os.urandom(32)
+    _, pk_a = ohttp.derive_keypair(seed)
+    _, pk_b = ohttp.derive_keypair(seed)
+    assert pk_a == pk_b
+    _, pk_c = ohttp.derive_keypair(os.urandom(32))
+    assert pk_a != pk_c
+
+
+def test_derive_keypair_rejects_short_seed():
+    with pytest.raises(ValueError, match="at least 32 bytes"):
+        ohttp.derive_keypair(b"\x00" * 16)
+
+
 def test_rejects_tampered_ciphertext():
-    sk, pk_raw = ohttp.generate_keypair()
+    sk, pk_raw = ohttp.derive_keypair(os.urandom(32))
     import struct
 
     hdr = bytes([ohttp.KEY_CONFIG_ID]) + struct.pack(

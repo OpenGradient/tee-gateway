@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from typing import Any
 
 import connexion
@@ -31,6 +32,29 @@ from tee_gateway import ohttp
 from tee_gateway.tee_manager import get_tee_keys
 
 logger = logging.getLogger(__name__)
+
+# Per-thread plaintext of the in-flight OHTTP request, used to bridge the
+# encrypted request/response to the x402 token-based cost calculator. The
+# calculator runs from WSGI ``close()`` on the same worker thread (gunicorn
+# sync workers), so a thread-local is the simplest reliable handoff.
+_inner_local = threading.local()
+
+
+def _stash_inner_context(request_json: dict, response_json: dict) -> None:
+    _inner_local.value = {"request": request_json, "response": response_json}
+
+
+def consume_inner_context() -> dict[str, Any] | None:
+    """Pop the inner OHTTP plaintext for the current request. Called from the
+    x402 cost calculator. Returns None if no OHTTP request was processed on
+    this thread (i.e. the calculator was invoked for a non-OHTTP path)."""
+    value = getattr(_inner_local, "value", None)
+    if value is not None:
+        # One-shot: clearing prevents accidental reuse across requests if the
+        # same thread serves a non-OHTTP request next.
+        _inner_local.value = None
+    return value
+
 
 OHTTP_MEDIA_TYPE = "message/ohttp-req"
 OHTTP_RESPONSE_MEDIA_TYPE = "message/ohttp-res"
@@ -105,6 +129,12 @@ def create_anonymous_chat_completion():
         body_obj, status = inner_result
     else:
         body_obj, status = inner_result, 200
+
+    # Hand the plaintext request + response to the x402 cost calculator so
+    # the OHTTP request is priced by tokens like every other inference call.
+    # Only stash on successful 2xx outcomes — error responses aren't billed.
+    if 200 <= status < 300 and isinstance(body_obj, dict):
+        _stash_inner_context(inner_body, body_obj)
 
     inner_json = json.dumps(
         {"status": status, "body": body_obj},

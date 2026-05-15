@@ -120,9 +120,8 @@ def decapsulate_request(
     plaintext = recipient.open(aead_ct, aad=b"")
 
     # Export a fresh secret bound to this HPKE context, used to derive the
-    # response AEAD key. This is the OHTTP-defined separation between the
-    # request and response halves of the same exchange.
-    response_secret = recipient.export(_LABEL_RESPONSE, _NK)
+    # response AEAD key. RFC 9458 §4.5 specifies export length max(Nn, Nk).
+    response_secret = recipient.export(_LABEL_RESPONSE, max(_NN, _NK))
     return DecapsulatedRequest(
         plaintext=plaintext, response_key=response_secret, enc=enc
     )
@@ -151,14 +150,19 @@ def encapsulate_response(response_secret: bytes, enc: bytes, plaintext: bytes) -
     return response_nonce + ct
 
 
-def generate_keypair() -> tuple[KEMKeyInterface, bytes]:
-    """Generate an X25519 keypair for HPKE. Returns (private_key, public_key_raw).
+def derive_keypair(seed: bytes) -> tuple[KEMKeyInterface, bytes]:
+    """Derive an X25519 keypair deterministically from ``seed`` IKM.
 
-    pyhpke 0.6 derives keys from random IKM via ``kem.derive_key_pair(ikm)``,
-    which returns a ``KEMKeyPair`` wrapper. We hold onto the private side for
-    decapsulation and serialize the public side to raw 32-byte form for the
-    key configuration blob.
+    The seed must be at least 32 bytes of unpredictable, high-entropy material.
+    Callers in the enclave derive it from the RSA TEE key (see
+    ``tee_manager.TEEKeyManager``) so the HPKE keypair is bound to the same
+    attested key material — no separate randomness source to attest.
+
+    pyhpke's ``kem.derive_key_pair(ikm)`` performs the RFC 9180 DeriveKeyPair
+    HKDF expansion and clamping, so identical seeds always produce identical
+    keypairs.
     """
-    pair = _SUITE.kem.derive_key_pair(os.urandom(32))
-    pk_raw = pair.public_key.to_public_bytes()
-    return pair.private_key, pk_raw
+    if len(seed) < 32:
+        raise ValueError("HPKE derivation seed must be at least 32 bytes")
+    pair = _SUITE.kem.derive_key_pair(seed)
+    return pair.private_key, pair.public_key.to_public_bytes()

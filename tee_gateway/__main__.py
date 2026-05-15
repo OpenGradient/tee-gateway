@@ -23,6 +23,7 @@ from tee_gateway.config import (
 )
 from tee_gateway.llm_backend import get_provider_config, set_provider_config
 from tee_gateway.heartbeat import create_heartbeat_service
+from tee_gateway.controllers import ohttp_controller
 from tee_gateway.controllers.ohttp_controller import (
     create_anonymous_chat_completion,
     get_hpke_config,
@@ -167,6 +168,22 @@ def _session_cost_calculator(ctx: dict) -> int:
     # (e.g. missing usage field in the LLM response).  The x402 middleware
     # swallows the exception in close(), so the client is not charged.
     # Log CRITICAL so provider errors are never silently missed.
+    #
+    # For /v1/ohttp the request and response are HPKE-sealed bytes, so the
+    # middleware cannot parse JSON to populate request_json/response_json.
+    # The OHTTP handler hands the plaintext to us via a per-thread channel.
+    if ctx.get("path") == "/v1/ohttp":
+        inner = ohttp_controller.consume_inner_context()
+        if inner is None:
+            raise ValueError(
+                "OHTTP request completed without inner context — cannot price"
+            )
+        ctx = {
+            **ctx,
+            "request_json": inner["request"],
+            "response_json": inner["response"],
+        }
+
     try:
         return calculate_session_cost(ctx, _price_feed.get_price)
     except Exception as exc:
@@ -245,6 +262,34 @@ def _init_payment_middleware(facilitator_url: str) -> None:
             },
             mime_type="application/json",
             description="Completion",
+        ),
+        # OHTTP anonymous chat completions share the chat-completions max
+        # spend cap — the wrapped inner body is /v1/chat/completions, just
+        # HPKE-sealed for unlinkability against the relay. Per-token cost is
+        # settled identically via _session_cost_calculator, which reads the
+        # decrypted plaintext from the OHTTP controller's thread-local.
+        "POST /v1/ohttp": RouteConfig(
+            accepts=[
+                PaymentOption(
+                    scheme="upto",
+                    pay_to=EVM_PAYMENT_ADDRESS,
+                    price=AssetAmount(
+                        amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
+                        asset=BASE_MAINNET_OPG_ADDRESS,
+                        extra={
+                            "name": "OpenGradient",
+                            "version": "1",
+                            "assetTransferMethod": "permit2",
+                        },
+                    ),
+                    network=BASE_MAINNET_NETWORK,
+                ),
+            ],
+            extensions={
+                **declare_erc20_approval_gas_sponsoring_extension(),
+            },
+            mime_type="message/ohttp-res",
+            description="Anonymous chat completion (OHTTP)",
         ),
     }
 

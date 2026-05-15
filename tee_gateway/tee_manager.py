@@ -13,6 +13,7 @@ from datetime import datetime, UTC
 
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.backends import default_backend
 from eth_account import Account
 from eth_hash.auto import keccak
@@ -77,9 +78,27 @@ class TEEKeyManager:
         wallet_account = Account.from_key(wallet_key_bytes)
         self.wallet_address = wallet_account.address
 
-        # HPKE X25519 keypair — never leaves the enclave; clients address it
-        # via the public-key fingerprint published with the attestation.
-        self.hpke_private_key, self.hpke_public_key_raw = ohttp.generate_keypair()
+        # HPKE X25519 keypair derived deterministically from the RSA TEE key:
+        # the RSA private key is the IKM and the RSA public DER is HKDF salt,
+        # so the HPKE keypair is a function of the attested RSA key. There is
+        # no second randomness source for OHTTP — anything that attests the
+        # RSA key implicitly covers the HPKE key. Domain separator pins the
+        # derivation to this specific use ("og-tee-hpke-x25519-v1") so future
+        # additions cannot collide.
+        rsa_private_der = self.private_key.private_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        hpke_seed = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=public_key_der,
+            info=b"og-tee-hpke-x25519-v1",
+        ).derive(rsa_private_der)
+        self.hpke_private_key, self.hpke_public_key_raw = ohttp.derive_keypair(
+            hpke_seed
+        )
 
         logger.info("TEE key pair generated successfully")
         logger.info(f"tee_id: 0x{self.tee_id}")

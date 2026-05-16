@@ -178,7 +178,14 @@ def _build_outer_response(
     prompts/completions) and surfaces token usage as outer headers so the
     relay can bill. Non-2xx bodies (x402 payment requirements, validation
     errors) are forwarded as plaintext so the relay can act on them."""
-    forwarded = {name: value for name, value in headers if _should_forward_header(name)}
+    # Keep headers as a list of (name, value) tuples — WSGI gives us a list
+    # specifically because HTTP allows multi-valued headers (RFC 7230 §3.2.2;
+    # WWW-Authenticate in particular per RFC 7235 §4.1 can repeat, one per
+    # challenge scheme). Collapsing to a dict would drop duplicates silently
+    # and could lose an x402 challenge if future versions emit more than one.
+    forwarded: list[tuple[str, str]] = [
+        (name, value) for name, value in headers if _should_forward_header(name)
+    ]
 
     if not (200 <= status < 300):
         return Response(
@@ -188,7 +195,9 @@ def _build_outer_response(
             content_type=inner_content_type,
         )
 
-    forwarded.update(_extract_usage_headers(body_bytes))
+    # Usage headers come from a JSON parse — single-valued by construction —
+    # so a dict is fine internally; just project to tuples at merge time.
+    forwarded.extend(_extract_usage_headers(body_bytes).items())
     sealed = ohttp.encapsulate_response(decap.response_key, decap.enc, body_bytes)
     return Response(
         sealed,
@@ -217,7 +226,11 @@ def _build_streaming_response(
     (X-Upto-Session header, set up-front). The client reads usage from the
     final SSE event inside the decrypted stream.
     """
-    forwarded = {name: value for name, value in headers if _should_forward_header(name)}
+    # See _build_outer_response: keep as a list so duplicate HTTP header
+    # values (e.g. multiple WWW-Authenticate challenges) survive forwarding.
+    forwarded: list[tuple[str, str]] = [
+        (name, value) for name, value in headers if _should_forward_header(name)
+    ]
 
     def _stream() -> Iterator[bytes]:
         encrypter = ohttp.ChunkedResponseEncrypter(

@@ -86,6 +86,13 @@ OHTTP_RESPONSE_MEDIA_TYPE = "message/ohttp-res"
 OHTTP_CHUNKED_RESPONSE_MEDIA_TYPE = "message/ohttp-chunked-res"
 _SSE_CONTENT_TYPE = "text/event-stream"
 
+# Cap on the encapsulated request size. The inner payload is a chat-completion
+# JSON body; even with long conversation history this comfortably fits in a few
+# hundred KB. Rejecting larger bodies up-front prevents a malicious relay from
+# forcing the enclave to allocate and attempt HPKE decapsulation on arbitrarily
+# large blobs.
+_MAX_ENCAPSULATED_REQUEST_BYTES = 512 * 1024
+
 # Fields that can re-identify a client and have no role in inference. We drop
 # them before forwarding to the inner handler — keeping them inside the
 # encrypted envelope would only protect them from the relay, not from us or
@@ -111,9 +118,19 @@ def _should_forward_header(name: str) -> bool:
 
 def create_anonymous_chat_completion():
     """POST /v1/ohttp — decrypt, sub-dispatch to /v1/chat/completions, re-encrypt."""
-    raw_body: bytes = flask_request.get_data(cache=False)
+    declared_length = flask_request.content_length
+    if declared_length is not None and declared_length > _MAX_ENCAPSULATED_REQUEST_BYTES:
+        return _error(413, "encapsulated request too large")
+
+    raw_body: bytes = flask_request.get_data(
+        cache=False, parse_form_data=False
+    )
     if not raw_body:
         return _error(400, "empty body")
+    # Re-check after read in case Content-Length was absent or lied about the
+    # actual stream length (chunked transfer, malicious client).
+    if len(raw_body) > _MAX_ENCAPSULATED_REQUEST_BYTES:
+        return _error(413, "encapsulated request too large")
 
     tee = get_tee_keys()
     if tee.hpke_private_key is None:

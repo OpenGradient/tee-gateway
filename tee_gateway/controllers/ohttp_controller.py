@@ -79,7 +79,6 @@ from tee_gateway.tee_manager import get_tee_keys
 
 logger = logging.getLogger(__name__)
 
-OHTTP_MEDIA_TYPE = "message/ohttp-req"
 OHTTP_RESPONSE_MEDIA_TYPE = "message/ohttp-res"
 OHTTP_CHUNKED_RESPONSE_MEDIA_TYPE = "message/ohttp-chunked-res"
 _SSE_CONTENT_TYPE = "text/event-stream"

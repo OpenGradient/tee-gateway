@@ -39,9 +39,9 @@ Trust / payment model:
     request.
   * The ENCLAVE decrypts the inner payload, forwards the request to its own
     chat endpoint with the relay's ``x-payment`` header, and returns. The
-    relay sees status and settlement headers (and, for non-stream, the
-    per-token usage headers above), but never sees the inner prompt or
-    completion.
+    relay sees status and settlement headers and, for non-stream, the outer
+    ``X-Inference-Cost-OPG`` / ``X-Inference-Cost-USD`` billing headers, but
+    never sees the inner prompt or completion.
 
 Privacy properties:
   * Relay (network position): terminates the client's TCP/TLS connection,

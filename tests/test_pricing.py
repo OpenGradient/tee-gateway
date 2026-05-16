@@ -3,75 +3,40 @@ Unit tests for dynamic pricing / cost calculation across all supported models.
 
 Tests verify that:
   - Every user-facing model name resolves to the correct ModelConfig
-  - calculate_session_cost produces the right amount in OPG token
+  - compute_session_cost produces the right amount in OPG token
     smallest-units for supported models
-  - Edge cases (no usage, unknown model, bad context) are handled correctly
+  - Edge cases (no usage, unknown model) are handled correctly
 """
 
 import unittest
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from tee_gateway.definitions import BASE_MAINNET_OPG_ADDRESS
 from tee_gateway.model_registry import (
     _MODEL_LOOKUP,
     get_model_config,
 )
-from tee_gateway.pricing import (
-    _extract_asset_decimals_from_requirements,
-    calculate_session_cost as _calculate_session_cost_raw,
-)
-
-
-def calculate_session_cost(ctx, get_price):
-    """Adapter: legacy bundled-ctx call form -> new (request, response,
-    asset_decimals, get_price) signature, returning the OPG integer.
-
-    request_json may be None (validated by the underlying function); guard so the
-    error path is preserved.
-    """
-    request_json = ctx.get("request_json")
-    if not isinstance(request_json, dict):
-        # Match the underlying ValueError so .assertRaises(ValueError) still fires.
-        raise ValueError("request_json missing or not a dict")
-    return _calculate_session_cost_raw(
-        request_json=request_json,
-        response_json=ctx["response_json"],
-        asset_decimals=_extract_asset_decimals_from_requirements(
-            ctx["payment_requirements"]
-        ),
-        get_price=get_price,
-    ).cost_opg
+from tee_gateway.pricing import compute_session_cost
 
 
 # All pricing tests assume OPG = $1.00 so USD cost == OPG token amount.
 _OPG_PRICE_USD = Decimal("1")
-_get_price = lambda: _OPG_PRICE_USD  # noqa: E731
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _opg_requirements() -> dict:
-    """Fake PaymentRequirements dict for OPG (18 decimals)."""
-    return {"asset": BASE_MAINNET_OPG_ADDRESS, "amount": "50000000000000000"}
-
-
-def _ctx(model: str, input_tokens: int, output_tokens: int, requirements=None) -> dict:
-    """Build a minimal calculator context."""
-    return {
-        "request_json": {"model": model, "messages": []},
-        "response_json": {
-            "model": model,
-            "usage": {
-                "prompt_tokens": input_tokens,
-                "completion_tokens": output_tokens,
-                "total_tokens": input_tokens + output_tokens,
-            },
-        },
-        "payment_requirements": requirements or _opg_requirements(),
+def _calc_opg(model: str, input_tokens: int, output_tokens: int) -> int:
+    """Call compute_session_cost with the test price feed and return the OPG
+    integer.  Returns -1 when the function returns None so tests can assert on
+    failure paths without raising."""
+    usage = {
+        "prompt_tokens": input_tokens,
+        "completion_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
     }
+    fake_feed = SimpleNamespace(get_price=lambda: _OPG_PRICE_USD)
+    with patch("tee_gateway.price_feed.get_price_feed", return_value=fake_feed):
+        result = compute_session_cost(model, usage)
+    return -1 if result is None else result.cost_opg
 
 
 def _expected_cost_opg(model: str, input_tokens: int, output_tokens: int) -> int:
@@ -351,12 +316,10 @@ class TestModelRegistry(unittest.TestCase):
 
 
 class TestCalculateSessionCostOPG(unittest.TestCase):
-    """calculate_session_cost with OPG (18 decimals)."""
+    """compute_session_cost with OPG (18 decimals)."""
 
     def _calc(self, model, input_tokens, output_tokens):
-        return calculate_session_cost(
-            _ctx(model, input_tokens, output_tokens, _opg_requirements()), _get_price
-        )
+        return _calc_opg(model, input_tokens, output_tokens)
 
     # ── OpenAI ──────────────────────────────────────────────────────────────
 
@@ -603,84 +566,28 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
 
 
 class TestCalculateSessionCostEdgeCases(unittest.TestCase):
-    """Edge cases for calculate_session_cost."""
+    """Edge cases for compute_session_cost."""
 
     def test_zero_tokens_returns_zero(self):
-        cost = calculate_session_cost(_ctx("claude-sonnet-4-5", 0, 0), _get_price)
-        self.assertEqual(cost, 0)
+        self.assertEqual(_calc_opg("claude-sonnet-4-5", 0, 0), 0)
 
-    def test_missing_usage_raises(self):
-        ctx = {
-            "request_json": {"model": "claude-sonnet-4-5"},
-            "response_json": {"model": "claude-sonnet-4-5"},  # no usage
-            "payment_requirements": _opg_requirements(),
-        }
-        with self.assertRaises(ValueError):
-            calculate_session_cost(ctx, _get_price)
-
-    def test_unknown_asset_raises(self):
-        ctx = _ctx("claude-sonnet-4-5", 100, 100)
-        ctx["payment_requirements"] = {"asset": "0xdeadbeef", "amount": "1000"}
-        with self.assertRaises(ValueError):
-            calculate_session_cost(ctx, _get_price)
-
-    def test_missing_asset_raises(self):
-        ctx = _ctx("claude-sonnet-4-5", 100, 100)
-        ctx["payment_requirements"] = {"amount": "1000"}  # no asset
-        with self.assertRaises(ValueError):
-            calculate_session_cost(ctx, _get_price)
-
-    def test_unknown_model_raises_value_error(self):
-        ctx = _ctx("gpt-4o", 100, 100)
-        with self.assertRaises(ValueError):
-            calculate_session_cost(ctx, _get_price)
-
-    def test_missing_request_json_raises_value_error(self):
-        ctx = {
-            "request_json": None,
-            "response_json": {
-                "model": "claude-sonnet-4-5",
-                "usage": {"prompt_tokens": 100, "completion_tokens": 100},
-            },
-            "payment_requirements": _opg_requirements(),
-        }
-        with self.assertRaises(ValueError):
-            calculate_session_cost(ctx, _get_price)
-
-    def test_model_from_request_takes_priority(self):
-        """request_json model name is used even if response_json has a different model."""
-        ctx = {
-            "request_json": {"model": "claude-haiku-4-5"},
-            "response_json": {
-                "model": "claude-sonnet-4-5",  # response says Sonnet
-                "usage": {"prompt_tokens": 1000, "completion_tokens": 500},
-            },
-            "payment_requirements": _opg_requirements(),
-        }
-        cost = calculate_session_cost(ctx, _get_price)
-        # Should be priced as Haiku (from request), not Sonnet
-        haiku_cost = _expected_cost_opg("claude-haiku-4-5", 1000, 500)
-        self.assertEqual(cost, haiku_cost)
+    def test_unknown_model_returns_none(self):
+        # gpt-4o is not in the registry — get_model_config raises, caught and
+        # returned as None.
+        self.assertEqual(_calc_opg("gpt-4o", 100, 100), -1)
 
     def test_rounding_ceiling(self):
         """Fractional token costs are always rounded UP."""
-        # 1 output token of Haiku: 0.000005 USD = 5e12 wei — exact, no rounding needed
-        cost = calculate_session_cost(_ctx("claude-haiku-4-5", 0, 1), _get_price)
-        self.assertEqual(cost, 5_000_000_000_000)
-
+        # 1 output token of Haiku: 0.000005 USD = 5e12 wei — exact
+        self.assertEqual(_calc_opg("claude-haiku-4-5", 0, 1), 5_000_000_000_000)
         # 1 input token of Gemini Flash Lite: 0.0000001 USD = 1e11 wei — exact
-        cost = calculate_session_cost(_ctx("gemini-2.5-flash-lite", 1, 0), _get_price)
-        self.assertEqual(cost, 100_000_000_000)
+        self.assertEqual(_calc_opg("gemini-2.5-flash-lite", 1, 0), 100_000_000_000)
 
     def test_model_name_case_insensitive(self):
-        """Model names are normalized to lowercase before lookup."""
-        cost_lower = calculate_session_cost(
-            _ctx("claude-sonnet-4-5", 100, 100), _get_price
+        self.assertEqual(
+            _calc_opg("claude-sonnet-4-5", 100, 100),
+            _calc_opg("CLAUDE-SONNET-4-5", 100, 100),
         )
-        cost_upper = calculate_session_cost(
-            _ctx("CLAUDE-SONNET-4-5", 100, 100), _get_price
-        )
-        self.assertEqual(cost_lower, cost_upper)
 
 
 if __name__ == "__main__":

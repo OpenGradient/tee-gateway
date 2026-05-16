@@ -225,8 +225,6 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
                 for tc in response.tool_calls
             ]
 
-        usage = extract_usage(response)
-
         # For tool-call responses, hash the serialized tool calls so the
         # signature covers which tools were invoked and with what arguments.
         if finish_reason == "tool_calls" and message_dict.get("tool_calls"):
@@ -265,9 +263,10 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         )
 
         # TODO: If no usage is returned, we should compute it here.
+        usage = extract_usage(response)
         if usage:
             openai_response["usage"] = usage
-            cost = compute_session_cost(request_dict, openai_response)
+            cost = compute_session_cost(chat_request.model, usage)
             if cost is not None:
                 openai_response["opengradient"] = cost
 
@@ -596,7 +595,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                         "completion_tokens": final_usage.get("output_tokens", 0),
                         "total_tokens": final_usage.get("total_tokens", 0),
                     }
-                    cost = compute_session_cost(request_dict, final_data)
+                    cost = compute_session_cost(chat_request.model, final_data["usage"])
                     if cost is not None:
                         # final_data is hand-serialized to SSE via json.dumps below,
                         # which doesn't go through Flask's JSONEncoder — so do the

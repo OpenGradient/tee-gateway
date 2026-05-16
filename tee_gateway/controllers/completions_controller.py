@@ -80,7 +80,7 @@ def create_completion(body):
             "tee_id": f"0x{tee_keys.get_tee_id()}",
         }
         if usage:
-            cost = compute_session_cost(request_dict, completion_response)
+            cost = compute_session_cost(body.model, usage)
             if cost is not None:
                 completion_response["opengradient"] = cost
         return completion_response

@@ -9,7 +9,7 @@ Usage
 -----
 Create an ``OPGPriceFeed`` instance in the application entry point, call
 ``start()``, then pass it explicitly to wherever the price is needed (e.g.
-``calculate_session_cost(...)`` in ``pricing.py``).
+``compute_session_cost(...)`` in ``pricing.py``).
 """
 
 import logging

@@ -195,9 +195,11 @@ def _build_outer_response(
     inner_content_type: str,
 ) -> Response:
     """Single-shot OHTTP response. Seals the body on 2xx (contains user
-    prompts/completions) and surfaces token usage as outer headers so the
-    relay can bill. Non-2xx bodies (x402 payment requirements, validation
-    errors) are forwarded as plaintext so the relay can act on them."""
+    prompts/completions) and surfaces only extracted cost/price headers as
+    outer headers for relay billing (including `X-Inference-Price-OPG-USD`);
+    usage details remain sealed in the encapsulated body. Non-2xx bodies
+    (x402 payment requirements, validation errors) are forwarded as
+    plaintext so the relay can act on them."""
     # Keep headers as a list of (name, value) tuples — WSGI gives us a list
     # specifically because HTTP allows multi-valued headers (RFC 7230 §3.2.2;
     # WWW-Authenticate in particular per RFC 7235 §4.1 can repeat, one per

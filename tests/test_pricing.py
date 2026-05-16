@@ -5,7 +5,7 @@ Tests verify that:
   - Every user-facing model name resolves to the correct ModelConfig
   - compute_session_cost produces the right amount in OPG token
     smallest-units for supported models
-  - Edge cases (no usage, unknown model) are handled correctly
+  - Edge cases (unknown model) are handled correctly
 """
 
 import unittest

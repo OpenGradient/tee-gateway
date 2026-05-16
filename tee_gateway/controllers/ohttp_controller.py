@@ -119,12 +119,13 @@ def _should_forward_header(name: str) -> bool:
 def create_anonymous_chat_completion():
     """POST /v1/ohttp — decrypt, sub-dispatch to /v1/chat/completions, re-encrypt."""
     declared_length = flask_request.content_length
-    if declared_length is not None and declared_length > _MAX_ENCAPSULATED_REQUEST_BYTES:
+    if (
+        declared_length is not None
+        and declared_length > _MAX_ENCAPSULATED_REQUEST_BYTES
+    ):
         return _error(413, "encapsulated request too large")
 
-    raw_body: bytes = flask_request.get_data(
-        cache=False, parse_form_data=False
-    )
+    raw_body: bytes = flask_request.get_data(cache=False, parse_form_data=False)
     if not raw_body:
         return _error(400, "empty body")
     # Re-check after read in case Content-Length was absent or lied about the

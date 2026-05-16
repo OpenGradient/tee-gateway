@@ -100,6 +100,20 @@ class TEEKeyManager:
         gets binding for the HPKE config used for anonymous inference — no
         separate trust anchor required.
         """
+        # Defensive check: the v2 transcript labels both keys, so refusing to
+        # register is the only safe behavior when one is missing. Falling back
+        # to b"" would produce a digest that's nominally v2 but only covers
+        # RSA, and a verifier trusting the label would accept an enclave whose
+        # HPKE key was never attested. Raise outside the broad try/except
+        # below so a real misconfiguration isn't masked as a non-TEE
+        # environment.
+        if not self.hpke_public_key_raw or len(self.hpke_public_key_raw) != 32:
+            raise RuntimeError(
+                "Refusing to register with nitriding: HPKE X25519 public key "
+                "is missing or wrong length; the v2 attestation transcript "
+                "requires both RSA and HPKE keys."
+            )
+
         try:
             public_key_der = self.public_key.public_bytes(
                 encoding=serialization.Encoding.DER,
@@ -112,7 +126,7 @@ class TEEKeyManager:
                 b"og-tee-keys|v2|rsa-spki="
                 + public_key_der
                 + b"|hpke-x25519="
-                + (self.hpke_public_key_raw or b"")
+                + self.hpke_public_key_raw
             )
             key_hash = hashlib.sha256(transcript).digest()
             key_hash_b64 = base64.b64encode(key_hash).decode("utf-8")

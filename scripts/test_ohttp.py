@@ -161,6 +161,67 @@ def decrypt_chunked_stream(
 
 
 # ---------------------------------------------------------------------------
+# Wire-payload dump (for visual confirmation that nothing plaintext leaves)
+# ---------------------------------------------------------------------------
+
+
+def _hexdump(data: bytes, max_bytes: int = 96) -> str:
+    """xxd-style hex dump, capped at ``max_bytes`` so output stays readable."""
+    out: list[str] = []
+    for i in range(0, min(len(data), max_bytes), 16):
+        row = data[i : i + 16]
+        hex_part = " ".join(f"{b:02x}" for b in row)
+        ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in row)
+        out.append(f"  {i:04x}  {hex_part:<48}  |{ascii_part}|")
+    if len(data) > max_bytes:
+        out.append(f"  ...   ({len(data) - max_bytes} more bytes of ciphertext)")
+    return "\n".join(out)
+
+
+def dump_outgoing(
+    url: str,
+    headers: dict[str, str],
+    inner_plaintext: bytes,
+    wire: bytes,
+    enc: bytes,
+    key_id: int,
+) -> None:
+    """Print everything that's about to go on the wire so you can eyeball
+    that the relay only sees opaque ciphertext."""
+    print("\n================ OUTGOING REQUEST ================")
+    print(f"POST {url}")
+    for name, value in headers.items():
+        print(f"  {name}: {value}")
+    print(
+        f"\n  inner plaintext ({len(inner_plaintext)} bytes, "
+        f"NEVER goes on the wire — sealed under HPKE):"
+    )
+    try:
+        print(
+            "    "
+            + json.dumps(json.loads(inner_plaintext), indent=4).replace("\n", "\n    ")
+        )
+    except json.JSONDecodeError:
+        print(f"    {inner_plaintext!r}")
+
+    # The wire body decomposes into:
+    #   header (7 bytes): key_id || kem_id || kdf_id || aead_id
+    #   enc    (32 bytes): client's ephemeral X25519 public key
+    #   ct     (rest):     AEAD ciphertext + 16-byte tag — opaque to the relay
+    print(f"\n  encapsulated body ({len(wire)} bytes total):")
+    print(
+        f"    OHTTP header   = {wire[:7].hex()}  "
+        f"(key_id=0x{key_id:02x}, suite=0x0020/0x0001/0x0003)"
+    )
+    print(f"    enc (ephemeral)= {enc.hex()}")
+    print(
+        f"    ciphertext     = {len(wire) - 7 - 32} bytes (HPKE-sealed, no plaintext leaks):"
+    )
+    print(_hexdump(wire[7 + 32 :]))
+    print("==================================================\n")
+
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 
@@ -220,7 +281,7 @@ def run_non_streaming(
     if payment:
         headers["X-Payment"] = payment
 
-    print(f"\nPOST {base_url}/v1/ohttp  ({len(wire)} encapsulated bytes)")
+    dump_outgoing(f"{base_url}/v1/ohttp", headers, inner_bytes, wire, enc, key_id)
     r = requests.post(f"{base_url}/v1/ohttp", data=wire, headers=headers, timeout=120)
     print(f"HTTP {r.status_code}  content-type={r.headers.get('content-type')}")
 
@@ -274,7 +335,7 @@ def run_streaming(base_url: str, model: str, prompt: str, payment: str | None) -
     if payment:
         headers["X-Payment"] = payment
 
-    print(f"\nPOST {base_url}/v1/ohttp  (stream=true, {len(wire)} encapsulated bytes)")
+    dump_outgoing(f"{base_url}/v1/ohttp", headers, inner_bytes, wire, enc, key_id)
     r = requests.post(
         f"{base_url}/v1/ohttp",
         data=wire,

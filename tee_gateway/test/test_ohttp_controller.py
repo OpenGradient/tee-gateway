@@ -27,7 +27,6 @@ import struct
 from decimal import Decimal
 from typing import Iterator
 
-import pytest
 from flask import Flask
 
 from tee_gateway import ohttp
@@ -162,9 +161,7 @@ def test_malformed_encapsulation_returns_400(monkeypatch):
     # will reject it as malformed. The controller MUST normalise that into a
     # generic 400 so it doesn't expose an oracle on which decap step failed.
     client = app.test_client()
-    resp = client.post(
-        "/v1/ohttp", data=b"\x00" * 64, content_type="message/ohttp-req"
-    )
+    resp = client.post("/v1/ohttp", data=b"\x00" * 64, content_type="message/ohttp-req")
     assert resp.status_code == 400
     assert captured["called"] == 0
 
@@ -348,8 +345,8 @@ def test_streaming_inner_response_emits_one_final_chunk_and_closes(monkeypatch):
     sk, wire, sender, enc = _encapsulate(b'{"model":"gpt-4.1","stream":true}')
 
     sse_chunks = [
-        b"data: {\"a\":1}\n\n",
-        b"data: {\"b\":2}\n\n",
+        b'data: {"a":1}\n\n',
+        b'data: {"b":2}\n\n',
         b"data: [DONE]\n\n",
     ]
 
@@ -507,9 +504,7 @@ def test_identifying_fields_are_scrubbed_before_inner_dispatch(monkeypatch):
 
     # Reconstruct what the inner handler received.
     inner_env = captured["env"]
-    inner_body_received = inner_env["wsgi.input"].read(
-        int(inner_env["CONTENT_LENGTH"])
-    )
+    inner_body_received = inner_env["wsgi.input"].read(int(inner_env["CONTENT_LENGTH"]))
     forwarded = json.loads(inner_body_received)
     assert forwarded == {
         "model": "gpt-4.1",

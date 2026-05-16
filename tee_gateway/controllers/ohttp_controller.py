@@ -310,6 +310,15 @@ def _wsgi_subrequest(
     if payment_header:
         sub_env["HTTP_X_PAYMENT"] = payment_header
 
+    # The OpenAPI spec declares a global ApiKeyAuth requirement and connexion
+    # enforces it before our handler runs (returns 401 "No authorization
+    # token provided"). The security function (security_controller.py) is an
+    # intentional passthrough — x402 is the real access control — so any
+    # value satisfies the schema check. Forward the outer header if the
+    # relay supplied one, otherwise inject a placeholder.
+    outer_auth = flask_request.headers.get("Authorization")
+    sub_env["HTTP_AUTHORIZATION"] = outer_auth or "Bearer ohttp-relay"
+
     captured: dict[str, Any] = {"status": "500 Internal Server Error", "headers": []}
 
     def _start_response(status: str, headers: list, exc_info: Any = None):

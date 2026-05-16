@@ -20,7 +20,7 @@ jobs:
         # left test_chat_controller, test_completions_controller, and
         # test_ohttp out. test_price_feed_integration.py self-gates on
         # RUN_INTEGRATION_TESTS and skips cleanly without it.
-        run: uv run --group test pytest tee_gateway/test/ tests/test_pricing.py -v --import-mode=importlib
+        run: uv run --group test pytest tee_gateway/test/ tests/test_pricing.py tests/test_opengradient_field.py -v --import-mode=importlib
         # To also run integration tests (real CoinGecko network calls), add:
         # env:
         #   RUN_INTEGRATION_TESTS: "1"

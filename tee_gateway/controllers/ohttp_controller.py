@@ -31,11 +31,21 @@ Trust / payment model:
     headers, but never sees the inner prompt or completion.
 
 Privacy properties:
-  * Relay sees ciphertext + relay-side wallet + (non-stream) token usage +
-    relay's IP. Never sees prompts, completions, or the client's IP.
-  * Enclave sees plaintext prompts/completions + relay's IP. Never sees
-    the client's IP.
-  * Unlinkability holds unless the relay and the enclave collude.
+  * Relay (network position): terminates the client's TCP/TLS connection,
+    so the relay DOES see the client's IP at the network layer — that's
+    unavoidable. What the relay does NOT see is the request/response
+    content: it observes only the OHTTP-encapsulated ciphertext, its own
+    wallet's x-payment material, and (single-shot only) the token-usage
+    outer headers it needs to bill.
+  * Enclave (compute position): sees the plaintext prompt and completion
+    (they are decrypted inside the enclave to run the LLM call), but at
+    the network layer it only sees the RELAY's IP — never the client's.
+    That's the unlinkability property: the enclave cannot tie a request's
+    plaintext back to a specific end user.
+  * Unlinkability between a specific client identity and a specific
+    plaintext request holds unless the relay and the enclave collude
+    (the relay would have to disclose its client-IP log alongside the
+    enclave's per-request plaintext log).
   * Streaming leaks per-chunk timing and length (the relay sees the
     cadence of varint-framed sealed chunks). This is an inherent cost of
     server-sent events — clients who can't accept that signal should

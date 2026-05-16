@@ -369,18 +369,7 @@ def set_provider_keys():
         except Exception as e:
             logger.warning(f"Heartbeat initialization failed: {e}")
 
-        # Local-dev escape hatch: set TEE_GATEWAY_DEV_SKIP_X402=1 to run the
-        # chat backend without attaching the x402 payment middleware. Lets
-        # you smoke-test /v1/chat/completions and /v1/ohttp without a
-        # reachable facilitator. NEVER set in production — this disables
-        # all payment-based access control.
-        if os.getenv("TEE_GATEWAY_DEV_SKIP_X402") == "1":
-            logger.warning(
-                "TEE_GATEWAY_DEV_SKIP_X402=1 — skipping x402 payment middleware. "
-                "Do NOT use this in production."
-            )
-        else:
-            _init_payment_middleware(facilitator_url)
+        _init_payment_middleware(facilitator_url)
 
         _active_facilitator_url = facilitator_url
         _keys_initialized = True

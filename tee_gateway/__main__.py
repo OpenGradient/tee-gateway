@@ -176,7 +176,18 @@ def _session_cost_calculator(ctx: dict) -> int:
     response_json = ctx.get("response_json")
     if not isinstance(response_json, dict):
         raise ValueError("response_json missing or not a dict")
-    return SessionCost.model_validate(response_json.get("opengradient")).cost_opg
+    cost_block = response_json.get("opengradient")
+    if cost_block is None:
+        # Should never happen on a successful paid response — the controller
+        # always embeds this when it can compute it, and when it can't, the
+        # request typically errored out before reaching x402's close hook.
+        # If we see this, settlement silently skips and a real bug is hiding.
+        logger.critical(
+            "opengradient cost block missing on paid response — client will "
+            "NOT be charged. response_id=%s",
+            response_json.get("id"),
+        )
+    return SessionCost.model_validate(cost_block).cost_opg
 
 
 # ---------------------------------------------------------------------------

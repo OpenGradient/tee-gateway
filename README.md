@@ -121,6 +121,8 @@ The `measurements.txt` checked into this repository reflects the OpenGradient-op
 | `/signing-key` | GET | TEE public key (PEM format) and tee_id |
 | `/v1/completions` | POST | Text completion (signed) |
 | `/v1/chat/completions` | POST | Chat completion (signed) |
+| `/v1/ohttp` | POST | Anonymous chat completion (OHTTP-encapsulated, relay-paid) |
+| `/v1/ohttp/config` | GET | HPKE key configuration (RFC 9458) for OHTTP clients |
 
 ### Request Format
 
@@ -169,6 +171,34 @@ The `tee_*` fields provide cryptographic proof of the response:
 - **`tee_signature`** — RSA-PSS-SHA256 signature over `keccak256(requestHash || outputHash || timestamp)`
 - **`tee_timestamp`** — Unix timestamp when the response was signed (proves freshness)
 - **`tee_id`** — keccak256 of the enclave's DER-encoded public key (stable identifier for this enclave instance)
+
+## Anonymous Inference (Oblivious HTTP)
+
+`/v1/ohttp` is a thin wrapper around `/v1/chat/completions` that adds **client unlinkability** via [RFC 9458 OHTTP](https://www.rfc-editor.org/rfc/rfc9458) + [draft-ietf-ohai-chunked-ohttp-08](https://datatracker.ietf.org/doc/draft-ietf-ohai-chunked-ohttp/). HPKE ciphersuite is fixed: DHKEM(X25519,HKDF-SHA256) / HKDF-SHA256 / ChaCha20-Poly1305.
+
+**Flow:**
+
+1. Client fetches `/v1/ohttp/config` (HPKE pubkey, key_id, suite IDs) and verifies it against the Nitro attestation.
+2. Client HPKE-encapsulates a normal chat-completion JSON body and POSTs the ciphertext to a **relay**. The client carries no payment material.
+3. Relay forwards the ciphertext to `/v1/ohttp` and attaches its own `X-Payment: <x402 payload>` header.
+4. Enclave decrypts → re-issues the request internally to `/v1/chat/completions` with the relay's `X-Payment` header → x402 verifies and settles → response is sealed back to the client.
+
+**Two response modes** (chosen by the inner `stream` flag):
+
+| Mode | Outer content-type | Body | Usage to relay |
+|------|---|---|---|
+| `stream=false` | `message/ohttp-res` | Single-shot sealed body (RFC 9458 §4.5) | `X-Usage-{Prompt,Completion,Total}-Tokens`, `X-Usage-Model` headers |
+| `stream=true` | `message/ohttp-chunked-res` | `response_nonce \|\| (varint(len) \|\| sealed_ct)+ \|\| varint(0) \|\| sealed_final_ct` — one OHTTP chunk per SSE event, AAD=`b"final"` on the last chunk (chunked-ohttp draft §3) | Inside the encrypted stream's final SSE event; relay bills via `X-Upto-Session` |
+
+On non-2xx (e.g. 402 payment required) the body is forwarded plaintext so the relay can read x402 payment requirements and retry — those bodies never contain prompts or completions.
+
+**Trust split:**
+
+- **Relay** sees ciphertext + token counts + settlement metadata + its own wallet. Never sees prompts, completions, or the client's IP.
+- **Enclave** sees plaintext + relay's IP. Never sees the client's IP.
+- **Client** decrypts and verifies the TEE signature embedded in the response body against the attested public key.
+
+Unlinkability holds unless relay and enclave collude. Streaming leaks per-chunk timing and length — clients who can't accept that signal should use `stream=false`.
 
 ## Verification
 

@@ -264,6 +264,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
             f"Response Final\n\tTEE Signature: {signature}\n\tTEE request hash: {input_hash_hex}\n\tTEE output hash: {output_hash_hex}\n\tTEE timestamp: {timestamp}\n\tTEE ID: 0x{tee_keys.get_tee_id()}"
         )
 
+        # TODO: If no usage is returned, we should compute it here.
         if usage:
             openai_response["usage"] = usage
             cost = compute_session_cost(request_dict, openai_response)

@@ -88,6 +88,114 @@ def test_generate_keypair_is_independent():
     assert pk_a != pk_b
 
 
+def test_varint_round_trip():
+    """QUIC varint encoder/decoder matches across all 4 length classes."""
+    for value in (0, 63, 64, 16383, 16384, 1073741823, 1073741824, (1 << 62) - 1):
+        encoded = ohttp.encode_varint(value)
+        decoded, off = ohttp.decode_varint(encoded)
+        assert decoded == value, value
+        assert off == len(encoded)
+
+    with pytest.raises(ValueError):
+        ohttp.encode_varint(-1)
+    with pytest.raises(ValueError):
+        ohttp.encode_varint(1 << 62)
+
+
+def test_chunked_response_round_trip():
+    """Client encrypts a chunked response stream; client-side decrypter
+    must recover every chunk and detect the AAD=b'final' terminator."""
+    from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+
+    sk, pk_raw = ohttp.generate_keypair()
+    import struct as _struct
+
+    hdr = bytes([ohttp.KEY_CONFIG_ID]) + _struct.pack(
+        ">HHH",
+        ohttp.KEM_ID_X25519,
+        ohttp.KDF_ID_HKDF_SHA256,
+        ohttp.AEAD_ID_CHACHA20_POLY1305,
+    )
+    info = b"message/bhttp request" + b"\x00" + hdr
+    pkr = ohttp._SUITE.kem.deserialize_public_key(pk_raw)
+    enc, sender = ohttp._SUITE.create_sender_context(pkr, info=info)
+    wire = hdr + enc + sender.seal(b'{"stream": true}', aad=b"")
+
+    decap = ohttp.decapsulate_request(sk, wire)
+    assert decap.response_key_chunked == sender.export(
+        b"message/bhttp chunked response", 32
+    )
+
+    # Server side: stream three chunks plus an empty final marker.
+    plaintexts = [b"data: {chunk1}\n\n", b"data: {chunk2}\n\n", b"data: [DONE]\n\n"]
+    encrypter = ohttp.ChunkedResponseEncrypter(decap.response_key_chunked, decap.enc)
+    wire_chunks = [encrypter.header()]
+    for pt in plaintexts[:-1]:
+        wire_chunks.append(encrypter.encrypt_chunk(pt, is_final=False))
+    wire_chunks.append(encrypter.encrypt_chunk(plaintexts[-1], is_final=True))
+    stream = b"".join(wire_chunks)
+
+    # Client side: re-derive keys, walk the varint-framed chunks.
+    response_nonce = stream[:32]
+    off = 32
+    response_secret = sender.export(b"message/bhttp chunked response", 32)
+    aead_key, aead_nonce = ohttp._derive_response_keys(
+        response_secret, enc, response_nonce
+    )
+    aead = ChaCha20Poly1305(aead_key)
+
+    recovered: list[bytes] = []
+    counter = 0
+    while off < len(stream):
+        length, off = ohttp.decode_varint(stream, off)
+        is_final = length == 0
+        # On the final chunk the prefix is zero; the actual sealed length is
+        # plaintext_len + 16 (Poly1305 tag). The chunk consumes the rest.
+        seg_len = len(stream) - off if is_final else length
+        ct = stream[off : off + seg_len]
+        off += seg_len
+        chunk_nonce = bytes(
+            a ^ b for a, b in zip(aead_nonce, counter.to_bytes(12, "big"))
+        )
+        aad = b"final" if is_final else b""
+        recovered.append(aead.decrypt(chunk_nonce, ct, aad))
+        counter += 1
+        if is_final:
+            break
+
+    assert recovered == plaintexts
+    # The decrypter MUST reject the same stream with the final-AAD swapped
+    # — protects against undetected truncation at the boundary.
+    with pytest.raises(Exception):
+        aead.decrypt(
+            bytes(a ^ b for a, b in zip(aead_nonce, (counter - 1).to_bytes(12, "big"))),
+            stream[-len(ct) :],
+            b"",
+        )
+
+
+def test_chunked_encrypter_rejects_double_finalize():
+    sk, pk_raw = ohttp.generate_keypair()
+    import struct as _struct
+
+    hdr = bytes([ohttp.KEY_CONFIG_ID]) + _struct.pack(
+        ">HHH",
+        ohttp.KEM_ID_X25519,
+        ohttp.KDF_ID_HKDF_SHA256,
+        ohttp.AEAD_ID_CHACHA20_POLY1305,
+    )
+    info = b"message/bhttp request" + b"\x00" + hdr
+    pkr = ohttp._SUITE.kem.deserialize_public_key(pk_raw)
+    enc, sender = ohttp._SUITE.create_sender_context(pkr, info=info)
+    decap = ohttp.decapsulate_request(sk, hdr + enc + sender.seal(b"hi", aad=b""))
+
+    encrypter = ohttp.ChunkedResponseEncrypter(decap.response_key_chunked, decap.enc)
+    encrypter.header()
+    encrypter.encrypt_chunk(b"only", is_final=True)
+    with pytest.raises(RuntimeError, match="already finalized"):
+        encrypter.encrypt_chunk(b"extra", is_final=False)
+
+
 def test_rejects_tampered_ciphertext():
     sk, pk_raw = ohttp.generate_keypair()
     import struct

@@ -7,6 +7,17 @@ it as an in-process WSGI sub-request against the enclave's own
 LangChain routing, cost settlement and TEE response signing reuse the public
 chat code paths — there is no duplicated routing or pricing logic here.
 
+Two response modes are supported, dispatched by the inner ``stream`` flag:
+  * stream=false → single-shot OHTTP response (RFC 9458 §4.5),
+    content-type ``message/ohttp-res``. Usage stats surface in outer headers.
+  * stream=true  → chunked OHTTP response (draft-ietf-ohai-chunked-ohttp-08),
+    content-type ``message/ohttp-chunked-res``. Each SSE event from the
+    inner /v1/chat/completions stream becomes one sealed OHTTP chunk; the
+    final chunk uses AAD=b"final" so truncation is detectable. Usage stats
+    can't appear in outer headers (sent before body) — clients read them
+    from the final SSE event inside the decrypted stream; the relay relies
+    on x402 settlement metadata (X-Upto-Session) for billing.
+
 Trust / payment model:
   * The CLIENT encrypts only an LLM chat-completion request. It does not see,
     sign, or carry x402 payment material.
@@ -16,39 +27,19 @@ Trust / payment model:
     request.
   * The ENCLAVE decrypts the inner payload, forwards the request to its own
     chat endpoint with the relay's ``x-payment`` header, and returns. The
-    relay sees status, settlement headers, and token-usage headers, but
-    never sees the inner prompt or completion.
-
-Wire format — outer HTTP request to /v1/ohttp:
-    Headers:
-        x-payment: <base64 x402 payload, supplied by the relay>
-        content-type: message/ohttp-req
-    Body: HPKE-encapsulated chat-completion JSON (just the inner body,
-          no JSON envelope — the inner payload IS the chat request).
-
-Wire format — outer HTTP response from /v1/ohttp:
-    On 2xx (inference succeeded):
-        Headers:
-            content-type: message/ohttp-res
-            x-payment-response, x-upto-session, ...   (forwarded from x402)
-            x-usage-prompt-tokens, x-usage-completion-tokens,
-            x-usage-total-tokens, x-usage-model       (so the relay can bill)
-        Body: HPKE-encapsulated chat-completion response JSON. The relay
-              cannot decrypt; only the client (who has the HPKE response
-              key from its sender context) can read prompts/completions.
-    On non-2xx (402 payment required, validation errors, etc.):
-        Body forwarded as plaintext so the relay can act on it (read x402
-        payment requirements, retry with a larger payment, surface errors
-        to the user). These bodies never contain user prompts/completions.
+    relay sees status, settlement headers, and (for non-stream) token-usage
+    headers, but never sees the inner prompt or completion.
 
 Privacy properties:
-  * Relay sees ciphertext + relay-side wallet + token usage + relay's IP.
-    Never sees prompts, completions, or the client's IP.
+  * Relay sees ciphertext + relay-side wallet + (non-stream) token usage +
+    relay's IP. Never sees prompts, completions, or the client's IP.
   * Enclave sees plaintext prompts/completions + relay's IP. Never sees
     the client's IP.
   * Unlinkability holds unless the relay and the enclave collude.
-  * Streaming is rejected; SSE re-introduces per-chunk timing/length side
-    channels that would defeat sealing.
+  * Streaming leaks per-chunk timing and length (the relay sees the
+    cadence of varint-framed sealed chunks). This is an inherent cost of
+    server-sent events — clients who can't accept that signal should
+    use stream=false.
 """
 
 from __future__ import annotations
@@ -56,7 +47,7 @@ from __future__ import annotations
 import io
 import json
 import logging
-from typing import Any
+from typing import Any, Iterator
 
 from flask import Response, current_app, request as flask_request
 
@@ -67,6 +58,8 @@ logger = logging.getLogger(__name__)
 
 OHTTP_MEDIA_TYPE = "message/ohttp-req"
 OHTTP_RESPONSE_MEDIA_TYPE = "message/ohttp-res"
+OHTTP_CHUNKED_RESPONSE_MEDIA_TYPE = "message/ohttp-chunked-res"
+_SSE_CONTENT_TYPE = "text/event-stream"
 
 # Fields that can re-identify a client and have no role in inference. We drop
 # them before forwarding to the inner handler — keeping them inside the
@@ -117,9 +110,6 @@ def create_anonymous_chat_completion():
     if not isinstance(chat_body, dict):
         return _error(400, "inner payload must be a JSON object")
 
-    if chat_body.get("stream"):
-        return _error(400, "stream=true is not supported over OHTTP")
-
     chat_body = _scrub(chat_body)
     body_bytes = json.dumps(chat_body, separators=(",", ":")).encode("utf-8")
 
@@ -128,13 +118,30 @@ def create_anonymous_chat_completion():
     # so x402 verifies and settles exactly as it does for a normal call.
     payment_header = flask_request.headers.get("X-Payment")
 
-    sub_status, sub_headers, sub_body = _wsgi_subrequest(
+    sub_status, sub_headers, sub_iter = _wsgi_subrequest(
         path="/v1/chat/completions",
         body_bytes=body_bytes,
         payment_header=payment_header,
     )
 
-    return _build_outer_response(decap, sub_status, sub_headers, sub_body)
+    inner_content_type = next(
+        (v for k, v in sub_headers if k.lower() == "content-type"),
+        "application/json",
+    )
+    is_streaming = (
+        200 <= sub_status < 300
+        and inner_content_type.split(";", 1)[0].strip().lower() == _SSE_CONTENT_TYPE
+    )
+
+    if is_streaming:
+        return _build_streaming_response(decap, sub_status, sub_headers, sub_iter)
+
+    # Non-streaming: drain into bytes (this also triggers x402's
+    # post-response settlement via the WSGI iterator's close()).
+    body_bytes_out = _drain(sub_iter)
+    return _build_outer_response(
+        decap, sub_status, sub_headers, body_bytes_out, inner_content_type
+    )
 
 
 def _build_outer_response(
@@ -142,20 +149,13 @@ def _build_outer_response(
     status: int,
     headers: list[tuple[str, str]],
     body_bytes: bytes,
+    inner_content_type: str,
 ) -> Response:
-    """Translate the inner sub-response into the outer OHTTP response.
-
-    On 2xx we seal the body (which contains user prompts/completions) and
-    surface token-usage headers so the relay can bill. On non-2xx we pass
-    through the inner body verbatim — those responses carry x402 payment
-    requirements or error messages that the relay needs to read, and never
-    contain user content.
-    """
+    """Single-shot OHTTP response. Seals the body on 2xx (contains user
+    prompts/completions) and surfaces token usage as outer headers so the
+    relay can bill. Non-2xx bodies (x402 payment requirements, validation
+    errors) are forwarded as plaintext so the relay can act on them."""
     forwarded = {name: value for name, value in headers if _should_forward_header(name)}
-    inner_content_type = next(
-        (v for k, v in headers if k.lower() == "content-type"),
-        "application/json",
-    )
 
     if not (200 <= status < 300):
         return Response(
@@ -173,6 +173,72 @@ def _build_outer_response(
         headers=forwarded,
         mimetype=OHTTP_RESPONSE_MEDIA_TYPE,
     )
+
+
+def _build_streaming_response(
+    decap: ohttp.DecapsulatedRequest,
+    status: int,
+    headers: list[tuple[str, str]],
+    sub_iter: Iterator[bytes],
+) -> Response:
+    """Chunked OHTTP response (draft-ietf-ohai-chunked-ohttp-08).
+
+    Each SSE event from the inner /v1/chat/completions stream is sealed as
+    one OHTTP chunk and yielded immediately. The final chunk uses
+    AAD=b"final" with a zero-length varint prefix; emitting it requires
+    look-ahead by one chunk so we know which one is last, hence the
+    ``pending`` buffer below.
+
+    Usage stats can't be exposed as outer headers (those are already sent
+    before the body); the relay bills via x402 settlement metadata
+    (X-Upto-Session header, set up-front). The client reads usage from the
+    final SSE event inside the decrypted stream.
+    """
+    forwarded = {name: value for name, value in headers if _should_forward_header(name)}
+
+    def _stream() -> Iterator[bytes]:
+        encrypter = ohttp.ChunkedResponseEncrypter(
+            decap.response_key_chunked, decap.enc
+        )
+        yield encrypter.header()
+
+        pending: bytes | None = None
+        try:
+            for chunk in sub_iter:
+                if not chunk:
+                    continue
+                if pending is not None:
+                    yield encrypter.encrypt_chunk(pending, is_final=False)
+                pending = chunk
+            # Always emit exactly one final chunk so the AAD=b"final"
+            # marker is present — that's what protects clients from
+            # undetected truncation.
+            yield encrypter.encrypt_chunk(pending or b"", is_final=True)
+        finally:
+            close = getattr(sub_iter, "close", None)
+            if callable(close):
+                # Triggers x402's streaming-session settlement.
+                close()
+
+    return Response(
+        _stream(),
+        status=status,
+        headers=forwarded,
+        mimetype=OHTTP_CHUNKED_RESPONSE_MEDIA_TYPE,
+    )
+
+
+def _drain(sub_iter: Iterator[bytes]) -> bytes:
+    chunks: list[bytes] = []
+    try:
+        for chunk in sub_iter:
+            if chunk:
+                chunks.append(chunk)
+    finally:
+        close = getattr(sub_iter, "close", None)
+        if callable(close):
+            close()
+    return b"".join(chunks)
 
 
 def _extract_usage_headers(body_bytes: bytes) -> dict[str, str]:
@@ -210,15 +276,16 @@ def _wsgi_subrequest(
     path: str,
     body_bytes: bytes,
     payment_header: str | None,
-) -> tuple[int, list[tuple[str, str]], bytes]:
+) -> tuple[int, list[tuple[str, str]], Iterator[bytes]]:
     """Issue an in-process WSGI request through the app's full middleware stack.
 
-    Returns ``(status_code, headers, body_bytes)``. We invoke
-    ``current_app.wsgi_app`` directly so the x402 payment middleware (which
-    wraps ``wsgi_app`` at injection time) runs the same way it would for an
-    external HTTP request to the same path — including the pre-inference
-    pricing gate, payment verification, cost settlement and TEE response
-    signing.
+    Returns ``(status_code, headers, body_iterator)``. The caller is
+    responsible for draining and closing the iterator (close() triggers
+    x402's post-response settlement). We invoke ``current_app.wsgi_app``
+    directly so the x402 payment middleware (which wraps ``wsgi_app`` at
+    injection time) runs the same way it would for an external HTTP
+    request to the same path — including the pre-inference pricing gate,
+    payment verification, cost settlement and TEE response signing.
     """
     outer_env = flask_request.environ
     sub_env: dict[str, Any] = {
@@ -251,19 +318,10 @@ def _wsgi_subrequest(
         return lambda _chunk: None
 
     iterator = current_app.wsgi_app(sub_env, _start_response)
-    body_chunks: list[bytes] = []
-    try:
-        for chunk in iterator:
-            if chunk:
-                body_chunks.append(chunk)
-    finally:
-        close = getattr(iterator, "close", None)
-        if callable(close):
-            # Triggers x402's post-response settlement (StreamingSessionResponse.close).
-            close()
-
     status_code = int(captured["status"].split(" ", 1)[0])
-    return status_code, captured["headers"], b"".join(body_chunks)
+    # Don't wrap in iter() — that would strip the iterable's close() method,
+    # which the caller relies on to trigger x402's post-response settlement.
+    return status_code, captured["headers"], iterator  # type: ignore[return-value]
 
 
 def get_hpke_config():

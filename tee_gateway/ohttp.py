@@ -155,11 +155,19 @@ def decapsulate_request(
 ) -> DecapsulatedRequest:
     """Decrypt an HPKE-wrapped request inside the enclave.
 
-    Raises ValueError on malformed input or unsupported ciphersuite. We
-    never echo the underlying exception text to clients — it can leak
-    timing/oracle info.
+    Raises ``ValueError`` on any malformed or unauthenticated input —
+    structural errors (wrong length, unsupported ciphersuite) and
+    cryptographic errors (AEAD tag failure, bad ephemeral key, etc.) are
+    all surfaced as ``ValueError`` with a generic message. The original
+    pyhpke/cryptography exception is deliberately NOT chained, because
+    those error strings can encode oracle information about which check
+    failed (tag verification vs. KDF vs. length).
     """
-    if len(encapsulated_request) < 7 + 32:
+    # Header(7) + ephemeral pubkey(32) + AEAD tag(16) is the absolute
+    # minimum. Reject shorter inputs up front so every short-input failure
+    # mode is a ValueError rather than whatever pyhpke would raise on a
+    # truncated open().
+    if len(encapsulated_request) < 7 + 32 + 16:
         raise ValueError("encapsulated request too short")
 
     key_id = encapsulated_request[0]
@@ -176,11 +184,19 @@ def decapsulate_request(
     aead_ct = encapsulated_request[7 + 32 :]
 
     info = _LABEL_REQUEST + b"\x00" + _header_bytes(key_id)
-    recipient = _SUITE.create_recipient_context(enc, private_key, info=info)
-    plaintext = recipient.open(aead_ct, aad=b"")
+    try:
+        recipient = _SUITE.create_recipient_context(enc, private_key, info=info)
+        plaintext = recipient.open(aead_ct, aad=b"")
+    except Exception:
+        # Map AEAD / HPKE failures (invalid tag, bad ephemeral pubkey, etc.)
+        # to ValueError to match the documented contract. ``from None``
+        # suppresses the chain so pyhpke / cryptography error strings — which
+        # can distinguish which check failed — never reach a caller's log.
+        raise ValueError("HPKE decapsulation failed") from None
 
     # Two exports, one per response mode. RFC 9458 §4.5 and the chunked
-    # draft §3.1 specify max(Nn, Nk) as the export length.
+    # draft §3.1 specify max(Nn, Nk) as the export length. HKDF-Expand is
+    # deterministic and can't fail on valid inputs, so we don't wrap it.
     export_len = max(_NN, _NK)
     response_secret = recipient.export(_LABEL_RESPONSE, export_len)
     response_secret_chunked = recipient.export(_LABEL_CHUNKED_RESPONSE, export_len)

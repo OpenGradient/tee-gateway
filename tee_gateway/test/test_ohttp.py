@@ -212,5 +212,8 @@ def test_rejects_tampered_ciphertext():
     ct = sender.seal(b"hello", aad=b"")
     wire = bytearray(hdr + enc + ct)
     wire[-1] ^= 0xFF
-    with pytest.raises(Exception):
+    # decapsulate_request normalises every crypto failure to ValueError with
+    # a generic message — pyhpke / cryptography exception types must NOT leak
+    # through, since their strings encode oracle info about which check failed.
+    with pytest.raises(ValueError, match="HPKE decapsulation failed"):
         ohttp.decapsulate_request(sk, bytes(wire))

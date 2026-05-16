@@ -314,10 +314,12 @@ def _wsgi_subrequest(
     # enforces it before our handler runs (returns 401 "No authorization
     # token provided"). The security function (security_controller.py) is an
     # intentional passthrough — x402 is the real access control — so any
-    # value satisfies the schema check. Forward the outer header if the
-    # relay supplied one, otherwise inject a placeholder.
-    outer_auth = flask_request.headers.get("Authorization")
-    sub_env["HTTP_AUTHORIZATION"] = outer_auth or "Bearer ohttp-relay"
+    # value satisfies the schema check. We deliberately do NOT forward the
+    # outer Authorization header: anything the relay attached there could
+    # re-identify the client (API keys, JWT subjects, bearer tokens) and
+    # defeat the whole point of OHTTP. A fixed constant keeps every OHTTP
+    # request indistinguishable to the chat backend at this layer.
+    sub_env["HTTP_AUTHORIZATION"] = "Bearer ohttp"
 
     captured: dict[str, Any] = {"status": "500 Internal Server Error", "headers": []}
 

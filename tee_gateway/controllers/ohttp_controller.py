@@ -9,14 +9,26 @@ chat code paths — there is no duplicated routing or pricing logic here.
 
 Two response modes are supported, dispatched by the inner ``stream`` flag:
   * stream=false → single-shot OHTTP response (RFC 9458 §4.5),
-    content-type ``message/ohttp-res``. Usage stats surface in outer headers.
+    content-type ``message/ohttp-res``.
   * stream=true  → chunked OHTTP response (draft-ietf-ohai-chunked-ohttp-08),
     content-type ``message/ohttp-chunked-res``. Each SSE event from the
     inner /v1/chat/completions stream becomes one sealed OHTTP chunk; the
-    final chunk uses AAD=b"final" so truncation is detectable. Usage stats
-    can't appear in outer headers (sent before body) — clients read them
-    from the final SSE event inside the decrypted stream; the relay relies
-    on x402 settlement metadata (X-Upto-Session) for billing.
+    final chunk uses AAD=b"final" so truncation is detectable.
+
+Billing channel for the relay (both modes settle the real cost via x402
+against the relay's x-payment; the gateway is the source of truth for the
+amount):
+  * stream=false: outer headers ALSO expose per-token detail —
+    X-Usage-Prompt-Tokens, X-Usage-Completion-Tokens, X-Usage-Total-Tokens,
+    X-Usage-Model — for the relay's own bookkeeping. The sealed body
+    contains the same usage info for the client.
+  * stream=true: NO per-token detail in outer headers. Outer response
+    headers are flushed before any body chunk is yielded, so we cannot
+    know token counts at header-write time; the sealed chunks are opaque
+    to the relay. The relay learns the actual settled amount from x402:
+    by querying the facilitator with its X-Upto-Session, or via
+    X-Payment-Response on its next request. The client still gets
+    per-token detail from the final SSE event inside the decrypted stream.
 
 Trust / payment model:
   * The CLIENT encrypts only an LLM chat-completion request. It does not see,
@@ -27,8 +39,9 @@ Trust / payment model:
     request.
   * The ENCLAVE decrypts the inner payload, forwards the request to its own
     chat endpoint with the relay's ``x-payment`` header, and returns. The
-    relay sees status, settlement headers, and (for non-stream) token-usage
-    headers, but never sees the inner prompt or completion.
+    relay sees status and settlement headers (and, for non-stream, the
+    per-token usage headers above), but never sees the inner prompt or
+    completion.
 
 Privacy properties:
   * Relay (network position): terminates the client's TCP/TLS connection,

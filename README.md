@@ -185,10 +185,15 @@ The `tee_*` fields provide cryptographic proof of the response:
 
 **Two response modes** (chosen by the inner `stream` flag):
 
-| Mode | Outer content-type | Body | Usage to relay |
-|------|---|---|---|
-| `stream=false` | `message/ohttp-res` | Single-shot sealed body (RFC 9458 §4.5) | `X-Usage-{Prompt,Completion,Total}-Tokens`, `X-Usage-Model` headers |
-| `stream=true` | `message/ohttp-chunked-res` | `response_nonce \|\| (varint(len) \|\| sealed_ct)+ \|\| varint(0) \|\| sealed_final_ct` — one OHTTP chunk per SSE event, AAD=`b"final"` on the last chunk (chunked-ohttp draft §3) | Inside the encrypted stream's final SSE event; relay bills via `X-Upto-Session` |
+| Mode | Outer content-type | Body |
+|------|---|---|
+| `stream=false` | `message/ohttp-res` | Single-shot sealed body (RFC 9458 §4.5) |
+| `stream=true` | `message/ohttp-chunked-res` | `response_nonce \|\| (varint(len) \|\| sealed_ct)+ \|\| varint(0) \|\| sealed_final_ct` — one OHTTP chunk per SSE event, AAD=`b"final"` on the last chunk (chunked-ohttp draft §3) |
+
+**Billing channel for the relay.** Both modes settle the actual cost via x402 against the relay's `X-Payment` (`upto` scheme); the gateway is the source of truth for the amount.
+
+- `stream=false`: outer response *also* exposes per-token detail — `X-Usage-Prompt-Tokens`, `X-Usage-Completion-Tokens`, `X-Usage-Total-Tokens`, `X-Usage-Model` — for the relay's own bookkeeping. The sealed body carries the same `usage` block for the client.
+- `stream=true`: **no** per-token detail in outer headers (they're flushed before any body chunk, so we can't know token counts at header-write time) and the sealed chunks are opaque to the relay. The relay reads the actual settled amount from x402 — either by querying the facilitator with its `X-Upto-Session`, or via `X-Payment-Response` on its next call. The client still sees per-token detail in the final SSE event inside the decrypted stream.
 
 On non-2xx (e.g. 402 payment required) the body is forwarded plaintext so the relay can read x402 payment requirements and retry — those bodies never contain prompts or completions.
 

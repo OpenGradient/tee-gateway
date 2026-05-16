@@ -194,11 +194,11 @@ On non-2xx (e.g. 402 payment required) the body is forwarded plaintext so the re
 
 **Trust split:**
 
-- **Relay** sees ciphertext + token counts + settlement metadata + its own wallet. Never sees prompts, completions, or the client's IP.
-- **Enclave** sees plaintext + relay's IP. Never sees the client's IP.
+- **Relay** terminates the client's TCP/TLS connection, so it does see the client's IP — that's unavoidable. What it doesn't see is content: only OHTTP ciphertext + its own wallet's `x-payment` material + (single-shot only) the token-usage outer headers it needs to bill.
+- **Enclave** sees plaintext prompts/completions (it has to run the LLM call) but at the network layer only sees the relay's IP, never the client's. This is the unlinkability claim — the enclave can't tie a plaintext request to a specific end user.
 - **Client** decrypts and verifies the TEE signature embedded in the response body against the attested public key.
 
-Unlinkability holds unless relay and enclave collude. Streaming leaks per-chunk timing and length — clients who can't accept that signal should use `stream=false`.
+Unlinkability between a client identity and a plaintext request holds unless relay and enclave collude (the relay would have to share its client-IP log alongside the enclave's plaintext log). Streaming additionally leaks per-chunk timing and length — clients who can't accept that signal should use `stream=false`.
 
 ## Verification
 

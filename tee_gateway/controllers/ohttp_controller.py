@@ -18,17 +18,17 @@ Two response modes are supported, dispatched by the inner ``stream`` flag:
 Billing channel for the relay (both modes settle the real cost via x402
 against the relay's x-payment; the gateway is the source of truth for the
 amount):
-  * stream=false: outer headers ALSO expose per-token detail —
-    X-Usage-Prompt-Tokens, X-Usage-Completion-Tokens, X-Usage-Total-Tokens,
-    X-Usage-Model — for the relay's own bookkeeping. The sealed body
-    contains the same usage info for the client.
-  * stream=true: NO per-token detail in outer headers. Outer response
-    headers are flushed before any body chunk is yielded, so we cannot
-    know token counts at header-write time; the sealed chunks are opaque
-    to the relay. The relay learns the actual settled amount from x402:
-    by querying the facilitator with its X-Upto-Session, or via
-    X-Payment-Response on its next request. The client still gets
-    per-token detail from the final SSE event inside the decrypted stream.
+  * stream=false: outer headers expose ONLY the settled cost —
+    X-Inference-Cost-OPG (smallest units, the integer x402 actually charged)
+    and X-Inference-Cost-USD (the equivalent USD at the price used). No
+    model name, no token counts: those would be a fingerprint of the
+    inner request and have no role in billing.
+  * stream=true: outer response headers are flushed before any body chunk
+    is yielded, so cost isn't known at header-write time. The relay reads
+    the settled amount from x402: either by querying the facilitator with
+    its X-Upto-Session, or via X-Payment-Response on its next request. The
+    client still sees cost in the final SSE event inside the encrypted
+    stream (the ``opengradient`` block written by the chat controller).
 
 Trust / payment model:
   * The CLIENT encrypts only an LLM chat-completion request. It does not see,
@@ -48,8 +48,10 @@ Privacy properties:
     so the relay DOES see the client's IP at the network layer — that's
     unavoidable. What the relay does NOT see is the request/response
     content: it observes only the OHTTP-encapsulated ciphertext, its own
-    wallet's x-payment material, and (single-shot only) the token-usage
-    outer headers it needs to bill.
+    wallet's x-payment material, and (single-shot only) the settled-cost
+    outer headers it needs to bill its own customer. Model name and token
+    counts are deliberately NOT surfaced — they'd fingerprint the inner
+    request without adding anything billing-relevant.
   * Enclave (compute position): sees the plaintext prompt and completion
     (they are decrypted inside the enclave to run the LLM call), but at
     the network layer it only sees the RELAY's IP — never the client's.
@@ -76,6 +78,7 @@ from flask import Response, current_app, request as flask_request
 
 from tee_gateway import ohttp
 from tee_gateway.tee_manager import get_tee_keys
+from tee_gateway.pricing import SessionCost
 
 logger = logging.getLogger(__name__)
 
@@ -194,9 +197,9 @@ def _build_outer_response(
             content_type=inner_content_type,
         )
 
-    # Usage headers come from a JSON parse — single-valued by construction —
+    # Cost headers come from a JSON parse — single-valued by construction —
     # so a dict is fine internally; just project to tuples at merge time.
-    forwarded.extend(_extract_usage_headers(body_bytes).items())
+    forwarded.extend(_extract_cost_headers(body_bytes).items())
     sealed = ohttp.encapsulate_response(decap.response_key, decap.enc, body_bytes)
     return Response(
         sealed,
@@ -220,10 +223,11 @@ def _build_streaming_response(
     look-ahead by one chunk so we know which one is last, hence the
     ``pending`` buffer below.
 
-    Usage stats can't be exposed as outer headers (those are already sent
+    Cost can't be exposed as outer headers (those are already flushed
     before the body); the relay bills via x402 settlement metadata
-    (X-Upto-Session header, set up-front). The client reads usage from the
-    final SSE event inside the decrypted stream.
+    (X-Upto-Session header, set up-front). The client reads cost from the
+    ``opengradient`` block on the final SSE event inside the decrypted
+    stream.
     """
     # See _build_outer_response: keep as a list so duplicate HTTP header
     # values (e.g. multiple WWW-Authenticate challenges) survive forwarding.
@@ -276,35 +280,30 @@ def _drain(sub_iter: Iterator[bytes]) -> bytes:
     return b"".join(chunks)
 
 
-def _extract_usage_headers(body_bytes: bytes) -> dict[str, str]:
-    """Pull token-usage + model name out of a chat-completion response and
-    project them onto outer HTTP headers for the relay's billing pipeline.
-    These are the ONLY pieces of metadata the relay needs to charge; the
-    prompt and completion themselves stay sealed."""
+def _extract_cost_headers(body_bytes: bytes) -> dict[str, str]:
+    """Project the response's ``opengradient`` cost block onto outer headers
+    for the relay's billing pipeline. Cost is the only metadata the relay
+    needs — model name and token counts stay sealed (they'd fingerprint the
+    inner request without being billing-relevant). The price is surfaced too
+    so the relay (and downstream auditors) can verify
+    ``cost_usd == cost_opg / 10^decimals * opg_price_usd`` without trusting us.
+    """
     try:
         body = json.loads(body_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         return {}
     if not isinstance(body, dict):
         return {}
-
-    headers: dict[str, str] = {}
-    usage = body.get("usage")
-    if isinstance(usage, dict):
-        prompt_tokens = usage.get("prompt_tokens", usage.get("input_tokens"))
-        completion_tokens = usage.get("completion_tokens", usage.get("output_tokens"))
-        total_tokens = usage.get("total_tokens")
-        if prompt_tokens is not None:
-            headers["X-Usage-Prompt-Tokens"] = str(prompt_tokens)
-        if completion_tokens is not None:
-            headers["X-Usage-Completion-Tokens"] = str(completion_tokens)
-        if total_tokens is not None:
-            headers["X-Usage-Total-Tokens"] = str(total_tokens)
-
-    model = body.get("model")
-    if isinstance(model, str):
-        headers["X-Usage-Model"] = model
-    return headers
+    try:
+        cost = SessionCost.model_validate(body.get("opengradient"))
+    except Exception:
+        return {}
+    wire = cost.model_dump(mode="json")
+    return {
+        "X-Inference-Cost-OPG": wire["cost_opg"],
+        "X-Inference-Cost-USD": wire["cost_usd"],
+        "X-Inference-Price-OPG-USD": wire["opg_price_usd"],
+    }
 
 
 def _wsgi_subrequest(

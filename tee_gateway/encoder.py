@@ -1,4 +1,5 @@
 from connexion.apps.flask_app import FlaskJSONEncoder
+from pydantic import BaseModel
 
 from tee_gateway.models.base_model import Model
 
@@ -7,6 +8,10 @@ class JSONEncoder(FlaskJSONEncoder):
     include_nulls = False
 
     def default(self, o):
+        if isinstance(o, BaseModel):
+            # mode="json" runs the model's field_serializers — e.g. SessionCost
+            # emits int/Decimal as JS-safe strings declared on the model.
+            return o.model_dump(mode="json")
         if isinstance(o, Model):
             dikt = {}
             for attr in o.openapi_types:

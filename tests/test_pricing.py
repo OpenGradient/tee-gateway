@@ -16,7 +16,32 @@ from tee_gateway.model_registry import (
     _MODEL_LOOKUP,
     get_model_config,
 )
-from tee_gateway.util import calculate_session_cost
+from tee_gateway.pricing import (
+    _extract_asset_decimals_from_requirements,
+    calculate_session_cost as _calculate_session_cost_raw,
+)
+
+
+def calculate_session_cost(ctx, get_price):
+    """Adapter: legacy bundled-ctx call form -> new (request, response,
+    asset_decimals, get_price) signature, returning the OPG integer.
+
+    request_json may be None (validated by the underlying function); guard so the
+    error path is preserved.
+    """
+    request_json = ctx.get("request_json")
+    if not isinstance(request_json, dict):
+        # Match the underlying ValueError so .assertRaises(ValueError) still fires.
+        raise ValueError("request_json missing or not a dict")
+    return _calculate_session_cost_raw(
+        request_json=request_json,
+        response_json=ctx["response_json"],
+        asset_decimals=_extract_asset_decimals_from_requirements(
+            ctx["payment_requirements"]
+        ),
+        get_price=get_price,
+    ).cost_opg
+
 
 # All pricing tests assume OPG = $1.00 so USD cost == OPG token amount.
 _OPG_PRICE_USD = Decimal("1")

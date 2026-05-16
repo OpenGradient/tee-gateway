@@ -41,9 +41,8 @@ from x402.server import x402ResourceServerSync
 from x402.session import SessionStore
 import x402.http.middleware.flask as x402_flask
 
-from .util import calculate_session_cost
 from .model_registry import get_model_config
-from .price_feed import OPGPriceFeed
+from .price_feed import OPGPriceFeed, set_price_feed
 from .definitions import (
     EVM_PAYMENT_ADDRESS,
     BASE_MAINNET_NETWORK,
@@ -121,6 +120,7 @@ atexit.register(_shutdown_heartbeat)
 # ---------------------------------------------------------------------------
 _price_feed = OPGPriceFeed()
 _price_feed.start()
+set_price_feed(_price_feed)
 
 _started_at = time.time()
 
@@ -161,22 +161,22 @@ x402_flask._read_body_bytes = _patched_read_body_bytes
 
 
 def _session_cost_calculator(ctx: dict) -> int:
-    # Post-inference cost calculation — response already sent to client.
-    # Predictable failures (unknown price, unknown model) are blocked by the
-    # pre-inference gate; any exception here indicates a provider-side error
-    # (e.g. missing usage field in the LLM response).  The x402 middleware
-    # swallows the exception in close(), so the client is not charged.
-    # Log CRITICAL so provider errors are never silently missed.
-    try:
-        return calculate_session_cost(ctx, _price_feed.get_price)
-    except Exception as exc:
-        logger.critical(
-            "Post-inference cost calculation failed (provider error) — "
-            "client was NOT charged: %s",
-            exc,
-            exc_info=True,
-        )
-        raise
+    # The chat/completions controllers compute cost in-band and embed it on
+    # the response as a SessionCost model BEFORE returning. We parse it back
+    # here — single source of truth for cost lives in the controller, not
+    # split between the controller (which serves clients) and x402's callback
+    # (which charges them).
+    #
+    # If the controller couldn't compute cost (e.g. missing usage from the
+    # provider), the block is absent — SessionCost.model_validate raises and
+    # x402's close() swallows it so the client is not charged. The controller
+    # has already logged CRITICAL in that case.
+    from .pricing import SessionCost
+
+    response_json = ctx.get("response_json")
+    if not isinstance(response_json, dict):
+        raise ValueError("response_json missing or not a dict")
+    return SessionCost.model_validate(response_json.get("opengradient")).cost_opg
 
 
 # ---------------------------------------------------------------------------

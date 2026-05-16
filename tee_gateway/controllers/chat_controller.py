@@ -30,6 +30,7 @@ from tee_gateway.llm_backend import (
     convert_messages,
     extract_usage,
 )
+from tee_gateway.pricing import compute_session_cost
 
 logger = logging.getLogger(__name__)
 
@@ -265,6 +266,9 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
 
         if usage:
             openai_response["usage"] = usage
+            cost = compute_session_cost(request_dict, openai_response)
+            if cost is not None:
+                openai_response["opengradient"] = cost
 
         # Validate schema (the extra tee_* fields are preserved by returning dict directly)
         CreateChatCompletionResponse.from_dict(openai_response)
@@ -590,6 +594,12 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                         "completion_tokens": final_usage.get("output_tokens", 0),
                         "total_tokens": final_usage.get("total_tokens", 0),
                     }
+                    cost = compute_session_cost(request_dict, final_data)
+                    if cost is not None:
+                        # final_data is hand-serialized to SSE via json.dumps below,
+                        # which doesn't go through Flask's JSONEncoder — so do the
+                        # serialization ourselves here.
+                        final_data["opengradient"] = cost.model_dump(mode="json")
                     logger.info(
                         f"Stream completed — usage: {final_data['usage']}, "
                         f"finish: {finish_reason}, "

@@ -192,14 +192,14 @@ The `tee_*` fields provide cryptographic proof of the response:
 
 **Billing channel for the relay.** Both modes settle the actual cost via x402 against the relay's `X-Payment` (`upto` scheme); the gateway is the source of truth for the amount.
 
-- `stream=false`: outer response *also* exposes per-token detail — `X-Usage-Prompt-Tokens`, `X-Usage-Completion-Tokens`, `X-Usage-Total-Tokens`, `X-Usage-Model` — for the relay's own bookkeeping. The sealed body carries the same `usage` block for the client.
+- `stream=false`: outer response exposes billing/cost headers — `X-Inference-Cost-OPG`, `X-Inference-Cost-USD`, `X-Inference-Price-OPG-USD` — for the relay's own bookkeeping. Per-token `usage` detail is carried in the sealed body for the client, not in outer `X-Usage-*` headers.
 - `stream=true`: **no** per-token detail in outer headers (they're flushed before any body chunk, so we can't know token counts at header-write time) and the sealed chunks are opaque to the relay. The relay reads the actual settled amount from x402 — either by querying the facilitator with its `X-Upto-Session`, or via `X-Payment-Response` on its next call. The client still sees per-token detail in the final SSE event inside the decrypted stream.
 
 On non-2xx (e.g. 402 payment required) the body is forwarded plaintext so the relay can read x402 payment requirements and retry — those bodies never contain prompts or completions.
 
 **Trust split:**
 
-- **Relay** terminates the client's TCP/TLS connection, so it does see the client's IP — that's unavoidable. What it doesn't see is content: only OHTTP ciphertext + its own wallet's `x-payment` material + (single-shot only) the token-usage outer headers it needs to bill.
+- **Relay** terminates the client's TCP/TLS connection, so it does see the client's IP — that's unavoidable. What it doesn't see is content: only OHTTP ciphertext + its own wallet's `x-payment` material + the outer billing/cost headers used to settle and reconcile charges.
 - **Enclave** sees plaintext prompts/completions (it has to run the LLM call) but at the network layer only sees the relay's IP, never the client's. This is the unlinkability claim — the enclave can't tie a plaintext request to a specific end user.
 - **Client** decrypts and verifies the TEE signature embedded in the response body against the attested public key.
 

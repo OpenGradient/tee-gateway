@@ -77,7 +77,6 @@ from typing import Any, Iterator
 from flask import Response, current_app, request as flask_request
 
 from tee_gateway import ohttp
-from tee_gateway.model_registry import get_model_config
 from tee_gateway.tee_manager import get_tee_keys
 from tee_gateway.pricing import SessionCost
 
@@ -149,9 +148,7 @@ def create_anonymous_chat_completion():
     try:
         chat_body = json.loads(decap.plaintext.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return _sealed_error(
-            flask_request, decap, 400, "inner payload is not valid JSON"
-        )
+        return _error(400, "inner payload is not valid JSON")
 
     if not isinstance(chat_body, dict):
         return _error(400, "inner payload must be a JSON object")
@@ -175,8 +172,13 @@ def create_anonymous_chat_completion():
     )
 
     if is_streaming:
+        cost_context = flask_request.environ.get("x402.cost_context")
         return _build_streaming_response(
-            decap, sub_status, sub_headers, sub_iter, flask_request
+            decap,
+            sub_status,
+            sub_headers,
+            sub_iter,
+            cost_context if isinstance(cost_context, dict) else None,
         )
 
     # Non-streaming: drain into bytes, record the inner plaintext cost block
@@ -237,7 +239,7 @@ def _build_streaming_response(
     status: int,
     headers: list[tuple[str, str]],
     sub_iter: Iterator[bytes],
-    req,
+    cost_context: dict[str, Any] | None,
 ) -> Response:
     """Chunked OHTTP response (draft-ietf-ohai-chunked-ohttp-08).
 
@@ -281,7 +283,7 @@ def _build_streaming_response(
             yield encrypter.encrypt_chunk(pending or b"", is_final=True)
         finally:
             _set_inner_stream_cost_context(
-                req, plaintext_chunks, status_code=status
+                cost_context, plaintext_chunks, status_code=status
             )
             close = getattr(sub_iter, "close", None)
             if callable(close):
@@ -418,13 +420,18 @@ def _error(status: int, message: str) -> tuple[dict, int]:
 
 
 def _set_inner_cost_context(
-    req,
+    req_or_context,
     *,
     request_json: dict[str, Any] | None = None,
     response_json: dict[str, Any] | None = None,
     status_code: int | None = None,
 ) -> None:
-    cost_context = req.environ.get("x402.cost_context")
+    if isinstance(req_or_context, dict):
+        cost_context = req_or_context
+    elif req_or_context is None:
+        return
+    else:
+        cost_context = req_or_context.environ.get("x402.cost_context")
     if not isinstance(cost_context, dict):
         return
     if request_json is not None:
@@ -501,9 +508,7 @@ def _sealed_json_response(
         separators=(",", ":"),
     ).encode("utf-8")
 
-    sealed = ohttp.encapsulate_response(
-        decap.response_key, decap.enc, inner_json
-    )
+    sealed = ohttp.encapsulate_response(decap.response_key, decap.enc, inner_json)
     return Response(
         sealed,
         status=200,

@@ -213,8 +213,10 @@ def _patched_stream_session_response(
     )
 
 
-x402_flask.PaymentMiddleware._stream_session_response = (
-    _patched_stream_session_response
+setattr(
+    x402_flask.PaymentMiddleware,
+    "_stream_session_response",
+    _patched_stream_session_response,
 )
 
 

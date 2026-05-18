@@ -231,7 +231,10 @@ def _session_cost_calculator(ctx: dict) -> int:
     # has already logged CRITICAL in that case.
     from .pricing import SessionCost
 
-    response_json = ctx.get("response_json")
+    if ctx.get("path") == "/v1/ohttp":
+        response_json = ctx.get("inner_response_json")
+    else:
+        response_json = ctx.get("response_json")
     if not isinstance(response_json, dict):
         raise ValueError("response_json missing or not a dict")
     cost_block = response_json.get("opengradient")
@@ -339,6 +342,10 @@ def _init_payment_middleware(facilitator_url: str) -> None:
             description="OHTTP-wrapped chat completion",
         ),
     }
+
+    inner_wsgi_app = application.wsgi_app
+    flask_app = getattr(application, "app", application)
+    flask_app.config["OHTTP_INNER_WSGI_APP"] = inner_wsgi_app
 
     # Return value intentionally discarded — PaymentMiddleware.__init__ self-wires
     # by setting application.wsgi_app = self._wsgi_middleware internally.

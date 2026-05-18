@@ -39,6 +39,26 @@ def _calc_opg(model: str, input_tokens: int, output_tokens: int) -> int:
     return -1 if result is None else result.cost_opg
 
 
+def _ohttp_ctx(model: str, input_tokens: int, output_tokens: int) -> dict:
+    """Build a calculator context for an encrypted outer OHTTP exchange."""
+    return {
+        "path": "/v1/ohttp",
+        "request_json": None,
+        "response_json": None,
+        "inner_status_code": 200,
+        "inner_request_json": {"model": model, "messages": []},
+        "inner_response_json": {
+            "model": model,
+            "usage": {
+                "prompt_tokens": input_tokens,
+                "completion_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens,
+            },
+        },
+        "payment_requirements": _opg_requirements(),
+    }
+
+
 def _expected_cost_opg(model: str, input_tokens: int, output_tokens: int) -> int:
     """Compute expected cost in OPG smallest units (18 decimals, ROUND_CEILING)."""
     from decimal import ROUND_CEILING

@@ -77,6 +77,7 @@ from typing import Any, Iterator
 from flask import Response, current_app, request as flask_request
 
 from tee_gateway import ohttp
+from tee_gateway.model_registry import get_model_config
 from tee_gateway.tee_manager import get_tee_keys
 from tee_gateway.pricing import SessionCost
 
@@ -148,7 +149,7 @@ def create_anonymous_chat_completion():
     try:
         chat_body = json.loads(decap.plaintext.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return _error(400, "inner payload is not valid JSON")
+        return _sealed_error(req, decap, 400, "inner payload is not valid JSON")
 
     if not isinstance(chat_body, dict):
         return _error(400, "inner payload must be a JSON object")
@@ -411,3 +412,47 @@ def _error(status: int, message: str) -> tuple[dict, int]:
     also returned plaintext so the relay can surface them to the client —
     they never contain user prompts."""
     return {"error": message}, status
+
+
+def _set_inner_cost_context(
+    req,
+    *,
+    request_json: dict[str, Any] | None = None,
+    response_json: dict[str, Any] | None = None,
+    status_code: int | None = None,
+) -> None:
+    cost_context = req.environ.get("x402.cost_context")
+    if not isinstance(cost_context, dict):
+        return
+    if request_json is not None:
+        cost_context["inner_request_json"] = request_json
+    if response_json is not None:
+        cost_context["inner_response_json"] = response_json
+    if status_code is not None:
+        cost_context["inner_status_code"] = status_code
+
+
+def _sealed_error(req, decap: ohttp.DecapsulatedRequest, status: int, message: str):
+    body = {"error": message}
+    _set_inner_cost_context(req, response_json=body, status_code=status)
+    return _sealed_json_response(decap, status, body)
+
+
+def _sealed_json_response(
+    decap: ohttp.DecapsulatedRequest,
+    status: int,
+    body_obj: Any,
+) -> Response:
+    inner_json = json.dumps(
+        {"status": status, "body": body_obj},
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    sealed = ohttp.encapsulate_response(
+        decap.response_key, decap.enc, inner_json
+    )
+    return Response(
+        sealed,
+        status=200,
+        mimetype=OHTTP_RESPONSE_MEDIA_TYPE,
+    )

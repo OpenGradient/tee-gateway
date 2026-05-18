@@ -235,9 +235,10 @@ def test_non_2xx_inner_response_is_plaintext_passthrough(monkeypatch):
     assert resp.headers.get("X-Payment-Required") == "true"
     assert resp.headers.get("X-Tee-Signature") == "sig"
     assert "Set-Cookie" not in resp.headers
-    # The relay's X-Payment was forwarded into the inner env so the
-    # x402 middleware can verify it.
-    assert captured["env"]["HTTP_X_PAYMENT"] == "client-payment-blob"
+    # The outer /v1/ohttp request is the paid x402 boundary. The decrypted
+    # in-process chat subrequest bypasses x402, so the payment blob must not
+    # be forwarded into the inner env.
+    assert "HTTP_X_PAYMENT" not in captured["env"]
     # WSGI iterator was drained AND closed (drains x402 settlement).
     assert captured["iter"].closed is True
 

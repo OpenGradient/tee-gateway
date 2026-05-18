@@ -268,7 +268,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
             openai_response["usage"] = usage
             cost = compute_session_cost(chat_request.model, usage)
             if cost is not None:
-                openai_response["opengradient"] = cost
+                openai_response["opengradient"] = cost.model_dump(mode="json")
 
         # Validate schema (the extra tee_* fields are preserved by returning dict directly)
         CreateChatCompletionResponse.from_dict(openai_response)

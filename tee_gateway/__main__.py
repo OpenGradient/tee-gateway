@@ -160,6 +160,66 @@ def _patched_read_body_bytes(environ):
 x402_flask._read_body_bytes = _patched_read_body_bytes
 
 
+def _patched_stream_session_response(
+    self,
+    environ,
+    start_response,
+    context,
+    session_id,
+    payment_payload,
+    payment_requirements,
+):
+    """Expose x402's per-request cost context to Flask route handlers.
+
+    OHTTP requests arrive as ciphertext and return ciphertext, so the x402
+    middleware cannot parse request_json/response_json from the outer HTTP
+    bodies. The OHTTP controller decrypts the inner request and plaintext
+    response inside the enclave; this patch gives it a request-local dict where
+    it can attach those inner JSON objects for dynamic settlement.
+    """
+    self._start_reaper()
+
+    request_body_bytes = x402_flask._read_body_bytes(environ)
+    request_json = x402_flask._try_parse_json(request_body_bytes)
+    parsed_request_json = (
+        request_json if isinstance(request_json, (dict, list)) else None
+    )
+
+    x402_flask.g.payment_payload = payment_payload
+    x402_flask.g.payment_requirements = payment_requirements
+    x402_flask.g.x402_session_id = session_id
+
+    cost_context = {
+        "method": context.method,
+        "path": context.path,
+        "request_body_bytes": request_body_bytes,
+        "request_json": parsed_request_json,
+        "payment_payload": payment_payload,
+        "payment_requirements": payment_requirements,
+    }
+    environ["x402.cost_context"] = cost_context
+
+    status_capture = x402_flask.StatusCapture(start_response)
+    status_capture.add_header(x402_flask.UPTO_SESSION_HEADER, session_id)
+
+    upstream_iter = self._original_wsgi(environ, status_capture)
+
+    return x402_flask.StreamingSessionResponse(
+        upstream_iter,
+        middleware=self,
+        session_id=session_id,
+        cost_context=cost_context,
+        status_ref=status_capture,
+    )
+
+
+setattr(
+    x402_flask.PaymentMiddleware,
+    "_stream_session_response",
+    _patched_stream_session_response,
+)
+
+
 def _session_cost_calculator(ctx: dict) -> int:
     # The chat/completions controllers compute cost in-band and embed it on
     # the response as a SessionCost model BEFORE returning. We parse it back
@@ -173,7 +233,10 @@ def _session_cost_calculator(ctx: dict) -> int:
     # has already logged CRITICAL in that case.
     from .pricing import SessionCost
 
-    response_json = ctx.get("response_json")
+    if ctx.get("path") == "/v1/ohttp":
+        response_json = ctx.get("inner_response_json")
+    else:
+        response_json = ctx.get("response_json")
     if not isinstance(response_json, dict):
         raise ValueError("response_json missing or not a dict")
     cost_block = response_json.get("opengradient")
@@ -257,7 +320,34 @@ def _init_payment_middleware(facilitator_url: str) -> None:
             mime_type="application/json",
             description="Completion",
         ),
+        "POST /v1/ohttp": RouteConfig(
+            accepts=[
+                PaymentOption(
+                    scheme="upto",
+                    pay_to=EVM_PAYMENT_ADDRESS,
+                    price=AssetAmount(
+                        amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
+                        asset=BASE_MAINNET_OPG_ADDRESS,
+                        extra={
+                            "name": "OpenGradient",
+                            "version": "1",
+                            "assetTransferMethod": "permit2",
+                        },
+                    ),
+                    network=BASE_MAINNET_NETWORK,
+                ),
+            ],
+            extensions={
+                **declare_erc20_approval_gas_sponsoring_extension(),
+            },
+            mime_type="message/ohttp-req",
+            description="OHTTP-wrapped chat completion",
+        ),
     }
+
+    inner_wsgi_app = application.wsgi_app
+    flask_app = getattr(application, "app", application)
+    flask_app.config["OHTTP_INNER_WSGI_APP"] = inner_wsgi_app
 
     # Return value intentionally discarded — PaymentMiddleware.__init__ self-wires
     # by setting application.wsgi_app = self._wsgi_middleware internally.
@@ -499,13 +589,16 @@ application = create_app()
 
 @application.before_request
 def _check_pricing_ready():
-    if request.path not in ("/v1/chat/completions", "/v1/completions"):
+    if request.path not in ("/v1/chat/completions", "/v1/completions", "/v1/ohttp"):
         return
     try:
         _price_feed.get_price()
     except ValueError as exc:
         logger.warning("Rejecting inference request — price feed unavailable: %s", exc)
         return jsonify({"error": f"Pricing unavailable: {exc}"}), 503
+
+    if request.path == "/v1/ohttp":
+        return
 
     body = request.get_json(silent=True, cache=True) or {}
     model = body.get("model")

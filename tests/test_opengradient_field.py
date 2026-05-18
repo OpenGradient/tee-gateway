@@ -77,7 +77,7 @@ class TestChatNonStreamingOpengradient(unittest.TestCase):
 
         self.assertIsInstance(resp, dict)
         self.assertIn("opengradient", resp)
-        self.assertEqual(resp["opengradient"].cost_opg, 12345)
+        self.assertEqual(resp["opengradient"]["cost_opg"], "12345")
 
     def test_opengradient_block_absent_when_compute_returns_none(self):
         from tee_gateway.controllers import chat_controller
@@ -206,7 +206,7 @@ class TestCompletionsOpengradient(unittest.TestCase):
 
         self.assertIsInstance(resp, dict)
         self.assertIn("opengradient", resp)
-        self.assertEqual(resp["opengradient"].cost_opg, 12345)
+        self.assertEqual(resp["opengradient"]["cost_opg"], "12345")
 
 
 class TestSessionCostCalculatorMissingBlock(unittest.TestCase):

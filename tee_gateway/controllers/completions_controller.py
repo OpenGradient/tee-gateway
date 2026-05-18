@@ -82,7 +82,7 @@ def create_completion(body):
         if usage:
             cost = compute_session_cost(body.model, usage)
             if cost is not None:
-                completion_response["opengradient"] = cost
+                completion_response["opengradient"] = cost.model_dump(mode="json")
         return completion_response
 
     except Exception as e:

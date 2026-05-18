@@ -154,17 +154,12 @@ def create_anonymous_chat_completion():
         return _error(400, "inner payload must be a JSON object")
 
     chat_body = _scrub(chat_body)
+    _set_inner_cost_context(flask_request, request_json=chat_body)
     body_bytes = json.dumps(chat_body, separators=(",", ":")).encode("utf-8")
-
-    # The relay pays — x-payment is a standard outer-request header, not
-    # inside the encrypted envelope. Pass it through to the inner endpoint
-    # so x402 verifies and settles exactly as it does for a normal call.
-    payment_header = flask_request.headers.get("X-Payment")
 
     sub_status, sub_headers, sub_iter = _wsgi_subrequest(
         path="/v1/chat/completions",
         body_bytes=body_bytes,
-        payment_header=payment_header,
     )
 
     inner_content_type = next(
@@ -177,11 +172,21 @@ def create_anonymous_chat_completion():
     )
 
     if is_streaming:
-        return _build_streaming_response(decap, sub_status, sub_headers, sub_iter)
+        cost_context = flask_request.environ.get("x402.cost_context")
+        return _build_streaming_response(
+            decap,
+            sub_status,
+            sub_headers,
+            sub_iter,
+            cost_context if isinstance(cost_context, dict) else None,
+        )
 
-    # Non-streaming: drain into bytes (this also triggers x402's
-    # post-response settlement via the WSGI iterator's close()).
+    # Non-streaming: drain into bytes, record the inner plaintext cost block
+    # for outer /v1/ohttp x402 settlement, then seal the response.
     body_bytes_out = _drain(sub_iter)
+    _set_inner_response_cost_context(
+        flask_request, body_bytes_out, status_code=sub_status
+    )
     return _build_outer_response(
         decap, sub_status, sub_headers, body_bytes_out, inner_content_type
     )
@@ -234,6 +239,7 @@ def _build_streaming_response(
     status: int,
     headers: list[tuple[str, str]],
     sub_iter: Iterator[bytes],
+    cost_context: dict[str, Any] | None,
 ) -> Response:
     """Chunked OHTTP response (draft-ietf-ohai-chunked-ohttp-08).
 
@@ -262,10 +268,12 @@ def _build_streaming_response(
         yield encrypter.header()
 
         pending: bytes | None = None
+        plaintext_chunks: list[bytes] = []
         try:
             for chunk in sub_iter:
                 if not chunk:
                     continue
+                plaintext_chunks.append(chunk)
                 if pending is not None:
                     yield encrypter.encrypt_chunk(pending, is_final=False)
                 pending = chunk
@@ -274,9 +282,11 @@ def _build_streaming_response(
             # undetected truncation.
             yield encrypter.encrypt_chunk(pending or b"", is_final=True)
         finally:
+            _set_inner_stream_cost_context(
+                cost_context, plaintext_chunks, status_code=status
+            )
             close = getattr(sub_iter, "close", None)
             if callable(close):
-                # Triggers x402's streaming-session settlement.
                 close()
 
     return Response(
@@ -329,17 +339,15 @@ def _extract_cost_headers(body_bytes: bytes) -> dict[str, str]:
 def _wsgi_subrequest(
     path: str,
     body_bytes: bytes,
-    payment_header: str | None,
 ) -> tuple[int, list[tuple[str, str]], Iterator[bytes]]:
     """Issue an in-process WSGI request through the app's full middleware stack.
 
     Returns ``(status_code, headers, body_iterator)``. The caller is
-    responsible for draining and closing the iterator (close() triggers
-    x402's post-response settlement). We invoke ``current_app.wsgi_app``
-    directly so the x402 payment middleware (which wraps ``wsgi_app`` at
-    injection time) runs the same way it would for an external HTTP
-    request to the same path — including the pre-inference pricing gate,
-    payment verification, cost settlement and TEE response signing.
+    responsible for draining and closing the iterator. The outer /v1/ohttp
+    request is the x402-paid boundary, so this inner chat dispatch uses the
+    pre-x402 WSGI app saved at middleware installation time. That avoids
+    charging/verifying the same relay payment twice while still running
+    connexion routing, validation, TEE signing, and provider inference.
     """
     outer_env = flask_request.environ
     sub_env: dict[str, Any] = {
@@ -361,9 +369,6 @@ def _wsgi_subrequest(
             "wsgi.input": io.BytesIO(body_bytes),
         }
     )
-    if payment_header:
-        sub_env["HTTP_X_PAYMENT"] = payment_header
-
     # The OpenAPI spec declares a global ApiKeyAuth requirement and connexion
     # enforces it before our handler runs (returns 401 "No authorization
     # token provided"). The security function (security_controller.py) is an
@@ -382,7 +387,8 @@ def _wsgi_subrequest(
         captured["headers"] = headers
         return lambda _chunk: None
 
-    iterator = current_app.wsgi_app(sub_env, _start_response)
+    inner_wsgi = current_app.config.get("OHTTP_INNER_WSGI_APP") or current_app.wsgi_app
+    iterator = inner_wsgi(sub_env, _start_response)
     status_code = int(captured["status"].split(" ", 1)[0])
     # Don't wrap in iter() — that would strip the iterable's close() method,
     # which the caller relies on to trigger x402's post-response settlement.
@@ -411,3 +417,100 @@ def _error(status: int, message: str) -> tuple[dict, int]:
     also returned plaintext so the relay can surface them to the client —
     they never contain user prompts."""
     return {"error": message}, status
+
+
+def _set_inner_cost_context(
+    req_or_context,
+    *,
+    request_json: dict[str, Any] | None = None,
+    response_json: dict[str, Any] | None = None,
+    status_code: int | None = None,
+) -> None:
+    if isinstance(req_or_context, dict):
+        cost_context = req_or_context
+    elif req_or_context is None:
+        return
+    else:
+        cost_context = req_or_context.environ.get("x402.cost_context")
+    if not isinstance(cost_context, dict):
+        return
+    if request_json is not None:
+        cost_context["inner_request_json"] = request_json
+    if response_json is not None:
+        cost_context["inner_response_json"] = response_json
+    if status_code is not None:
+        cost_context["inner_status_code"] = status_code
+
+
+def _set_inner_response_cost_context(
+    req,
+    body_bytes: bytes,
+    *,
+    status_code: int,
+) -> None:
+    try:
+        response_json = json.loads(body_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        response_json = None
+    _set_inner_cost_context(
+        req,
+        response_json=response_json if isinstance(response_json, dict) else None,
+        status_code=status_code,
+    )
+
+
+def _set_inner_stream_cost_context(
+    req,
+    chunks: list[bytes],
+    *,
+    status_code: int,
+) -> None:
+    body = b"".join(chunks)
+    response_json = _parse_final_sse_json(body)
+    _set_inner_cost_context(
+        req,
+        response_json=response_json,
+        status_code=status_code,
+    )
+
+
+def _parse_final_sse_json(body: bytes) -> dict[str, Any] | None:
+    last_json: dict[str, Any] | None = None
+    for line in body.decode("utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[len("data:") :].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            last_json = parsed
+    return last_json
+
+
+def _sealed_error(req, decap: ohttp.DecapsulatedRequest, status: int, message: str):
+    body = {"error": message}
+    _set_inner_cost_context(req, response_json=body, status_code=status)
+    return _sealed_json_response(decap, status, body)
+
+
+def _sealed_json_response(
+    decap: ohttp.DecapsulatedRequest,
+    status: int,
+    body_obj: Any,
+) -> Response:
+    inner_json = json.dumps(
+        {"status": status, "body": body_obj},
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    sealed = ohttp.encapsulate_response(decap.response_key, decap.enc, inner_json)
+    return Response(
+        sealed,
+        status=200,
+        mimetype=OHTTP_RESPONSE_MEDIA_TYPE,
+    )

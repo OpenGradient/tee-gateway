@@ -121,6 +121,8 @@ The `measurements.txt` checked into this repository reflects the OpenGradient-op
 | `/signing-key` | GET | TEE public key (PEM format) and tee_id |
 | `/v1/completions` | POST | Text completion (signed) |
 | `/v1/chat/completions` | POST | Chat completion (signed) |
+| `/v1/ohttp` | POST | Anonymous chat completion (OHTTP-encapsulated, relay-paid) |
+| `/v1/ohttp/config` | GET | HPKE key configuration (RFC 9458) for OHTTP clients |
 
 ### Request Format
 
@@ -169,6 +171,39 @@ The `tee_*` fields provide cryptographic proof of the response:
 - **`tee_signature`** — RSA-PSS-SHA256 signature over `keccak256(requestHash || outputHash || timestamp)`
 - **`tee_timestamp`** — Unix timestamp when the response was signed (proves freshness)
 - **`tee_id`** — keccak256 of the enclave's DER-encoded public key (stable identifier for this enclave instance)
+
+## Anonymous Inference (Oblivious HTTP)
+
+`/v1/ohttp` is a thin wrapper around `/v1/chat/completions` that adds **client unlinkability** via [RFC 9458 OHTTP](https://www.rfc-editor.org/rfc/rfc9458) + [draft-ietf-ohai-chunked-ohttp-08](https://datatracker.ietf.org/doc/draft-ietf-ohai-chunked-ohttp/). HPKE ciphersuite is fixed: DHKEM(X25519,HKDF-SHA256) / HKDF-SHA256 / ChaCha20-Poly1305.
+
+**Flow:**
+
+1. Client fetches `/v1/ohttp/config` (HPKE pubkey, key_id, suite IDs) and verifies it against the Nitro attestation.
+2. Client HPKE-encapsulates a normal chat-completion JSON body and POSTs the ciphertext to a **relay**. The client carries no payment material.
+3. Relay forwards the ciphertext to `/v1/ohttp` and attaches its own `X-Payment: <x402 payload>` header. **`/v1/ohttp` is the x402-paid boundary** — verification and settlement happen on this outer request, against the relay's payment.
+4. Enclave decrypts → re-issues the request in-process to `/v1/chat/completions` against the pre-x402 WSGI app (so connexion routing, validation, TEE signing and the LLM call still run, but x402 does **not** fire a second time and the relay's `X-Payment` is **not** forwarded into the inner dispatch) → response is sealed back to the client.
+
+**Two response modes** (chosen by the inner `stream` flag):
+
+| Mode | Outer content-type | Body |
+|------|---|---|
+| `stream=false` | `message/ohttp-res` | Single-shot sealed body (RFC 9458 §4.5) |
+| `stream=true` | `message/ohttp-chunked-res` | `response_nonce \|\| (varint(len) \|\| sealed_ct)+ \|\| varint(0) \|\| sealed_final_ct` — one OHTTP chunk per SSE event, AAD=`b"final"` on the last chunk (chunked-ohttp draft §3) |
+
+**Billing channel for the relay.** Both modes settle the actual cost via x402 against the relay's `X-Payment` (`upto` scheme); the gateway is the source of truth for the amount.
+
+- `stream=false`: outer response exposes billing/cost headers — `X-Inference-Cost-OPG`, `X-Inference-Cost-USD`, `X-Inference-Price-OPG-USD` — for the relay's own bookkeeping. Per-token `usage` detail is carried in the sealed body for the client, not in outer `X-Usage-*` headers.
+- `stream=true`: **no** per-token detail in outer headers (they're flushed before any body chunk, so we can't know token counts at header-write time) and the sealed chunks are opaque to the relay. The relay reads the actual settled amount from x402 — either by querying the facilitator with its `X-Upto-Session`, or via `X-Payment-Response` on its next call. The client still sees per-token detail in the final SSE event inside the decrypted stream.
+
+On non-2xx (e.g. 402 payment required) the body is forwarded plaintext so the relay can read x402 payment requirements and retry — those bodies never contain prompts or completions.
+
+**Trust split:**
+
+- **Relay** terminates the client's TCP/TLS connection, so it does see the client's IP — that's unavoidable. What it doesn't see is content: only OHTTP ciphertext + its own wallet's `x-payment` material + the outer billing/cost headers used to settle and reconcile charges.
+- **Enclave** sees plaintext prompts/completions (it has to run the LLM call) but at the network layer only sees the relay's IP, never the client's. This is the unlinkability claim — the enclave can't tie a plaintext request to a specific end user.
+- **Client** decrypts and verifies the TEE signature embedded in the response body against the attested public key.
+
+Unlinkability between a client identity and a plaintext request holds unless relay and enclave collude (the relay would have to share its client-IP log alongside the enclave's plaintext log). Streaming additionally leaks per-chunk timing and length — clients who can't accept that signal should use `stream=false`.
 
 ## Verification
 

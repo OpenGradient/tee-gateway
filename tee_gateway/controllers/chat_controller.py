@@ -30,6 +30,7 @@ from tee_gateway.llm_backend import (
     convert_messages,
     extract_usage,
 )
+from tee_gateway.pricing import compute_session_cost
 
 logger = logging.getLogger(__name__)
 
@@ -224,8 +225,6 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
                 for tc in response.tool_calls
             ]
 
-        usage = extract_usage(response)
-
         # For tool-call responses, hash the serialized tool calls so the
         # signature covers which tools were invoked and with what arguments.
         if finish_reason == "tool_calls" and message_dict.get("tool_calls"):
@@ -263,8 +262,13 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
             f"Response Final\n\tTEE Signature: {signature}\n\tTEE request hash: {input_hash_hex}\n\tTEE output hash: {output_hash_hex}\n\tTEE timestamp: {timestamp}\n\tTEE ID: 0x{tee_keys.get_tee_id()}"
         )
 
+        # TODO: If no usage is returned, we should compute it here.
+        usage = extract_usage(response)
         if usage:
             openai_response["usage"] = usage
+            cost = compute_session_cost(chat_request.model, usage)
+            if cost is not None:
+                openai_response["opengradient"] = cost.model_dump(mode="json")
 
         # Validate schema (the extra tee_* fields are preserved by returning dict directly)
         CreateChatCompletionResponse.from_dict(openai_response)
@@ -584,12 +588,19 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     f"Response Final\n\tTEE Signature: {tee_signature}\n\tTEE request hash: {input_hash_hex}\n\tTEE output hash: {output_hash_hex}\n\tTEE timestamp: {timestamp}\n\tTEE ID: 0x{tee_keys.get_tee_id()}"
                 )
 
+                # TODO: If no usage is returned, we should compute it here.
                 if final_usage:
                     final_data["usage"] = {
                         "prompt_tokens": final_usage.get("input_tokens", 0),
                         "completion_tokens": final_usage.get("output_tokens", 0),
                         "total_tokens": final_usage.get("total_tokens", 0),
                     }
+                    cost = compute_session_cost(chat_request.model, final_data["usage"])
+                    if cost is not None:
+                        # final_data is hand-serialized to SSE via json.dumps below,
+                        # which doesn't go through Flask's JSONEncoder — so do the
+                        # serialization ourselves here.
+                        final_data["opengradient"] = cost.model_dump(mode="json")
                     logger.info(
                         f"Stream completed — usage: {final_data['usage']}, "
                         f"finish: {finish_reason}, "

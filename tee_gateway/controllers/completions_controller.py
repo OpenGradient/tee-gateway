@@ -4,12 +4,15 @@ import uuid
 import logging
 
 import connexion
+from typing import Any
+
 from langchain_core.messages import HumanMessage
 
 from tee_gateway.models.create_completion_request import CreateCompletionRequest
 
 from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
 from tee_gateway.llm_backend import get_chat_model_cached, extract_usage
+from tee_gateway.pricing import compute_session_cost
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +60,7 @@ def create_completion(body):
         tee_keys = get_tee_keys()
         signature = tee_keys.sign_data(msg_hash)
 
-        return {
+        completion_response: dict[str, Any] = {
             "id": f"cmpl-{uuid.uuid4()}",
             "object": "text_completion",
             "created": timestamp,
@@ -76,6 +79,11 @@ def create_completion(body):
             "tee_timestamp": timestamp,
             "tee_id": f"0x{tee_keys.get_tee_id()}",
         }
+        if usage:
+            cost = compute_session_cost(body.model, usage)
+            if cost is not None:
+                completion_response["opengradient"] = cost.model_dump(mode="json")
+        return completion_response
 
     except Exception as e:
         logger.error(f"Completion error: {str(e)}", exc_info=True)

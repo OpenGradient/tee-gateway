@@ -180,8 +180,8 @@ The `tee_*` fields provide cryptographic proof of the response:
 
 1. Client fetches `/v1/ohttp/config` (HPKE pubkey, key_id, suite IDs) and verifies it against the Nitro attestation.
 2. Client HPKE-encapsulates a normal chat-completion JSON body and POSTs the ciphertext to a **relay**. The client carries no payment material.
-3. Relay forwards the ciphertext to `/v1/ohttp` and attaches its own `X-Payment: <x402 payload>` header.
-4. Enclave decrypts → re-issues the request internally to `/v1/chat/completions` with the relay's `X-Payment` header → x402 verifies and settles → response is sealed back to the client.
+3. Relay forwards the ciphertext to `/v1/ohttp` and attaches its own `X-Payment: <x402 payload>` header. **`/v1/ohttp` is the x402-paid boundary** — verification and settlement happen on this outer request, against the relay's payment.
+4. Enclave decrypts → re-issues the request in-process to `/v1/chat/completions` against the pre-x402 WSGI app (so connexion routing, validation, TEE signing and the LLM call still run, but x402 does **not** fire a second time and the relay's `X-Payment` is **not** forwarded into the inner dispatch) → response is sealed back to the client.
 
 **Two response modes** (chosen by the inner `stream` flag):
 

@@ -38,9 +38,9 @@ class TEEKeyManager:
         self.public_key_pem = None
         self.tee_id = None
         self.wallet_address = None
-        # HPKE keypair for OHTTP-style anonymous inference. Generated in the
-        # same enclave boot so the X25519 public key is covered by the same
-        # attestation that covers the RSA signing key.
+        # HPKE keypair for OHTTP-style anonymous inference. Generated inside
+        # the enclave, but not currently included in the on-chain nitriding
+        # user_data hash.
         self.hpke_private_key = None
         self.hpke_public_key_raw: bytes | None = None
         self._generate_keys()
@@ -78,10 +78,7 @@ class TEEKeyManager:
         self.wallet_address = wallet_account.address
 
         # HPKE X25519 keypair — independent random material from the RSA
-        # signing key. Both public keys are bound to the enclave by the
-        # nitriding attestation transcript (register_with_nitriding below),
-        # so verifiers still get a single attested fingerprint covering both,
-        # without sharing private-key material between them.
+        # signing key.
         self.hpke_private_key, self.hpke_public_key_raw = ohttp.generate_keypair()
 
         logger.info("TEE key pair generated successfully")
@@ -94,41 +91,16 @@ class TEEKeyManager:
     def register_with_nitriding(self):
         """Register public key hash with nitriding.
 
-        The hash covers both the RSA signing key (DER-encoded SPKI) and the
-        raw X25519 HPKE public key. Including both in a single attested digest
-        means a verifier who validates the attestation document automatically
-        gets binding for the HPKE config used for anonymous inference — no
-        separate trust anchor required.
+        The current on-chain Nitro verifier expects nitriding user_data to
+        contain SHA256(signing public key DER) as the second hash.
         """
-        # Defensive check: the v2 transcript labels both keys, so refusing to
-        # register is the only safe behavior when one is missing. Falling back
-        # to b"" would produce a digest that's nominally v2 but only covers
-        # RSA, and a verifier trusting the label would accept an enclave whose
-        # HPKE key was never attested. Raise outside the broad try/except
-        # below so a real misconfiguration isn't masked as a non-TEE
-        # environment.
-        if not self.hpke_public_key_raw or len(self.hpke_public_key_raw) != 32:
-            raise RuntimeError(
-                "Refusing to register with nitriding: HPKE X25519 public key "
-                "is missing or wrong length; the v2 attestation transcript "
-                "requires both RSA and HPKE keys."
-            )
-
         try:
             public_key_der = self.public_key.public_bytes(
                 encoding=serialization.Encoding.DER,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
 
-            # Domain-separated transcript so a future addition of more keys
-            # can't be confused with the existing layout.
-            transcript = (
-                b"og-tee-keys|v2|rsa-spki="
-                + public_key_der
-                + b"|hpke-x25519="
-                + self.hpke_public_key_raw
-            )
-            key_hash = hashlib.sha256(transcript).digest()
+            key_hash = hashlib.sha256(public_key_der).digest()
             key_hash_b64 = base64.b64encode(key_hash).decode("utf-8")
 
             logger.info(f"Public key DER length: {len(public_key_der)} bytes")

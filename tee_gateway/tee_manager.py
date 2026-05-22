@@ -39,8 +39,7 @@ class TEEKeyManager:
         self.tee_id = None
         self.wallet_address = None
         # HPKE keypair for OHTTP-style anonymous inference. Generated in the
-        # same enclave boot so the X25519 public key is covered by the same
-        # attestation that covers the RSA signing key.
+        # enclave and bound to the attested signing key by get_signed_hpke_config().
         self.hpke_private_key = None
         self.hpke_public_key_raw: bytes | None = None
         self._generate_keys()
@@ -78,10 +77,8 @@ class TEEKeyManager:
         self.wallet_address = wallet_account.address
 
         # HPKE X25519 keypair — independent random material from the RSA
-        # signing key. Both public keys are bound to the enclave by the
-        # nitriding attestation transcript (register_with_nitriding below),
-        # so verifiers still get a single attested fingerprint covering both,
-        # without sharing private-key material between them.
+        # signing key. The HPKE public config is signed by the RSA key for
+        # registry V2, while Nitro attestation continues to bind the RSA key.
         self.hpke_private_key, self.hpke_public_key_raw = ohttp.generate_keypair()
 
         logger.info("TEE key pair generated successfully")
@@ -94,41 +91,18 @@ class TEEKeyManager:
     def register_with_nitriding(self):
         """Register public key hash with nitriding.
 
-        The hash covers both the RSA signing key (DER-encoded SPKI) and the
-        raw X25519 HPKE public key. Including both in a single attested digest
-        means a verifier who validates the attestation document automatically
-        gets binding for the HPKE config used for anonymous inference — no
-        separate trust anchor required.
+        The current on-chain Nitro verifier expects nitriding user_data to
+        contain SHA256(signing public key DER) as the second hash. OHTTP/HPKE
+        config is bound separately by an RSA-PSS signature from this same
+        attested signing key.
         """
-        # Defensive check: the v2 transcript labels both keys, so refusing to
-        # register is the only safe behavior when one is missing. Falling back
-        # to b"" would produce a digest that's nominally v2 but only covers
-        # RSA, and a verifier trusting the label would accept an enclave whose
-        # HPKE key was never attested. Raise outside the broad try/except
-        # below so a real misconfiguration isn't masked as a non-TEE
-        # environment.
-        if not self.hpke_public_key_raw or len(self.hpke_public_key_raw) != 32:
-            raise RuntimeError(
-                "Refusing to register with nitriding: HPKE X25519 public key "
-                "is missing or wrong length; the v2 attestation transcript "
-                "requires both RSA and HPKE keys."
-            )
-
         try:
             public_key_der = self.public_key.public_bytes(
                 encoding=serialization.Encoding.DER,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
 
-            # Domain-separated transcript so a future addition of more keys
-            # can't be confused with the existing layout.
-            transcript = (
-                b"og-tee-keys|v2|rsa-spki="
-                + public_key_der
-                + b"|hpke-x25519="
-                + self.hpke_public_key_raw
-            )
-            key_hash = hashlib.sha256(transcript).digest()
+            key_hash = hashlib.sha256(public_key_der).digest()
             key_hash_b64 = base64.b64encode(key_hash).decode("utf-8")
 
             logger.info(f"Public key DER length: {len(public_key_der)} bytes")
@@ -216,13 +190,40 @@ class TEEKeyManager:
             ).decode("ascii"),
         }
 
+    def get_signed_hpke_config(self) -> dict:
+        """Return HPKE config plus an RSA-PSS signature for registry V2.
+
+        The signature covers the same ABI-encoded hash computed by
+        TEERegistryV2.computeOHTTPConfigHash, so the registry can verify that
+        the OHTTP key came from the enclave signing key already proven by Nitro
+        attestation.
+        """
+        config = self.get_hpke_config()
+        public_key = bytes.fromhex(config["public_key"])
+        key_config = base64.b64decode(config["key_config"])
+        config_hash = compute_ohttp_config_hash(
+            bytes.fromhex(self.tee_id),
+            config["key_id"],
+            config["kem_id"],
+            config["kdf_id"],
+            config["aead_id"],
+            public_key,
+            key_config,
+        )
+        return {
+            **config,
+            "tee_id": f"0x{self.tee_id}",
+            "signature": self.sign_data(config_hash),
+            "signature_hash": f"0x{config_hash.hex()}",
+        }
+
     def get_attestation_document(self) -> dict:
         """Return TEE attestation document."""
         return {
             "public_key": self.public_key_pem,
             "tee_id": f"0x{self.tee_id}",
             "wallet_address": self.wallet_address,
-            "hpke": self.get_hpke_config() if self.hpke_public_key_raw else None,
+            "hpke": self.get_signed_hpke_config() if self.hpke_public_key_raw else None,
             "timestamp": datetime.now(UTC).isoformat(),
             "enclave_info": {
                 "platform": "aws-nitro",
@@ -231,6 +232,39 @@ class TEEKeyManager:
             },
             "measurements": None,  # Would contain PCR values in real deployment
         }
+
+
+def compute_ohttp_config_hash(
+    tee_id: bytes,
+    key_id: int,
+    kem_id: int,
+    kdf_id: int,
+    aead_id: int,
+    ohttp_public_key: bytes,
+    ohttp_key_config: bytes,
+) -> bytes:
+    """Compute TEERegistryV2.computeOHTTPConfigHash off-chain."""
+    if len(tee_id) != 32:
+        raise ValueError("tee_id must be 32 bytes")
+
+    def word(value: int) -> bytes:
+        return value.to_bytes(32, "big")
+
+    domain = keccak(b"OPENGRADIENT_TEE_OHTTP_CONFIG_V1")
+    return keccak(
+        b"".join(
+            [
+                domain,
+                tee_id,
+                word(key_id),
+                word(kem_id),
+                word(kdf_id),
+                word(aead_id),
+                keccak(ohttp_public_key),
+                keccak(ohttp_key_config),
+            ]
+        )
+    )
 
 
 def signal_ready():

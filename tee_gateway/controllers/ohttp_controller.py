@@ -405,7 +405,7 @@ def get_hpke_config():
     """
     try:
         tee = get_tee_keys()
-        return tee.get_hpke_config(), 200
+        return tee.get_signed_hpke_config(), 200
     except Exception as exc:
         logger.error("HPKE config error: %s", exc, exc_info=True)
         return {"error": "Failed to retrieve HPKE config"}, 500

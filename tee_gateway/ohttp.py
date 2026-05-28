@@ -286,9 +286,11 @@ def generate_keypair() -> tuple[KEMKeyInterface, bytes]:
     The HPKE keypair is intentionally independent of the RSA TEE signing
     key: deriving one from the other would create a single point of
     compromise (a leak of the RSA private key would also leak the OHTTP
-    private key, and vice versa). Both public keys are still covered by
-    the same nitriding attestation transcript, so verifiers get binding
-    without sharing key material.
+    private key, and vice versa). The HPKE public key is bound to the
+    enclave by an RSA-PSS signature from the attested signing key (see
+    TEEKeyManager.get_signed_hpke_config), so verifiers get binding without
+    sharing key material — the X25519 key itself is not part of the
+    nitriding attestation transcript.
 
     pyhpke 0.6 derives the keypair from random IKM via
     ``kem.derive_key_pair(ikm)``; we feed it ``os.urandom(32)`` so each

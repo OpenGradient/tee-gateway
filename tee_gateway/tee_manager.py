@@ -173,9 +173,11 @@ class TEEKeyManager:
         """Return the HPKE key configuration for anonymous inference.
 
         ``key_config`` is the RFC 9458 §3 binary key-config blob, base64-encoded.
-        Clients should treat this as authoritative only when fetched alongside
-        the Nitro attestation document (which commits to the same key hash via
-        nitriding registration).
+        This returns the raw config only; clients should treat it as
+        authoritative only via the RSA-PSS signature from
+        get_signed_hpke_config, which binds these fields to the attested
+        signing key (the X25519 key is not in the nitriding attestation
+        transcript).
         """
         if self.hpke_public_key_raw is None:
             raise RuntimeError("HPKE keypair not initialized")

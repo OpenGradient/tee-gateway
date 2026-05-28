@@ -18,9 +18,14 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from eth_hash.auto import keccak
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from tee_gateway import ohttp
 from tee_gateway.llm_backend import convert_messages, extract_usage
 from tee_gateway.model_registry import get_model_config, get_rate_card
-from tee_gateway.tee_manager import TEEKeyManager, compute_tee_msg_hash
+from tee_gateway.tee_manager import (
+    TEEKeyManager,
+    compute_ohttp_config_hash,
+    compute_tee_msg_hash,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +225,203 @@ class TestComputeTEEMsgHash(unittest.TestCase):
         resp = "my response text"
         _, _, out_hex = compute_tee_msg_hash(b"request", resp, 999)
         self.assertEqual(out_hex, keccak(resp.encode("utf-8")).hex())
+
+
+# ---------------------------------------------------------------------------
+# compute_ohttp_config_hash — must byte-match TEERegistryV2.computeOHTTPConfigHash
+# ---------------------------------------------------------------------------
+
+
+class TestComputeOHTTPConfigHash(unittest.TestCase):
+    """The OHTTP config hash binds the enclave's HPKE key to its attested RSA
+    signing key. The signature returned by get_signed_hpke_config covers this
+    hash, so it MUST be computed exactly the way the on-chain
+    TEERegistryV2.computeOHTTPConfigHash does — otherwise every signature
+    silently fails verification on-chain.
+
+    The layout (EIP-712 style, every field a 32-byte word):
+      keccak256(
+          keccak256("OPENGRADIENT_TEE_OHTTP_CONFIG_V1")  // domain
+          || tee_id                                       // bytes32
+          || uint256(key_id) || uint256(kem_id)
+          || uint256(kdf_id) || uint256(aead_id)
+          || keccak256(public_key)                        // bytes32
+          || keccak256(key_config)                        // bytes32
+      )
+    """
+
+    # Deterministic, non-random vectors so the golden hash below is stable.
+    TEE_ID = bytes(range(32))
+    PUBLIC_KEY = b"\x02" * 32
+    KEY_CONFIG = ohttp.key_config(PUBLIC_KEY)
+
+    def _hash(self):
+        return compute_ohttp_config_hash(
+            self.TEE_ID,
+            ohttp.KEY_CONFIG_ID,
+            ohttp.KEM_ID_X25519,
+            ohttp.KDF_ID_HKDF_SHA256,
+            ohttp.AEAD_ID_CHACHA20_POLY1305,
+            self.PUBLIC_KEY,
+            self.KEY_CONFIG,
+        )
+
+    def test_golden_vector(self):
+        """Frozen expected hash for the fixed vectors above.
+
+        IMPORTANT: this value must equal the output of
+        TEERegistryV2.computeOHTTPConfigHash for the same inputs. If this test
+        fails after an intentional encoding change, regenerate it from the
+        deployed contract (do NOT just paste the new Python output) — the whole
+        point is to catch off-chain/on-chain divergence.
+        """
+        expected = "f2a783a780198b72145ce4f4824c3de4993975e17ee8df1e59f3b5dd78a0f1d9"
+        self.assertEqual(self._hash().hex(), expected)
+
+    def test_matches_independent_reconstruction(self):
+        """Re-derive the layout independently from the implementation, so a
+        change to either side of the encoding is caught even if someone also
+        updates the golden vector."""
+
+        def word(v):
+            return v.to_bytes(32, "big")
+
+        domain = keccak(b"OPENGRADIENT_TEE_OHTTP_CONFIG_V1")
+        expected = keccak(
+            domain
+            + self.TEE_ID
+            + word(ohttp.KEY_CONFIG_ID)
+            + word(ohttp.KEM_ID_X25519)
+            + word(ohttp.KDF_ID_HKDF_SHA256)
+            + word(ohttp.AEAD_ID_CHACHA20_POLY1305)
+            + keccak(self.PUBLIC_KEY)
+            + keccak(self.KEY_CONFIG)
+        )
+        self.assertEqual(self._hash(), expected)
+
+    def test_returns_32_bytes(self):
+        self.assertEqual(len(self._hash()), 32)
+
+    def test_rejects_wrong_length_tee_id(self):
+        with self.assertRaises(ValueError):
+            compute_ohttp_config_hash(
+                b"\x00" * 31,  # not 32 bytes
+                ohttp.KEY_CONFIG_ID,
+                ohttp.KEM_ID_X25519,
+                ohttp.KDF_ID_HKDF_SHA256,
+                ohttp.AEAD_ID_CHACHA20_POLY1305,
+                self.PUBLIC_KEY,
+                self.KEY_CONFIG,
+            )
+
+    def test_each_field_affects_the_hash(self):
+        """Flipping any single field must change the digest — confirms no field
+        is dropped from the preimage."""
+        base = self._hash()
+        variants = [
+            (
+                bytes(reversed(self.TEE_ID)),
+                ohttp.KEY_CONFIG_ID,
+                ohttp.KEM_ID_X25519,
+                ohttp.KDF_ID_HKDF_SHA256,
+                ohttp.AEAD_ID_CHACHA20_POLY1305,
+                self.PUBLIC_KEY,
+                self.KEY_CONFIG,
+            ),
+            (
+                self.TEE_ID,
+                ohttp.KEY_CONFIG_ID + 1,
+                ohttp.KEM_ID_X25519,
+                ohttp.KDF_ID_HKDF_SHA256,
+                ohttp.AEAD_ID_CHACHA20_POLY1305,
+                self.PUBLIC_KEY,
+                self.KEY_CONFIG,
+            ),
+            (
+                self.TEE_ID,
+                ohttp.KEY_CONFIG_ID,
+                ohttp.KEM_ID_X25519 + 1,
+                ohttp.KDF_ID_HKDF_SHA256,
+                ohttp.AEAD_ID_CHACHA20_POLY1305,
+                self.PUBLIC_KEY,
+                self.KEY_CONFIG,
+            ),
+            (
+                self.TEE_ID,
+                ohttp.KEY_CONFIG_ID,
+                ohttp.KEM_ID_X25519,
+                ohttp.KDF_ID_HKDF_SHA256 + 1,
+                ohttp.AEAD_ID_CHACHA20_POLY1305,
+                self.PUBLIC_KEY,
+                self.KEY_CONFIG,
+            ),
+            (
+                self.TEE_ID,
+                ohttp.KEY_CONFIG_ID,
+                ohttp.KEM_ID_X25519,
+                ohttp.KDF_ID_HKDF_SHA256,
+                ohttp.AEAD_ID_CHACHA20_POLY1305 + 1,
+                self.PUBLIC_KEY,
+                self.KEY_CONFIG,
+            ),
+            (
+                self.TEE_ID,
+                ohttp.KEY_CONFIG_ID,
+                ohttp.KEM_ID_X25519,
+                ohttp.KDF_ID_HKDF_SHA256,
+                ohttp.AEAD_ID_CHACHA20_POLY1305,
+                b"\x03" * 32,
+                self.KEY_CONFIG,
+            ),
+            (
+                self.TEE_ID,
+                ohttp.KEY_CONFIG_ID,
+                ohttp.KEM_ID_X25519,
+                ohttp.KDF_ID_HKDF_SHA256,
+                ohttp.AEAD_ID_CHACHA20_POLY1305,
+                self.PUBLIC_KEY,
+                self.KEY_CONFIG + b"\x00",
+            ),
+        ]
+        for v in variants:
+            self.assertNotEqual(compute_ohttp_config_hash(*v), base)
+
+
+class TestSignedHPKEConfig(unittest.TestCase):
+    """get_signed_hpke_config must return a signature that verifies against the
+    enclave's attested RSA key over the OHTTP config hash — this is the binding
+    a relay/registry relies on now that the HPKE key is no longer in the
+    nitriding attestation transcript."""
+
+    def setUp(self):
+        self.tee = TEEKeyManager(register=False)
+
+    def test_signature_verifies_over_config_hash(self):
+        cfg = self.tee.get_signed_hpke_config()
+
+        # Recompute the hash the same way an off-chain verifier would.
+        config_hash = compute_ohttp_config_hash(
+            bytes.fromhex(self.tee.tee_id),
+            cfg["key_id"],
+            cfg["kem_id"],
+            cfg["kdf_id"],
+            cfg["aead_id"],
+            bytes.fromhex(cfg["public_key"]),
+            base64.b64decode(cfg["key_config"]),
+        )
+        self.assertEqual(cfg["signature_hash"], f"0x{config_hash.hex()}")
+
+        # The signature must verify against the attested signing key.
+        self.tee.public_key.verify(
+            base64.b64decode(cfg["signature"]),
+            config_hash,
+            padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=32),
+            hashes.SHA256(),
+        )
+
+    def test_tee_id_field_has_0x_prefix(self):
+        cfg = self.tee.get_signed_hpke_config()
+        self.assertEqual(cfg["tee_id"], f"0x{self.tee.tee_id}")
 
 
 # ---------------------------------------------------------------------------

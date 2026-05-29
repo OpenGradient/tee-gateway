@@ -84,6 +84,7 @@ logger = logging.getLogger(__name__)
 
 OHTTP_RESPONSE_MEDIA_TYPE = "message/ohttp-res"
 OHTTP_CHUNKED_RESPONSE_MEDIA_TYPE = "message/ohttp-chunked-res"
+OHTTP_BILLING_FRAME_MAGIC = b"\n--opengradient-ohttp-billing-v1--\n"
 _SSE_CONTENT_TYPE = "text/event-stream"
 
 # Cap on the encapsulated request size. The inner payload is a chat-completion
@@ -250,10 +251,9 @@ def _build_streaming_response(
     ``pending`` buffer below.
 
     Cost can't be exposed as outer headers (those are already flushed
-    before the body); the relay bills via x402 settlement metadata
-    (X-Upto-Session header, set up-front). The client reads cost from the
-    ``opengradient`` block on the final SSE event inside the decrypted
-    stream.
+    before the body), so the gateway emits a private plaintext billing
+    frame for the relay to strip and process before forwarding bytes to
+    the browser.
     """
     # See _build_outer_response: keep as a list so duplicate HTTP header
     # values (e.g. multiple WWW-Authenticate challenges) survive forwarding.
@@ -277,6 +277,16 @@ def _build_streaming_response(
                 if pending is not None:
                     yield encrypter.encrypt_chunk(pending, is_final=False)
                 pending = chunk
+            response_json = _parse_final_sse_json(b"".join(plaintext_chunks))
+            _set_inner_cost_context(
+                cost_context,
+                response_json=response_json,
+                status_code=status,
+            )
+            billing_frame = _build_billing_frame(response_json)
+            if billing_frame:
+                yield billing_frame
+
             # Always emit exactly one final chunk so the AAD=b"final"
             # marker is present — that's what protects clients from
             # undetected truncation.
@@ -334,6 +344,26 @@ def _extract_cost_headers(body_bytes: bytes) -> dict[str, str]:
         "X-Inference-Cost-USD": wire["cost_usd"],
         "X-Inference-Price-OPG-USD": wire["opg_price_usd"],
     }
+
+
+def _build_billing_frame(response_json: dict[str, Any] | None) -> bytes:
+    """Build the private gateway-to-relay billing frame for streaming OHTTP.
+
+    This plaintext frame carries only the same billing fields projected as
+    outer headers for non-streaming OHTTP. The relay strips it before forwarding
+    bytes to the browser.
+    """
+    if not isinstance(response_json, dict):
+        return b""
+    try:
+        cost = SessionCost.model_validate(response_json.get("opengradient"))
+    except Exception:
+        return b""
+    payload = json.dumps(
+        cost.model_dump(mode="json"),
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return OHTTP_BILLING_FRAME_MAGIC + len(payload).to_bytes(4, "big") + payload
 
 
 def _wsgi_subrequest(

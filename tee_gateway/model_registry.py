@@ -140,6 +140,13 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.000025"),
         supports_temperature=False,
     )
+    CLAUDE_OPUS_4_8 = ModelConfig(
+        provider="anthropic",
+        api_name="claude-opus-4-8",
+        input_price_usd=Decimal("0.000005"),
+        output_price_usd=Decimal("0.000025"),
+        supports_temperature=False,
+    )
 
     # ── Google Gemini ───────────────────────────────────────────────────
     # Note: gemini-2.5-flash, gemini-2.5-pro, and gemini-2.5-flash-lite are scheduled
@@ -293,6 +300,7 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "claude-opus-4-5": SupportedModel.CLAUDE_OPUS_4_5,
     "claude-opus-4-6": SupportedModel.CLAUDE_OPUS_4_6,
     "claude-opus-4-7": SupportedModel.CLAUDE_OPUS_4_7,
+    "claude-opus-4-8": SupportedModel.CLAUDE_OPUS_4_8,
     # Google
     "gemini-2.5-flash": SupportedModel.GEMINI_2_5_FLASH,
     "gemini-2.5-pro": SupportedModel.GEMINI_2_5_PRO,

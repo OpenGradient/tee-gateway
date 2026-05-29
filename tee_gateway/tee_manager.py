@@ -78,7 +78,7 @@ class TEEKeyManager:
 
         # HPKE X25519 keypair — independent random material from the RSA
         # signing key. The HPKE public config is signed by the RSA key for
-        # registry V2, while Nitro attestation continues to bind the RSA key.
+        # registry, while Nitro attestation continues to bind the RSA key.
         self.hpke_private_key, self.hpke_public_key_raw = ohttp.generate_keypair()
 
         logger.info("TEE key pair generated successfully")

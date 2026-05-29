@@ -104,6 +104,14 @@ class TestModelRegistry(unittest.TestCase):
         cfg = get_model_config("claude-opus-4-6")
         self.assertEqual(cfg.provider, "anthropic")
 
+    def test_claude_opus_4_8_resolves(self):
+        cfg = get_model_config("claude-opus-4-8")
+        self.assertEqual(cfg.provider, "anthropic")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000005"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000025"))
+        # Opus 4.7+ rejects the `temperature` field (HTTP 400)
+        self.assertFalse(cfg.supports_temperature)
+
     # ── OpenAI ──────────────────────────────────────────────────────────────
 
     def test_gpt_4_1_resolves(self):

@@ -426,16 +426,19 @@ def _wsgi_subrequest(
 
 
 def get_hpke_config():
-    """GET /v1/ohttp/config — return the HPKE key configuration.
+    """GET /v1/ohttp/config — return the signed HPKE key configuration.
 
     Returns both an OHTTP-compliant binary key_config (base64) and the
-    individual fields for clients that prefer to parse JSON. The same data is
-    embedded inside the attestation document at /signing-key for clients that
-    want to verify the binding to the enclave's PCRs in one step.
+    individual fields for clients that prefer to parse JSON, plus an RSA-PSS
+    signature (over TEERegistryV2.computeOHTTPConfigHash) that binds the config
+    to the enclave's attested signing key. The same data is embedded inside the
+    attestation document at /signing-key, where the signing key's binding to
+    the enclave PCRs is verifiable, so a client can chain PCRs → signing key →
+    HPKE config.
     """
     try:
         tee = get_tee_keys()
-        return tee.get_hpke_config(), 200
+        return tee.get_signed_hpke_config(), 200
     except Exception as exc:
         logger.error("HPKE config error: %s", exc, exc_info=True)
         return {"error": "Failed to retrieve HPKE config"}, 500

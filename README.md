@@ -178,7 +178,7 @@ The `tee_*` fields provide cryptographic proof of the response:
 
 **Flow:**
 
-1. Client fetches `/v1/ohttp/config` (HPKE pubkey, key_id, suite IDs) and verifies it against the Nitro attestation.
+1. Client fetches `/v1/ohttp/config` (HPKE pubkey, key_id, suite IDs) and verifies it. The HPKE key is **not** in the Nitro attestation transcript; instead the config carries an RSA-PSS `signature` from the enclave's attested signing key over `computeOHTTPConfigHash(...)`, giving the chain PCRs → attested signing key → signature → HPKE config (see [Verify OHTTP Config](#4-verify-ohttp-config)).
 2. Client HPKE-encapsulates a normal chat-completion JSON body and POSTs the ciphertext to a **relay**. The client carries no payment material.
 3. Relay forwards the ciphertext to `/v1/ohttp` and attaches its own `X-Payment: <x402 payload>` header. **`/v1/ohttp` is the x402-paid boundary** — verification and settlement happen on this outer request, against the relay's payment.
 4. Enclave decrypts → re-issues the request in-process to `/v1/chat/completions` against the pre-x402 WSGI app (so connexion routing, validation, TEE signing and the LLM call still run, but x402 does **not** fire a second time and the relay's `X-Payment` is **not** forwarded into the inner dispatch) → response is sealed back to the client.
@@ -274,6 +274,56 @@ computed_hash = keccak(request_bytes).hex()
 
 assert computed_hash == response["tee_request_hash"]
 ```
+
+### 4. Verify OHTTP Config
+
+The HPKE key for anonymous inference is **not** covered by the Nitro attestation
+transcript. Before encrypting a request to it, verify the RSA-PSS `signature` in
+`/v1/ohttp/config` against the **attested** signing key (recovered from the
+attestation document — never trusted from the same response you're verifying):
+
+```python
+import base64
+from eth_hash.auto import keccak
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+
+cfg = requests.get("https://your-enclave:443/v1/ohttp/config").json()
+
+# public_key MUST come from the verified Nitro attestation document, not cfg.
+public_key = serialization.load_pem_public_key(attested_public_key_pem.encode())
+der = public_key.public_bytes(
+    serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+)
+
+# 1. The config is bound to *this* attested key: tee_id == keccak256(DER(key)).
+tee_id = keccak(der)
+assert tee_id == bytes.fromhex(cfg["tee_id"].removeprefix("0x"))
+
+# 2. Recompute the signed hash (== TEERegistryV2.computeOHTTPConfigHash).
+def word(v): return v.to_bytes(32, "big")
+config_hash = keccak(
+    keccak(b"OPENGRADIENT_TEE_OHTTP_CONFIG_V1")    # domain
+    + tee_id                                        # bytes32
+    + word(cfg["key_id"]) + word(cfg["kem_id"])
+    + word(cfg["kdf_id"]) + word(cfg["aead_id"])
+    + keccak(bytes.fromhex(cfg["public_key"]))      # keccak256(public_key)
+    + keccak(base64.b64decode(cfg["key_config"]))   # keccak256(key_config)
+)
+assert config_hash == bytes.fromhex(cfg["signature_hash"].removeprefix("0x"))
+
+# 3. Verify the RSA-PSS-SHA256 signature (salt_length=32 matches server).
+public_key.verify(
+    base64.b64decode(cfg["signature"]),
+    config_hash,
+    padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=32),
+    hashes.SHA256(),
+)
+# Only now is cfg["public_key"] safe to HPKE-encapsulate to.
+```
+
+See `examples/verify_ohttp_config.py` for a complete example. Skipping this step
+leaves you with an unauthenticated HPKE key any network attacker could swap.
 
 ## Architecture
 

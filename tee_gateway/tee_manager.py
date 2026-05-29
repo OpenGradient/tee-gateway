@@ -38,9 +38,8 @@ class TEEKeyManager:
         self.public_key_pem = None
         self.tee_id = None
         self.wallet_address = None
-        # HPKE keypair for OHTTP-style anonymous inference. Generated inside
-        # the enclave, but not currently included in the on-chain nitriding
-        # user_data hash.
+        # HPKE keypair for OHTTP-style anonymous inference. Generated in the
+        # enclave and bound to the attested signing key by get_signed_hpke_config().
         self.hpke_private_key = None
         self.hpke_public_key_raw: bytes | None = None
         self._generate_keys()
@@ -78,7 +77,8 @@ class TEEKeyManager:
         self.wallet_address = wallet_account.address
 
         # HPKE X25519 keypair — independent random material from the RSA
-        # signing key.
+        # signing key. The HPKE public config is signed by the RSA key for
+        # registry, while Nitro attestation continues to bind the RSA key.
         self.hpke_private_key, self.hpke_public_key_raw = ohttp.generate_keypair()
 
         logger.info("TEE key pair generated successfully")
@@ -92,7 +92,9 @@ class TEEKeyManager:
         """Register public key hash with nitriding.
 
         The current on-chain Nitro verifier expects nitriding user_data to
-        contain SHA256(signing public key DER) as the second hash.
+        contain SHA256(signing public key DER) as the second hash. OHTTP/HPKE
+        config is bound separately by an RSA-PSS signature from this same
+        attested signing key.
         """
         try:
             public_key_der = self.public_key.public_bytes(
@@ -171,9 +173,11 @@ class TEEKeyManager:
         """Return the HPKE key configuration for anonymous inference.
 
         ``key_config`` is the RFC 9458 §3 binary key-config blob, base64-encoded.
-        Clients should treat this as authoritative only when fetched alongside
-        the Nitro attestation document (which commits to the same key hash via
-        nitriding registration).
+        This returns the raw config only; clients should treat it as
+        authoritative only via the RSA-PSS signature from
+        get_signed_hpke_config, which binds these fields to the attested
+        signing key (the X25519 key is not in the nitriding attestation
+        transcript).
         """
         if self.hpke_public_key_raw is None:
             raise RuntimeError("HPKE keypair not initialized")
@@ -188,13 +192,40 @@ class TEEKeyManager:
             ).decode("ascii"),
         }
 
+    def get_signed_hpke_config(self) -> dict:
+        """Return HPKE config plus an RSA-PSS signature for registry V2.
+
+        The signature covers the same ABI-encoded hash computed by
+        TEERegistryV2.computeOHTTPConfigHash, so the registry can verify that
+        the OHTTP key came from the enclave signing key already proven by Nitro
+        attestation.
+        """
+        config = self.get_hpke_config()
+        public_key = bytes.fromhex(config["public_key"])
+        key_config = base64.b64decode(config["key_config"])
+        config_hash = compute_ohttp_config_hash(
+            bytes.fromhex(self.tee_id),
+            config["key_id"],
+            config["kem_id"],
+            config["kdf_id"],
+            config["aead_id"],
+            public_key,
+            key_config,
+        )
+        return {
+            **config,
+            "tee_id": f"0x{self.tee_id}",
+            "signature": self.sign_data(config_hash),
+            "signature_hash": f"0x{config_hash.hex()}",
+        }
+
     def get_attestation_document(self) -> dict:
         """Return TEE attestation document."""
         return {
             "public_key": self.public_key_pem,
             "tee_id": f"0x{self.tee_id}",
             "wallet_address": self.wallet_address,
-            "hpke": self.get_hpke_config() if self.hpke_public_key_raw else None,
+            "hpke": self.get_signed_hpke_config() if self.hpke_public_key_raw else None,
             "timestamp": datetime.now(UTC).isoformat(),
             "enclave_info": {
                 "platform": "aws-nitro",
@@ -203,6 +234,39 @@ class TEEKeyManager:
             },
             "measurements": None,  # Would contain PCR values in real deployment
         }
+
+
+def compute_ohttp_config_hash(
+    tee_id: bytes,
+    key_id: int,
+    kem_id: int,
+    kdf_id: int,
+    aead_id: int,
+    ohttp_public_key: bytes,
+    ohttp_key_config: bytes,
+) -> bytes:
+    """Compute TEERegistryV2.computeOHTTPConfigHash off-chain."""
+    if len(tee_id) != 32:
+        raise ValueError("tee_id must be 32 bytes")
+
+    def word(value: int) -> bytes:
+        return value.to_bytes(32, "big")
+
+    domain = keccak(b"OPENGRADIENT_TEE_OHTTP_CONFIG_V1")
+    return keccak(
+        b"".join(
+            [
+                domain,
+                tee_id,
+                word(key_id),
+                word(kem_id),
+                word(kdf_id),
+                word(aead_id),
+                keccak(ohttp_public_key),
+                keccak(ohttp_key_config),
+            ]
+        )
+    )
 
 
 def signal_ready():

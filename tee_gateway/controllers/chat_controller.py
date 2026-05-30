@@ -444,10 +444,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                             "model": chat_request.model,
                         }
                         yield f"data: {json.dumps(data)}\n\n"
-                    if (
-                        hasattr(response, "usage_metadata")
-                        and response.usage_metadata
-                    ):
+                    if hasattr(response, "usage_metadata") and response.usage_metadata:
                         final_usage = {}
                         for k, v in response.usage_metadata.items():
                             if isinstance(v, (int, float)):

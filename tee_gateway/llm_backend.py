@@ -8,7 +8,7 @@ called from the Flask/connexion controllers.
 
 import json
 import logging
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Generator
 from functools import lru_cache
 
 import httpx
@@ -49,6 +49,11 @@ _LIMITS = httpx.Limits(
 
 # BytePlus ModelArk OpenAI-compatible endpoint (ap-southeast)
 BYTEDANCE_BASE_URL = "https://ark.ap-southeast.bytepluses.com/api/v3"
+
+# Hard cap on total inline (base64) attachment bytes per request, enforced
+# regardless of model. Inline base64 rides inside the encrypted payload, so this
+# bounds the request size the enclave will accept.
+MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024  # 30 MB
 
 # Shared synchronous HTTP clients for each provider.
 # Initialized to None; built by set_provider_config() after key injection.
@@ -441,6 +446,89 @@ def _convert_user_content(content: Any) -> Any:
         return "".join(b["text"] for b in blocks)
 
     return blocks
+
+
+class AttachmentValidationError(ValueError):
+    """Raised when a request's attachments violate model capabilities or size
+    limits. Carries the HTTP status the caller should return."""
+
+    def __init__(self, message: str, status: int = 400) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def _decoded_base64_len(b64: str) -> int:
+    """Length in bytes of base64-encoded data without decoding it."""
+    data = b64.split(",", 1)[-1]  # tolerate a leftover data: prefix
+    n = len(data)
+    padding = data[-2:].count("=") if n >= 2 else 0
+    return max((n * 3) // 4 - padding, 0)
+
+
+def get_model_capabilities(model: str) -> Dict[str, Any]:
+    """Return the LangChain capability profile for a model (``image_inputs``,
+    ``pdf_inputs``, ...), or ``{}`` when the model has no profile data.
+
+    Reads the public ``.profile`` attribute of the instantiated chat model, which
+    each ``langchain-<provider>`` package populates from maintained model data.
+    """
+    try:
+        chat = get_chat_model_cached(model, 0.0, 16)
+        return getattr(chat, "profile", None) or {}
+    except Exception:
+        return {}
+
+
+def _iter_content_parts(messages: list) -> Generator[Dict[str, Any], None, None]:
+    for msg in messages:
+        content = (
+            msg.get("content")
+            if isinstance(msg, dict)
+            else getattr(msg, "content", None)
+        )
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict):
+                    yield part
+
+
+def validate_attachments(messages: list, model: str) -> None:
+    """Enforce per-model modality support and the inline attachment size cap.
+
+    Modality gating fails *open*: a modality is only rejected when the model's
+    profile explicitly marks it unsupported, so models without profile data are
+    never wrongly blocked (the provider would still reject a truly unsupported
+    combination). The size cap is a hard limit. Raises ``AttachmentValidationError``.
+    """
+    caps = get_model_capabilities(model)
+    image_supported = caps.get("image_inputs")
+    pdf_supported = caps.get("pdf_inputs")
+
+    total_bytes = 0
+    for part in _iter_content_parts(messages):
+        block = _convert_content_part(part)
+        if block is None:
+            continue
+        if block["type"] == "image":
+            if image_supported is False:
+                raise AttachmentValidationError(
+                    f"Model {model!r} does not support image attachments."
+                )
+            if "base64" in block:
+                total_bytes += _decoded_base64_len(block["base64"])
+        elif block["type"] == "file":
+            if pdf_supported is False:
+                raise AttachmentValidationError(
+                    f"Model {model!r} does not support document attachments."
+                )
+            if "base64" in block:
+                total_bytes += _decoded_base64_len(block["base64"])
+
+    if total_bytes > MAX_ATTACHMENT_BYTES:
+        raise AttachmentValidationError(
+            f"Attachments exceed the {MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB limit.",
+            status=413,
+        )
 
 
 def convert_messages(messages: list) -> List[Any]:

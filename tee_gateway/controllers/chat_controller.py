@@ -1,3 +1,4 @@
+import hashlib
 import json
 import time
 import uuid
@@ -32,6 +33,9 @@ from tee_gateway.llm_backend import (
     convert_messages,
     extract_usage,
     generate_images,
+    validate_attachments,
+    AttachmentValidationError,
+    _convert_content_part,
 )
 from tee_gateway.model_registry import get_model_config
 from tee_gateway.pricing import compute_session_cost
@@ -102,6 +106,13 @@ def create_chat_completion(body):
     chat_request: CreateChatCompletionRequest = _parse_chat_request(
         connexion.request.get_json()
     )
+
+    # Reject attachments the target model can't handle, and enforce the size cap,
+    # before doing any provider work.
+    try:
+        validate_attachments(chat_request.messages, chat_request.model)
+    except AttachmentValidationError as e:
+        return {"error": "Invalid attachment", "message": str(e)}, e.status
 
     if chat_request.stream:
         return _create_streaming_response(chat_request)
@@ -901,6 +912,40 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
 # ---------------------------------------------------------------------------
 
 
+def _canonical_user_content(content) -> Any:
+    """Canonicalize user-message content for request hashing.
+
+    Plain-string content is returned unchanged. For multimodal content (a list of
+    parts), inline attachment bytes are replaced with a ``sha256`` digest so the
+    signed request commits to the exact attachment content without bloating the
+    hashed payload with megabytes of base64. URL / file_id references are kept
+    verbatim.
+    """
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content)
+
+    canonical = []
+    for part in content:
+        block = _convert_content_part(part)
+        if block is None:
+            continue
+        if block["type"] == "text":
+            canonical.append({"type": "text", "text": block.get("text", "")})
+            continue
+        entry = {"type": block["type"]}
+        if "base64" in block:
+            entry["sha256"] = hashlib.sha256(
+                block["base64"].encode("utf-8")
+            ).hexdigest()
+        for key in ("mime_type", "filename", "url", "file_id"):
+            if block.get(key):
+                entry[key] = block[key]
+        canonical.append(entry)
+    return canonical
+
+
 def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
     """Serialize a CreateChatCompletionRequest to a canonical dict for hashing."""
     messages = []
@@ -911,9 +956,7 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
             messages.append(
                 {
                     "role": "user",
-                    "content": msg.content
-                    if isinstance(msg.content, str)
-                    else str(msg.content),
+                    "content": _canonical_user_content(msg.content),
                 }
             )
         elif isinstance(msg, ChatCompletionRequestAssistantMessage):

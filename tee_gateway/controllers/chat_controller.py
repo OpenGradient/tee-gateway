@@ -444,6 +444,17 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                             "model": chat_request.model,
                         }
                         yield f"data: {json.dumps(data)}\n\n"
+                    # BILLING (image output): Gemini bills each generated image as
+                    # ~1290 output tokens reported in candidates_token_count, which
+                    # langchain-google-genai folds into usage_metadata.output_tokens
+                    # (-> completion_tokens -> output_price_usd). So images are charged
+                    # purely via the normal token path; the image bytes themselves are
+                    # never metered by size. CAVEAT: if the provider omits usage_metadata
+                    # (langchain then yields None), final_usage stays None, the final
+                    # frame carries no 'usage', and compute_session_cost is skipped — the
+                    # client is NOT charged and gets a free image (fail-open). Acceptable
+                    # for now since Gemini reliably returns usage on success; revisit with
+                    # a ~1290-token-per-image fallback if that ever changes.
                     if hasattr(response, "usage_metadata") and response.usage_metadata:
                         final_usage = {}
                         for k, v in response.usage_metadata.items():

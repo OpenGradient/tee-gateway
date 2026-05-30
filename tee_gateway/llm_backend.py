@@ -325,6 +325,124 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
     return images, len(images)
 
 
+def _parse_data_uri(uri: str) -> Optional[tuple[str, str]]:
+    """Parse a ``data:<mime>;base64,<data>`` URI into ``(mime_type, base64_data)``.
+
+    Returns ``None`` if the string is not a base64 data URI.
+    """
+    if not isinstance(uri, str) or not uri.startswith("data:"):
+        return None
+    try:
+        header, data = uri.split(",", 1)
+    except ValueError:
+        return None
+    if ";base64" not in header:
+        return None
+    mime_type = header[len("data:") :].split(";", 1)[0]
+    return mime_type, data
+
+
+def _convert_content_part(part: Any) -> Optional[Dict[str, Any]]:
+    """Convert one OpenAI-format content part into a LangChain v1 standard content
+    block (``text`` / ``image`` / ``file``).
+
+    The standard blocks (``langchain_core.messages.content``) are translated into
+    each provider's native API by the respective ``langchain-<provider>`` package,
+    so a single representation works for Anthropic, OpenAI, Gemini and xAI. Returns
+    ``None`` for empty or unrecognized parts.
+    """
+    if not isinstance(part, dict):
+        text = str(part)
+        return {"type": "text", "text": text} if text else None
+
+    ptype = part.get("type")
+
+    if ptype == "text":
+        text = part.get("text", "") or ""
+        return {"type": "text", "text": text} if text else None
+
+    if ptype in ("image_url", "image"):
+        image_url = part.get("image_url", part)
+        url = image_url.get("url") if isinstance(image_url, dict) else image_url
+        if not url:
+            # Already-standard image block carrying base64 directly.
+            if part.get("base64"):
+                block: Dict[str, Any] = {"type": "image", "base64": part["base64"]}
+                if part.get("mime_type"):
+                    block["mime_type"] = part["mime_type"]
+                return block
+            return None
+        parsed = _parse_data_uri(url)
+        if parsed:
+            mime_type, data = parsed
+            return {"type": "image", "base64": data, "mime_type": mime_type}
+        return {"type": "image", "url": url}
+
+    if ptype in ("file", "input_file"):
+        file_obj = part.get("file", part)
+        if not isinstance(file_obj, dict):
+            file_obj = {}
+        file_id = file_obj.get("file_id") or part.get("file_id")
+        if file_id:
+            return {"type": "file", "file_id": file_id}
+
+        filename = file_obj.get("filename") or part.get("filename")
+        file_data = (
+            file_obj.get("file_data") or file_obj.get("base64") or part.get("base64")
+        )
+        if file_data:
+            file_mime: Optional[str]
+            parsed_file = _parse_data_uri(file_data)
+            if parsed_file:
+                file_mime, file_b64 = parsed_file
+            else:
+                file_mime = part.get("mime_type") or file_obj.get("mime_type")
+                file_b64 = file_data
+            block = {"type": "file", "base64": file_b64}
+            if file_mime:
+                block["mime_type"] = file_mime
+            # OpenAI requires a filename for file uploads; carry it through so
+            # langchain-openai doesn't substitute a placeholder.
+            if filename:
+                block["filename"] = filename
+            return block
+
+        file_url = file_obj.get("file_url") or file_obj.get("url") or part.get("url")
+        if file_url:
+            block = {"type": "file", "url": file_url}
+            if filename:
+                block["filename"] = filename
+            return block
+        return None
+
+    # Unknown part type: best-effort text extraction.
+    text = part.get("text", "") or ""
+    return {"type": "text", "text": text} if text else None
+
+
+def _convert_user_content(content: Any) -> Any:
+    """Convert user-message content into a value accepted by ``HumanMessage``.
+
+    A list of OpenAI content parts becomes a list of LangChain standard content
+    blocks. When every part is text, it collapses back to a plain string so simple
+    requests stay simple (and to preserve prior behavior). Non-list content is
+    returned unchanged.
+    """
+    if not isinstance(content, list):
+        return content
+
+    blocks: List[Dict[str, Any]] = []
+    for part in content:
+        block = _convert_content_part(part)
+        if block is not None:
+            blocks.append(block)
+
+    if blocks and all(b["type"] == "text" for b in blocks):
+        return "".join(b["text"] for b in blocks)
+
+    return blocks
+
+
 def convert_messages(messages: list) -> List[Any]:
     """Convert OpenAI-format message objects or dicts to LangChain message objects."""
     langchain_messages: List[BaseMessage] = []
@@ -348,13 +466,11 @@ def convert_messages(messages: list) -> List[Any]:
             langchain_messages.append(SystemMessage(content=content))
 
         elif role == "user":
-            # content may be a string or a list of content parts; handle both
-            if isinstance(content, list):
-                content = "".join(
-                    part.get("text", "") if isinstance(part, dict) else str(part)
-                    for part in content
-                )
-            langchain_messages.append(HumanMessage(content=content))
+            # content may be a string or a list of multimodal content parts
+            # (text / image / file); convert to native LangChain content blocks.
+            langchain_messages.append(
+                HumanMessage(content=_convert_user_content(content))
+            )
 
         elif role == "assistant":
             if tool_calls:

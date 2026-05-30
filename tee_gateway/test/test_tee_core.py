@@ -568,8 +568,8 @@ class TestConvertMessages(unittest.TestCase):
         self.assertIsInstance(result[1], HumanMessage)
         self.assertIsInstance(result[2], AIMessage)
 
-    def test_user_content_as_list_of_parts(self):
-        """Multimodal content parts should be concatenated into a single string."""
+    def test_user_content_text_only_parts_collapse_to_string(self):
+        """A list of text-only parts collapses back to a plain string."""
         result = convert_messages(
             [
                 {
@@ -583,6 +583,130 @@ class TestConvertMessages(unittest.TestCase):
         )
         self.assertIsInstance(result[0], HumanMessage)
         self.assertEqual(result[0].content, "Hello world")
+
+    def test_user_content_with_base64_image(self):
+        """An image_url data URI becomes a standard image content block, so the
+        image survives conversion instead of being dropped."""
+        result = convert_messages(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "What is this?"},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
+                            },
+                        },
+                    ],
+                }
+            ]
+        )
+        content = result[0].content
+        self.assertIsInstance(content, list)
+        self.assertEqual(content[0], {"type": "text", "text": "What is this?"})
+        self.assertEqual(
+            content[1],
+            {
+                "type": "image",
+                "base64": "iVBORw0KGgoAAAANSUhEUg==",
+                "mime_type": "image/png",
+            },
+        )
+
+    def test_user_content_with_base64_pdf(self):
+        """A file part with a base64 PDF data URI becomes a standard file block,
+        carrying mime_type and the original filename through to the provider."""
+        result = convert_messages(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Summarize this."},
+                        {
+                            "type": "file",
+                            "file": {
+                                "filename": "contract.pdf",
+                                "file_data": "data:application/pdf;base64,JVBERi0xLjQK",
+                            },
+                        },
+                    ],
+                }
+            ]
+        )
+        content = result[0].content
+        self.assertIsInstance(content, list)
+        self.assertEqual(
+            content[1],
+            {
+                "type": "file",
+                "base64": "JVBERi0xLjQK",
+                "mime_type": "application/pdf",
+                "filename": "contract.pdf",
+            },
+        )
+
+    def test_user_content_image_remote_url(self):
+        """A non-data-URI image URL is passed through as a url image block."""
+        result = convert_messages(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "https://example.com/cat.png"},
+                        },
+                    ],
+                }
+            ]
+        )
+        self.assertEqual(
+            result[0].content,
+            [{"type": "image", "url": "https://example.com/cat.png"}],
+        )
+
+    def test_multimodal_blocks_convert_for_providers(self):
+        """The standard blocks produced here must be accepted by the provider
+        message converters — otherwise multimodal requests fail at send time.
+        This guards the cross-provider contract without needing network access."""
+        from langchain_anthropic.chat_models import _format_messages
+        from langchain_openai.chat_models.base import _convert_message_to_dict
+
+        msg = convert_messages(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Read these."},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
+                            },
+                        },
+                        {
+                            "type": "file",
+                            "file": {
+                                "filename": "doc.pdf",
+                                "file_data": "data:application/pdf;base64,JVBERi0xLjQK",
+                            },
+                        },
+                    ],
+                }
+            ]
+        )[0]
+
+        # Anthropic: file block -> document with application/pdf media type.
+        _system, anthropic_msgs = _format_messages([msg])
+        anthropic_types = {b["type"] for b in anthropic_msgs[0]["content"]}
+        self.assertEqual(anthropic_types, {"text", "image", "document"})
+
+        # OpenAI: file block -> file_data data URI.
+        openai_msg = _convert_message_to_dict(msg)
+        openai_types = {b["type"] for b in openai_msg["content"]}
+        self.assertEqual(openai_types, {"text", "image_url", "file"})
 
     def test_full_tool_call_conversation(self):
         """End-to-end multi-turn with tool use: user → assistant (tool call) → tool result."""

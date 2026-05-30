@@ -22,6 +22,10 @@ class ModelConfig:
     # Anthropic deprecated `temperature` for Opus 4.7 — the API returns 400 if
     # the field is present at all. Set False on models that reject it.
     supports_temperature: bool = True
+    # Image-output models (e.g. Gemini "nano banana") return generated images as
+    # inline content blocks. The backend requests the IMAGE modality and the
+    # controller surfaces the image data on the response message.
+    image_output: bool = False
 
 
 @unique
@@ -193,6 +197,15 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.0000015"),
         thinking_budget=0,
     )
+    # Native image generation ("nano banana"). Image output is billed as output
+    # tokens (~1290 tokens per image); pricing mirrors Google's image token rate.
+    GEMINI_2_5_FLASH_IMAGE = ModelConfig(
+        provider="google",
+        api_name="gemini-2.5-flash-image",
+        input_price_usd=Decimal("0.0000003"),
+        output_price_usd=Decimal("0.00003"),
+        image_output=True,
+    )
 
     # ── xAI Grok ────────────────────────────────────────────────────────
     GROK_4 = ModelConfig(
@@ -308,6 +321,7 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-3-flash-preview": SupportedModel.GEMINI_3_FLASH_PREVIEW,
     "gemini-3.1-pro-preview": SupportedModel.GEMINI_3_1_PRO_PREVIEW,
     "gemini-3.1-flash-lite-preview": SupportedModel.GEMINI_3_1_FLASH_LITE_PREVIEW,
+    "gemini-2.5-flash-image": SupportedModel.GEMINI_2_5_FLASH_IMAGE,
     # xAI
     "grok-4": SupportedModel.GROK_4,
     "grok-4-fast": SupportedModel.GROK_4_FAST,

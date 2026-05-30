@@ -222,6 +222,12 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.output_price_usd, Decimal("0.0000015"))
         self.assertEqual(cfg.thinking_budget, 0)
 
+    def test_gemini_3_5_flash_resolves(self):
+        cfg = get_model_config("gemini-3.5-flash")
+        self.assertEqual(cfg.provider, "google")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000015"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000009"))
+
     # ── xAI Grok ────────────────────────────────────────────────────────────
 
     def test_grok_4_resolves(self):

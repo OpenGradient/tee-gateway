@@ -206,6 +206,16 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.00003"),
         image_output=True,
     )
+    # Native image generation ("nano banana 2"), the latest Gemini image model.
+    # Image output is billed as output tokens (~1120 tokens per 1024x1024 image
+    # ≈ $0.067/image at $60/MTok); input (text/image) is $0.50/MTok.
+    GEMINI_3_1_FLASH_IMAGE = ModelConfig(
+        provider="google",
+        api_name="gemini-3.1-flash-image",
+        input_price_usd=Decimal("0.0000005"),
+        output_price_usd=Decimal("0.00006"),
+        image_output=True,
+    )
     GEMINI_3_5_FLASH = ModelConfig(
         provider="google",
         api_name="gemini-3.5-flash",
@@ -328,6 +338,7 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-3.1-pro-preview": SupportedModel.GEMINI_3_1_PRO_PREVIEW,
     "gemini-3.1-flash-lite-preview": SupportedModel.GEMINI_3_1_FLASH_LITE_PREVIEW,
     "gemini-2.5-flash-image": SupportedModel.GEMINI_2_5_FLASH_IMAGE,
+    "gemini-3.1-flash-image": SupportedModel.GEMINI_3_1_FLASH_IMAGE,
     "gemini-3.5-flash": SupportedModel.GEMINI_3_5_FLASH,
     # xAI
     "grok-4": SupportedModel.GROK_4,

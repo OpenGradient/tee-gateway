@@ -2844,6 +2844,17 @@ components:
           type: array
         model:
           $ref: "#/components/schemas/CreateChatCompletionRequest_model"
+        web_search:
+          default: false
+          description: |
+            Enable the model's native web search capability. When `true`, the
+            gateway turns on the provider's built-in web search (OpenAI, Anthropic,
+            Google, and xAI). Searches performed are billed per search on top of
+            token usage. Models whose provider has no native web search ignore
+            this flag and are not charged for it.
+          nullable: true
+          title: web_search
+          type: boolean
         store:
           default: false
           description: "Whether or not to store the output of this chat completion\
@@ -3496,6 +3507,15 @@ components:
             Echo back the prompt in addition to the completion
           nullable: true
           title: echo
+          type: boolean
+        web_search:
+          default: false
+          description: |
+            Enable the model's native web search capability. Searches performed
+            are billed per search on top of token usage. Models whose provider
+            has no native web search ignore this flag and are not charged for it.
+          nullable: true
+          title: web_search
           type: boolean
         frequency_penalty:
           default: 0

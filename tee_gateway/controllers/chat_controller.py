@@ -27,6 +27,8 @@ from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
 from tee_gateway.llm_backend import (
     get_provider_from_model,
     get_chat_model_cached,
+    get_web_search_tool,
+    extract_web_search_count,
     convert_messages,
     extract_usage,
 )
@@ -51,6 +53,33 @@ def create_chat_completion(body):
         return _create_streaming_response(chat_request)
     else:
         return _create_non_streaming_response(chat_request)
+
+
+def _build_tools_list(chat_request: CreateChatCompletionRequest, provider: str) -> list:
+    """Build the combined tools list (user tools + native web search tool).
+
+    User-supplied function tools and the provider's built-in web search tool are
+    bound together in a single bind_tools() call. xAI configures search at
+    construction time (no tool), and providers without native web search return
+    no tool — in both cases only user tools are included.
+    """
+    tools_list: list = []
+    if chat_request.tools:
+        for tool in chat_request.tools:
+            if isinstance(tool, dict):
+                func = tool.get("function", {})
+                tools_list.append(
+                    {"type": tool.get("type", "function"), "function": func}
+                )
+            else:
+                tools_list.append(tool)
+
+    if getattr(chat_request, "web_search", False):
+        ws_tool = get_web_search_tool(provider)
+        if ws_tool is not None:
+            tools_list.append(ws_tool)
+
+    return tools_list
 
 
 def _normalize_response_format(rf) -> dict:
@@ -143,6 +172,8 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         logger.info(f"Chat request for model: {chat_request.model}")
         logger.info(f"Number of messages: {len(chat_request.messages)}")
 
+        provider = get_provider_from_model(chat_request.model)
+
         # Serialize request for hashing (canonical, deterministic)
         request_dict = _chat_request_to_dict(chat_request)
         request_bytes = json.dumps(request_dict, sort_keys=True).encode("utf-8")
@@ -153,19 +184,12 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
             if chat_request.temperature is not None
             else 0.0,
             max_tokens=chat_request.max_tokens or 4096,
+            web_search=bool(chat_request.web_search),
         )
 
-        # Bind tools if provided
-        if chat_request.tools:
-            tools_list = []
-            for tool in chat_request.tools:
-                if isinstance(tool, dict):
-                    func = tool.get("function", {})
-                    tools_list.append(
-                        {"type": tool.get("type", "function"), "function": func}
-                    )
-                else:
-                    tools_list.append(tool)
+        # Bind user tools and/or the native web search tool if requested.
+        tools_list = _build_tools_list(chat_request, provider)
+        if tools_list:
             model = model.bind_tools(tools_list)
 
         # Bind response_format if provided (json_object or json_schema).
@@ -177,7 +201,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
             rf = _normalize_response_format(chat_request.response_format)
             if rf.get("type", "text") != "text":
                 rf_dict = rf
-                if get_provider_from_model(chat_request.model) != "anthropic":
+                if provider != "anthropic":
                     model = model.bind(response_format=rf_dict)
 
         langchain_messages = convert_messages(chat_request.messages)
@@ -191,7 +215,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
                     SystemMessage(content="Respond in JSON format.")
                 ] + langchain_messages
 
-        if rf_dict and get_provider_from_model(chat_request.model) == "anthropic":
+        if rf_dict and provider == "anthropic":
             response = _invoke_anthropic_structured(model, rf_dict, langchain_messages)
         else:
             response = model.invoke(langchain_messages)
@@ -266,7 +290,12 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         usage = extract_usage(response)
         if usage:
             openai_response["usage"] = usage
-            cost = compute_session_cost(chat_request.model, usage)
+            web_search_count = (
+                extract_web_search_count(response) if chat_request.web_search else 0
+            )
+            cost = compute_session_cost(
+                chat_request.model, usage, web_search_count=web_search_count
+            )
             if cost is not None:
                 openai_response["opengradient"] = cost.model_dump(mode="json")
 
@@ -299,18 +328,12 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
             if chat_request.temperature is not None
             else 0.0,
             max_tokens=chat_request.max_tokens or 4096,
+            web_search=bool(chat_request.web_search),
         )
 
-        if chat_request.tools:
-            tools_list = []
-            for tool in chat_request.tools:
-                if isinstance(tool, dict):
-                    func = tool.get("function", {})
-                    tools_list.append(
-                        {"type": tool.get("type", "function"), "function": func}
-                    )
-                else:
-                    tools_list.append(tool)
+        # Bind user tools and/or the native web search tool if requested.
+        tools_list = _build_tools_list(chat_request, provider)
+        if tools_list:
             model = model.bind_tools(tools_list)
 
         # Bind response_format if provided (json_object or json_schema).
@@ -379,6 +402,10 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
             final_usage = None
             buffered_tool_calls = {}
             finish_reason = "stop"
+            # Accumulate streamed chunks so native web-search activity (content
+            # blocks, citations, grounding metadata) can be counted for billing
+            # once the stream completes.
+            merged_chunk = None
 
             try:
                 if anthropic_structured_content is not None:
@@ -403,6 +430,13 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     chunks_iter = model.stream(langchain_messages)  # type: ignore[assignment]
 
                 for chunk in chunks_iter:
+                    # Accumulate for post-stream web-search billing (cheap: merges
+                    # content/metadata deltas into a single AIMessageChunk).
+                    if chat_request.web_search:
+                        merged_chunk = (
+                            chunk if merged_chunk is None else merged_chunk + chunk
+                        )
+
                     # --- Text content ---
                     if chunk.content:
                         if isinstance(chunk.content, str):
@@ -595,7 +629,16 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                         "completion_tokens": final_usage.get("output_tokens", 0),
                         "total_tokens": final_usage.get("total_tokens", 0),
                     }
-                    cost = compute_session_cost(chat_request.model, final_data["usage"])
+                    web_search_count = (
+                        extract_web_search_count(merged_chunk)
+                        if chat_request.web_search
+                        else 0
+                    )
+                    cost = compute_session_cost(
+                        chat_request.model,
+                        final_data["usage"],
+                        web_search_count=web_search_count,
+                    )
                     if cost is not None:
                         # final_data is hand-serialized to SSE via json.dumps below,
                         # which doesn't go through Flask's JSONEncoder — so do the
@@ -698,6 +741,8 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
         )
     if chat_request.response_format:
         d["response_format"] = _normalize_response_format(chat_request.response_format)
+    if chat_request.web_search:
+        d["web_search"] = True
     return d
 
 
@@ -720,6 +765,7 @@ def _parse_chat_request(chat_request_dict: dict) -> CreateChatCompletionRequest:
         tools=chat_request_dict.get("tools"),
         tool_choice=chat_request_dict.get("tool_choice"),
         user=chat_request_dict.get("user"),
+        web_search=chat_request_dict.get("web_search", False),
     )
 
 

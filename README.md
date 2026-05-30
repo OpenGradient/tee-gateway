@@ -24,6 +24,9 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 - **Request integrity** - SHA256 hash of original request included in signed response
 - **Streaming support** - SSE streaming for chat completions
 - **Tool/function calling** - Full support for LLM tool use
+- **Native web search** - Opt-in `web_search` flag enables each provider's built-in
+  web search (OpenAI, Anthropic, Google, xAI); searches are billed per search on top
+  of token usage
 
 ## Supported Models
 
@@ -84,7 +87,22 @@ curl -X POST http://127.0.0.1:8000/v1/completions \
     "model": "claude-3.7-sonnet",
     "prompt": "Explain quantum computing in one sentence"
   }'
+
+# Native web search (set "web_search": true on any supported model)
+curl -X POST http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-5",
+    "messages": [{"role": "user", "content": "What happened in the news today?"}],
+    "web_search": true
+  }'
 ```
+
+> **Web search & billing.** When `web_search` is `true`, the gateway enables the
+> provider's built-in web search (OpenAI, Anthropic, Google, xAI). Each search is
+> billed per search on top of token usage — at the provider's list price — and the
+> charge is reflected in the dynamically-settled x402 amount. Providers without
+> native web search (e.g. ByteDance/ModelArk) ignore the flag and are not charged.
 
 ## Deployment to Nitro Enclave
 

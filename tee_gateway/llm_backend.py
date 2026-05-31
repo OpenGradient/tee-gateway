@@ -20,7 +20,7 @@ from langchain_core.messages import (
     ToolMessage,
     BaseMessage,
 )
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI, Modality
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_xai import ChatXAI
@@ -144,6 +144,18 @@ def get_chat_model_cached(
     if provider == "google":
         if not config.google_api_key:
             raise ValueError("google_api_key not set in ProviderConfig")
+
+        # Image-generation models return images inline and do not support the
+        # thinking budget; ask for both TEXT and IMAGE modalities so the model
+        # may caption alongside the generated image.
+        if cfg.image_output:
+            return ChatGoogleGenerativeAI(
+                model=api_name,
+                google_api_key=config.google_api_key,
+                temperature=effective_temp,
+                max_output_tokens=max_tokens,
+                response_modalities=[Modality.TEXT, Modality.IMAGE],
+            )
 
         return ChatGoogleGenerativeAI(
             model=api_name,

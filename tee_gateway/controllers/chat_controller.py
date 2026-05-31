@@ -32,9 +32,45 @@ from tee_gateway.llm_backend import (
     convert_messages,
     extract_usage,
 )
+from tee_gateway.model_registry import get_model_config
 from tee_gateway.pricing import compute_session_cost
 
 logger = logging.getLogger(__name__)
+
+
+def _split_text_and_images(content: Any) -> tuple[str, list[str]]:
+    """Split a LangChain message content into plain text and image data URIs.
+
+    Image-generation models (e.g. Gemini "nano banana") return generated images
+    as content blocks alongside any text. We collapse the text parts into a
+    single string and collect each image as a ``data:`` URI. The image data is
+    intentionally NOT folded into the text used for the TEE output hash — the
+    OHTTP channel already guarantees confidentiality and integrity end-to-end,
+    so images ride inside the signed envelope without being signed themselves.
+    """
+    if not isinstance(content, list):
+        return (content or "", [])
+
+    text_parts: list[str] = []
+    images: list[str] = []
+    for item in content:
+        if not isinstance(item, dict):
+            text_parts.append(str(item))
+            continue
+        item_type = item.get("type")
+        if item_type == "image_url":
+            url = (item.get("image_url") or {}).get("url")
+            if url:
+                images.append(url)
+        elif item_type in {"image", "media"}:
+            # Standardized content block: raw base64 data + mime type.
+            data = item.get("data")
+            if data:
+                mime = item.get("mime_type") or "image/png"
+                images.append(f"data:{mime};base64,{data}")
+        else:
+            text_parts.append(item.get("text", "") or "")
+    return ("".join(text_parts), images)
 
 
 def create_chat_completion(body):
@@ -220,19 +256,18 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         else:
             response = model.invoke(langchain_messages)
 
-        # Normalize content (Gemini may return a list of content parts)
-        if isinstance(response.content, list):
-            content_str = "".join(
-                item.get("text", "") if isinstance(item, dict) else str(item)
-                for item in response.content
-            )
-        else:
-            content_str = response.content or ""
+        # Normalize content (Gemini may return a list of content parts, and
+        # image-generation models return image blocks alongside any text).
+        content_str, generated_images = _split_text_and_images(response.content)
 
         message_dict: dict[str, Any] = {
             "role": "assistant",
             "content": content_str,
         }
+        # Surface generated images out-of-band on the message. They are not part
+        # of the signed output hash (see _split_text_and_images).
+        if generated_images:
+            message_dict["images"] = generated_images
 
         finish_reason = "stop"
         if hasattr(response, "tool_calls") and response.tool_calls:
@@ -318,6 +353,9 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
         # OpenAI and Anthropic stream tool calls as fragments that must be
         # buffered and flushed once complete. Gemini emits complete tool calls.
         buffer_tool_calls = provider in ["openai", "anthropic"]
+        # Image-generation models return a single image rather than a token
+        # stream — invoke once and emit the result inside the SSE envelope.
+        image_output_model = get_model_config(chat_request.model).image_output
 
         request_dict = _chat_request_to_dict(chat_request)
         request_bytes = json.dumps(request_dict, sort_keys=True).encode("utf-8")
@@ -402,13 +440,55 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
             final_usage = None
             buffered_tool_calls = {}
             finish_reason = "stop"
+            generated_images: list[str] = []
             # Accumulate streamed chunks so native web-search activity (content
             # blocks, citations, grounding metadata) can be counted for billing
             # once the stream completes.
             merged_chunk = None
 
             try:
-                if anthropic_structured_content is not None:
+                if image_output_model:
+                    # Image generation isn't a token stream: invoke once, emit
+                    # any caption text as a content delta, and carry the image
+                    # out-of-band on the final frame (it is not signed).
+                    response = model.invoke(langchain_messages)
+                    text_content, generated_images = _split_text_and_images(
+                        response.content
+                    )
+                    full_content = text_content
+                    if text_content:
+                        data = {
+                            "choices": [
+                                {
+                                    "delta": {
+                                        "content": text_content,
+                                        "role": "assistant",
+                                    },
+                                    "index": 0,
+                                    "finish_reason": None,
+                                }
+                            ],
+                            "model": chat_request.model,
+                        }
+                        yield f"data: {json.dumps(data)}\n\n"
+                    # BILLING (image output): Gemini bills each generated image as
+                    # ~1290 output tokens reported in candidates_token_count, which
+                    # langchain-google-genai folds into usage_metadata.output_tokens
+                    # (-> completion_tokens -> output_price_usd). So images are charged
+                    # purely via the normal token path; the image bytes themselves are
+                    # never metered by size. CAVEAT: if the provider omits usage_metadata
+                    # (langchain then yields None), final_usage stays None, the final
+                    # frame carries no 'usage', and compute_session_cost is skipped — the
+                    # client is NOT charged and gets a free image (fail-open). Acceptable
+                    # for now since Gemini reliably returns usage on success; revisit with
+                    # a ~1290-token-per-image fallback if that ever changes.
+                    if hasattr(response, "usage_metadata") and response.usage_metadata:
+                        final_usage = {}
+                        for k, v in response.usage_metadata.items():
+                            if isinstance(v, (int, float)):
+                                final_usage[k] = v
+                    chunks_iter: list = []
+                elif anthropic_structured_content is not None:
                     # Emit the pre-computed structured result as a single chunk.
                     # Seed final_usage from the synchronous invoke so the final
                     # SSE chunk carries a 'usage' dict for the x402 cost calculator.
@@ -425,7 +505,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                         "model": chat_request.model,
                     }
                     yield f"data: {json.dumps(data)}\n\n"
-                    chunks_iter: list = []
+                    chunks_iter = []
                 else:
                     chunks_iter = model.stream(langchain_messages)  # type: ignore[assignment]
 
@@ -617,6 +697,10 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     "tee_output_hash": output_hash_hex,
                     "tee_id": f"0x{tee_keys.get_tee_id()}",
                 }
+                # Generated images travel out-of-band on the final frame; they
+                # are not part of the signed output hash.
+                if generated_images:
+                    final_data["images"] = generated_images
 
                 logger.debug(
                     f"Response Final\n\tTEE Signature: {tee_signature}\n\tTEE request hash: {input_hash_hex}\n\tTEE output hash: {output_hash_hex}\n\tTEE timestamp: {timestamp}\n\tTEE ID: 0x{tee_keys.get_tee_id()}"

@@ -17,7 +17,7 @@ from tee_gateway.definitions import (
     ASSET_DECIMALS_BY_ADDRESS,
     BASE_MAINNET_OPG_ADDRESS,
 )
-from tee_gateway.model_registry import get_model_config
+from tee_gateway.model_registry import get_model_config, get_web_search_price_usd
 
 logger = logging.getLogger("llm_server.dynamic_pricing")
 
@@ -49,7 +49,9 @@ class SessionCost(BaseModel):
         return format(value, "f")
 
 
-def compute_session_cost(model: str, usage: dict) -> SessionCost | None:
+def compute_session_cost(
+    model: str, usage: dict, web_search_count: int = 0
+) -> SessionCost | None:
     """Compute the settled cost for a completed inference request.
 
     Returns the SessionCost pydantic model, or ``None`` on failure.  Predictable
@@ -76,6 +78,16 @@ def compute_session_cost(model: str, usage: dict) -> SessionCost | None:
         raw_usd = (Decimal(in_tok) * cfg.input_price_usd) + (
             Decimal(out_tok) * cfg.output_price_usd
         )
+
+        # Native web search is billed per search unit on top of token cost.
+        searches = max(0, int(web_search_count))
+        web_search_usd = (
+            Decimal(searches) * get_web_search_price_usd(model)
+            if searches
+            else Decimal(0)
+        )
+        raw_usd += web_search_usd
+
         token_price_usd = get_price_feed().get_price()
         if token_price_usd <= 0:
             raise ValueError(f"Token price is non-positive: {token_price_usd}")
@@ -95,10 +107,13 @@ def compute_session_cost(model: str, usage: dict) -> SessionCost | None:
 
         logger.info(
             "DYNAMIC_SESSION_COST model=%s input_tokens=%d output_tokens=%d "
-            "raw_usd=%s settled_usd=%s token_price_usd=%s decimals=%d cost=%d",
+            "web_searches=%d web_search_usd=%s raw_usd=%s settled_usd=%s "
+            "token_price_usd=%s decimals=%d cost=%d",
             model,
             in_tok,
             out_tok,
+            searches,
+            str(web_search_usd),
             str(raw_usd),
             str(settled_usd),
             str(token_price_usd),

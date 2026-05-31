@@ -21,6 +21,7 @@ class CreateCompletionRequest:
         temperature=1,
         top_p=1,
         user=None,
+        web_search=False,
     ):
         self.model = model
         self.prompt = prompt
@@ -40,6 +41,7 @@ class CreateCompletionRequest:
         self.temperature = temperature
         self.top_p = top_p
         self.user = user
+        self.web_search = web_search
 
     @classmethod
     def from_dict(cls, dikt) -> "CreateCompletionRequest":
@@ -64,5 +66,6 @@ class CreateCompletionRequest:
             "temperature",
             "top_p",
             "user",
+            "web_search",
         }
         return cls(**{k: v for k, v in dikt.items() if k in known})

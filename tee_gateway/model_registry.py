@@ -26,6 +26,26 @@ class ModelConfig:
     # inline content blocks. The backend requests the IMAGE modality and the
     # controller surfaces the image data on the response message.
     image_output: bool = False
+    # Per-search USD surcharge billed when native web search is used. ``None``
+    # means "use the provider default" (see WEB_SEARCH_PRICE_USD_BY_PROVIDER);
+    # set an explicit value here to override a single model's web-search price.
+    web_search_price_usd: Optional[Decimal] = None
+
+
+# Default per-search USD price charged when a model uses native web search.
+# The billable "unit" differs per provider (see extract_web_search_count in
+# llm_backend.py) and these mirror each provider's public list price:
+#   - OpenAI:    per web_search tool call          (~$10 / 1k calls)
+#   - Anthropic: per web_search request            ($10 / 1k searches)
+#   - xAI:       per source returned by Live Search ($25 / 1k sources)
+#   - Google:    per grounded request               ($35 / 1k requests)
+# Providers without native web search are omitted (charged nothing).
+WEB_SEARCH_PRICE_USD_BY_PROVIDER: dict[str, Decimal] = {
+    "openai": Decimal("0.01"),
+    "anthropic": Decimal("0.01"),
+    "x-ai": Decimal("0.025"),
+    "google": Decimal("0.035"),
+}
 
 
 @unique
@@ -389,3 +409,21 @@ def get_rate_card(model: str) -> dict[str, Decimal]:
     """Return {"input": ..., "output": ...} pricing for a model. Raises on unknown."""
     cfg = get_model_config(model)
     return {"input": cfg.input_price_usd, "output": cfg.output_price_usd}
+
+
+def get_web_search_price_usd(model: str) -> Decimal:
+    """Return the per-search USD surcharge for a model's native web search.
+
+    Falls back to the provider default when the model does not override it, and
+    to ``Decimal("0")`` for providers with no native web search support. Raises
+    ValueError if the model is unknown.
+    """
+    cfg = get_model_config(model)
+    if cfg.web_search_price_usd is not None:
+        return cfg.web_search_price_usd
+    return WEB_SEARCH_PRICE_USD_BY_PROVIDER.get(cfg.provider, Decimal("0"))
+
+
+def provider_supports_web_search(provider: str) -> bool:
+    """Whether the given provider has native web search the gateway can enable."""
+    return provider in WEB_SEARCH_PRICE_USD_BY_PROVIDER

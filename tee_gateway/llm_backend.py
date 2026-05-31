@@ -114,12 +114,19 @@ def get_provider_from_model(model: str) -> str:
     return cfg.provider
 
 
-@lru_cache(maxsize=32)
-def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
+@lru_cache(maxsize=64)
+def get_chat_model_cached(
+    model: str, temperature: float, max_tokens: int, web_search: bool = False
+):
     """Get cached chat model instance using the injected ProviderConfig.
 
-    Models are cached by (model, temperature, max_tokens) tuple.
+    Models are cached by (model, temperature, max_tokens, web_search) tuple.
     Cache is cleared by set_provider_config() after key injection.
+
+    When ``web_search`` is True, provider-specific native web search is enabled.
+    Some providers (OpenAI, xAI) require search configuration at construction
+    time; others (Anthropic, Google) enable it by binding a tool — see
+    ``get_web_search_tool``. Providers without native web search ignore the flag.
     """
     config = _provider_config
     if config is None:
@@ -166,6 +173,15 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         if openai_http_client is None:
             raise RuntimeError("OpenAI HTTP client has not been initialized")
 
+        # OpenAI's built-in web_search tool is only available through the
+        # Responses API, so switch to it when web search is requested. The
+        # responses/v1 output format surfaces web_search_call items in the
+        # message content, which we count for billing.
+        openai_kwargs: dict[str, Any] = {}
+        if web_search:
+            openai_kwargs["use_responses_api"] = True
+            openai_kwargs["output_version"] = "responses/v1"
+
         return ChatOpenAI(
             model=api_name,
             temperature=effective_temp,
@@ -174,6 +190,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
             api_key=SecretStr(config.openai_api_key),
             streaming=True,
             stream_usage=True,
+            **openai_kwargs,
         )  # type: ignore [call-arg]
 
     elif provider == "anthropic":
@@ -203,6 +220,12 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
         if xai_http_client is None:
             raise RuntimeError("XAI HTTP client has not been initialized")
 
+        # xAI enables Live Search via the search_parameters constructor arg
+        # rather than a bound tool. "auto" lets Grok decide whether to search.
+        xai_kwargs: dict[str, Any] = {}
+        if web_search:
+            xai_kwargs["search_parameters"] = {"mode": "auto"}
+
         return ChatXAI(
             model=api_name,
             api_key=SecretStr(config.xai_api_key),
@@ -211,6 +234,7 @@ def get_chat_model_cached(model: str, temperature: float, max_tokens: int):
             http_client=xai_http_client,
             streaming=True,
             stream_usage=True,
+            **xai_kwargs,
         )
 
     elif provider == "bytedance":
@@ -337,3 +361,72 @@ def extract_usage(response) -> Optional[Dict[str, int]]:
             "total_tokens": meta.get("total_tokens", 0),
         }
     return None
+
+
+# Anthropic's server-side web search tool. The dated type string is the current
+# tool version; max_uses caps searches per request to bound cost.
+ANTHROPIC_WEB_SEARCH_TOOL: Dict[str, Any] = {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+}
+
+
+def get_web_search_tool(provider: str) -> Optional[Dict[str, Any]]:
+    """Return the provider-specific web search tool spec to bind, or None.
+
+    OpenAI/Anthropic/Google enable web search by binding a built-in tool.
+    xAI configures search at construction (see get_chat_model_cached) and so
+    returns None here. Providers without native web search also return None.
+    """
+    if provider == "openai":
+        return {"type": "web_search"}
+    if provider == "anthropic":
+        return dict(ANTHROPIC_WEB_SEARCH_TOOL)
+    if provider == "google":
+        return {"google_search": {}}
+    # x-ai is handled via search_parameters; bytedance has no native web search.
+    return None
+
+
+def extract_web_search_count(message) -> int:
+    """Best-effort count of billable web-search units the model performed.
+
+    Each provider reports search activity differently and bills a different
+    unit, so we count the unit that matches that provider's list price:
+
+    - OpenAI (Responses API): ``web_search_call`` content blocks (per call)
+    - Anthropic: ``server_tool_use`` web_search content blocks (per request)
+    - xAI Live Search: ``citations`` returned in additional_kwargs (per source)
+    - Google: 1 per grounded response (per grounded request)
+
+    Works on a completed AIMessage or an accumulated AIMessageChunk.
+    """
+    if message is None:
+        return 0
+
+    count = 0
+
+    content = getattr(message, "content", None)
+    if isinstance(content, list):
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            btype = block.get("type")
+            if btype == "web_search_call":
+                count += 1
+            elif btype == "server_tool_use" and block.get("name") == "web_search":
+                count += 1
+
+    # xAI returns the list of sources it grounded on as `citations`.
+    additional_kwargs = getattr(message, "additional_kwargs", None) or {}
+    citations = additional_kwargs.get("citations")
+    if citations:
+        count += len(citations)
+
+    # Google reports grounding via response_metadata; billed per grounded request.
+    response_metadata = getattr(message, "response_metadata", None) or {}
+    if response_metadata.get("grounding_metadata"):
+        count += 1
+
+    return count

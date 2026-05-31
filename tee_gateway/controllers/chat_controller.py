@@ -60,7 +60,7 @@ def _split_text_and_images(content: Any) -> tuple[str, list[str]]:
             url = (item.get("image_url") or {}).get("url")
             if url:
                 images.append(url)
-        elif item_type == "image":
+        elif item_type in {"image", "media"}:
             # Standardized content block: raw base64 data + mime type.
             data = item.get("data")
             if data:

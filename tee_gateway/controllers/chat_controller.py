@@ -29,6 +29,7 @@ from tee_gateway.llm_backend import (
     get_chat_model_cached,
     get_web_search_tool,
     extract_web_search_count,
+    extract_web_search_events,
     convert_messages,
     extract_usage,
 )
@@ -445,6 +446,9 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
             # blocks, citations, grounding metadata) can be counted for billing
             # once the stream completes.
             merged_chunk = None
+            # Tracks web-search blocks already surfaced to the client so the
+            # live "searching the web" status is emitted once per search.
+            seen_web_searches: set = set()
 
             try:
                 if image_output_model:
@@ -516,6 +520,26 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                         merged_chunk = (
                             chunk if merged_chunk is None else merged_chunk + chunk
                         )
+
+                        # --- Web-search status (UI only) ---
+                        # When the provider performs a native web search mid-
+                        # stream, emit a lightweight status frame so the client
+                        # can show a "searching the web" indicator. The frame
+                        # carries no content delta, so it is not part of the
+                        # signed output hash and does not affect billing.
+                        for ws_event in extract_web_search_events(
+                            chunk, seen_web_searches
+                        ):
+                            status_data: dict[str, Any] = {
+                                "choices": [
+                                    {"delta": {}, "index": 0, "finish_reason": None}
+                                ],
+                                "model": chat_request.model,
+                                "web_search": {"status": "searching"},
+                            }
+                            if ws_event.get("query"):
+                                status_data["web_search"]["query"] = ws_event["query"]
+                            yield f"data: {json.dumps(status_data)}\n\n"
 
                     # --- Text content ---
                     if chunk.content:

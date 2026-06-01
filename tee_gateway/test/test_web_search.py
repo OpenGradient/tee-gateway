@@ -24,6 +24,7 @@ from tee_gateway.model_registry import (
 from tee_gateway.llm_backend import (
     get_web_search_tool,
     extract_web_search_count,
+    extract_web_search_events,
 )
 from tee_gateway.pricing import SessionCost, compute_session_cost
 from tee_gateway.controllers.chat_controller import create_chat_completion
@@ -127,6 +128,98 @@ class TestExtractWebSearchCount(unittest.TestCase):
         }
         # Google bills per grounded request, not per query.
         self.assertEqual(extract_web_search_count(msg), 1)
+
+
+# ---------------------------------------------------------------------------
+# llm_backend.extract_web_search_events (live UI status)
+# ---------------------------------------------------------------------------
+
+
+class TestExtractWebSearchEvents(unittest.TestCase):
+    def test_none_message(self):
+        self.assertEqual(extract_web_search_events(None, set()), [])
+
+    def test_plain_text_chunk_has_no_events(self):
+        self.assertEqual(extract_web_search_events(AIMessage(content="hi"), set()), [])
+
+    def test_string_content_chunk_has_no_events(self):
+        # Streamed text deltas arrive as plain strings, not block lists.
+        self.assertEqual(extract_web_search_events(AIMessage(content=""), set()), [])
+
+    def test_openai_web_search_call_emits_event(self):
+        msg = AIMessage(content=[{"type": "web_search_call", "id": "ws_1"}])
+        events = extract_web_search_events(msg, set())
+        self.assertEqual(len(events), 1)
+        self.assertIsNone(events[0]["query"])
+
+    def test_anthropic_server_tool_use_emits_event_with_query(self):
+        msg = AIMessage(
+            content=[
+                {
+                    "type": "server_tool_use",
+                    "name": "web_search",
+                    "id": "srv_1",
+                    "input": {"query": "latest news"},
+                }
+            ]
+        )
+        events = extract_web_search_events(msg, set())
+        self.assertEqual(events, [{"query": "latest news"}])
+
+    def test_openai_query_from_action(self):
+        msg = AIMessage(
+            content=[
+                {
+                    "type": "web_search_call",
+                    "id": "ws_1",
+                    "action": {"query": "weather today"},
+                }
+            ]
+        )
+        events = extract_web_search_events(msg, set())
+        self.assertEqual(events, [{"query": "weather today"}])
+
+    def test_dedupes_block_across_chunks_by_id(self):
+        seen: set = set()
+        # Same search block reappears across chunks (Anthropic input deltas).
+        first = AIMessage(
+            content=[{"type": "server_tool_use", "name": "web_search", "id": "srv_1"}]
+        )
+        second = AIMessage(
+            content=[
+                {
+                    "type": "server_tool_use",
+                    "name": "web_search",
+                    "id": "srv_1",
+                    "input": {"query": "now complete"},
+                }
+            ]
+        )
+        self.assertEqual(len(extract_web_search_events(first, seen)), 1)
+        # Already seen -> no duplicate event on the next chunk.
+        self.assertEqual(extract_web_search_events(second, seen), [])
+
+    def test_distinct_searches_each_emit(self):
+        seen: set = set()
+        first = AIMessage(content=[{"type": "web_search_call", "id": "ws_1"}])
+        second = AIMessage(content=[{"type": "web_search_call", "id": "ws_2"}])
+        self.assertEqual(len(extract_web_search_events(first, seen)), 1)
+        self.assertEqual(len(extract_web_search_events(second, seen)), 1)
+
+    def test_dedupes_by_index_when_no_id(self):
+        seen: set = set()
+        chunk = AIMessage(content=[{"type": "web_search_call", "index": 0}])
+        self.assertEqual(len(extract_web_search_events(chunk, seen)), 1)
+        self.assertEqual(extract_web_search_events(chunk, seen), [])
+
+    def test_non_search_blocks_ignored(self):
+        msg = AIMessage(
+            content=[
+                {"type": "text", "text": "answer"},
+                {"type": "web_search_tool_result", "content": []},
+            ]
+        )
+        self.assertEqual(extract_web_search_events(msg, set()), [])
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +364,102 @@ class TestChatControllerWebSearch(unittest.TestCase):
         # No tools and no web search -> bind_tools must not be called.
         model.bind_tools.assert_not_called()
         self.assertEqual(mock_cost.call_args.kwargs["web_search_count"], 0)
+
+
+class TestChatControllerWebSearchStreaming(unittest.TestCase):
+    @staticmethod
+    def _collect_sse(response) -> str:
+        parts = []
+        for part in response.response:
+            parts.append(part.decode("utf-8") if isinstance(part, bytes) else part)
+        return "".join(parts)
+
+    @patch("tee_gateway.controllers.chat_controller.compute_session_cost")
+    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
+    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
+    @patch("tee_gateway.controllers.chat_controller.connexion")
+    def test_streaming_emits_web_search_status_frame(
+        self, mock_connexion, mock_get_model, mock_get_tee_keys, mock_cost
+    ):
+        from langchain_core.messages import AIMessageChunk
+
+        mock_connexion.request.is_json = True
+        mock_connexion.request.get_json.return_value = {
+            "model": "claude-sonnet-4-5",
+            "messages": [{"role": "user", "content": "latest news?"}],
+            "web_search": True,
+            "stream": True,
+        }
+
+        # The provider streams a web-search block (twice, as input accumulates)
+        # before the answer text — the status frame must be emitted only once.
+        chunks = [
+            AIMessageChunk(
+                content=[
+                    {
+                        "type": "server_tool_use",
+                        "name": "web_search",
+                        "id": "srv_1",
+                        "input": {},
+                    }
+                ]
+            ),
+            AIMessageChunk(
+                content=[
+                    {
+                        "type": "server_tool_use",
+                        "name": "web_search",
+                        "id": "srv_1",
+                        "input": {"query": "latest news"},
+                    }
+                ]
+            ),
+            AIMessageChunk(content="Here is the news."),
+        ]
+        model = Mock()
+        model.stream.return_value = chunks
+        model.bind_tools.return_value = model
+        mock_get_model.return_value = model
+        mock_get_tee_keys.return_value = _mock_tee_keys()
+        mock_cost.return_value = None
+
+        response = create_chat_completion(None)
+        body = self._collect_sse(response)
+
+        # Exactly one web-search status frame for the single (deduped) search.
+        self.assertEqual(body.count('"web_search"'), 1)
+        self.assertIn('"status": "searching"', body)
+        # The answer text still streams as a normal content delta.
+        self.assertIn("Here is the news.", body)
+        self.assertIn("[DONE]", body)
+
+    @patch("tee_gateway.controllers.chat_controller.compute_session_cost")
+    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
+    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
+    @patch("tee_gateway.controllers.chat_controller.connexion")
+    def test_streaming_without_web_search_emits_no_status_frame(
+        self, mock_connexion, mock_get_model, mock_get_tee_keys, mock_cost
+    ):
+        from langchain_core.messages import AIMessageChunk
+
+        mock_connexion.request.is_json = True
+        mock_connexion.request.get_json.return_value = {
+            "model": "gpt-4.1",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": True,
+        }
+        model = Mock()
+        model.stream.return_value = [AIMessageChunk(content="hi")]
+        model.bind_tools.return_value = model
+        mock_get_model.return_value = model
+        mock_get_tee_keys.return_value = _mock_tee_keys()
+        mock_cost.return_value = None
+
+        response = create_chat_completion(None)
+        body = self._collect_sse(response)
+
+        self.assertNotIn('"web_search"', body)
+        self.assertIn("hi", body)
 
 
 if __name__ == "__main__":

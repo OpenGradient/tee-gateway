@@ -430,3 +430,61 @@ def extract_web_search_count(message) -> int:
         count += 1
 
     return count
+
+
+def _web_search_query_from_block(block: Dict[str, Any]) -> Optional[str]:
+    """Best-effort extraction of the search query from a web-search content block.
+
+    Anthropic ``server_tool_use`` blocks carry the query under ``input`` and
+    OpenAI ``web_search_call`` blocks under ``action`` (when present). During
+    streaming the query may not be fully accumulated yet, in which case we
+    return None and the client shows a generic "searching" message.
+    """
+    for key in ("input", "action"):
+        value = block.get(key)
+        if isinstance(value, dict):
+            query = value.get("query")
+            if isinstance(query, str) and query:
+                return query
+    return None
+
+
+def extract_web_search_events(message, seen_ids: set) -> List[Dict[str, Any]]:
+    """Detect web-search activity in a single streamed chunk, for live UI status.
+
+    Returns one event dict ``{"query": <str|None>}`` per newly-seen web-search
+    block so the client can surface a "searching the web" indicator while the
+    model browses. ``seen_ids`` is mutated to dedupe blocks that span multiple
+    chunks (Anthropic streams a block's input as incremental JSON deltas, so the
+    same block reappears across chunks under a stable id/index).
+
+    This is a UI-only signal: it is independent of ``extract_web_search_count``,
+    which counts the completed/accumulated message for billing.
+    """
+    if message is None:
+        return []
+
+    events: List[Dict[str, Any]] = []
+    content = getattr(message, "content", None)
+    if not isinstance(content, list):
+        return events
+
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        is_web_search = btype == "web_search_call" or (
+            btype == "server_tool_use" and block.get("name") == "web_search"
+        )
+        if not is_web_search:
+            continue
+
+        # Dedupe by stable id (falling back to the streamed block index) so we
+        # emit one event per actual search rather than one per partial chunk.
+        block_key = (btype, block.get("id") or block.get("index"))
+        if block_key in seen_ids:
+            continue
+        seen_ids.add(block_key)
+        events.append({"query": _web_search_query_from_block(block)})
+
+    return events

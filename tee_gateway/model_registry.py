@@ -37,7 +37,7 @@ class ModelConfig:
 # llm_backend.py) and these mirror each provider's public list price:
 #   - OpenAI:    per web_search tool call          (~$10 / 1k calls)
 #   - Anthropic: per web_search request            ($10 / 1k searches)
-#   - xAI:       per source returned by Live Search ($25 / 1k sources)
+#   - xAI:       per web_search tool call / source ($25 / 1k units)
 #   - Google:    per grounded request               ($35 / 1k requests)
 # Providers without native web search are omitted (charged nothing).
 WEB_SEARCH_PRICE_USD_BY_PROVIDER: dict[str, Decimal] = {
@@ -244,6 +244,12 @@ class SupportedModel(Enum):
     )
 
     # ── xAI Grok ────────────────────────────────────────────────────────
+    GROK_4_3 = ModelConfig(
+        provider="x-ai",
+        api_name="grok-4.3",
+        input_price_usd=Decimal("0.00000125"),
+        output_price_usd=Decimal("0.0000025"),
+    )
     GROK_4 = ModelConfig(
         provider="x-ai",
         api_name="grok-4",
@@ -361,6 +367,7 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-3.1-flash-image": SupportedModel.GEMINI_3_1_FLASH_IMAGE,
     "gemini-3.5-flash": SupportedModel.GEMINI_3_5_FLASH,
     # xAI
+    "grok-4.3": SupportedModel.GROK_4_3,
     "grok-4": SupportedModel.GROK_4,
     "grok-4-fast": SupportedModel.GROK_4_FAST,
     "grok-4-1-fast": SupportedModel.GROK_4_1_FAST,

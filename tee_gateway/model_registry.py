@@ -37,13 +37,13 @@ class ModelConfig:
 # llm_backend.py) and these mirror each provider's public list price:
 #   - OpenAI:    per web_search tool call          (~$10 / 1k calls)
 #   - Anthropic: per web_search request            ($10 / 1k searches)
-#   - xAI:       per source returned by Live Search ($25 / 1k sources)
+#   - xAI:       per web_search call (Agent Tools)  ($5 / 1k calls)
 #   - Google:    per grounded request               ($35 / 1k requests)
 # Providers without native web search are omitted (charged nothing).
 WEB_SEARCH_PRICE_USD_BY_PROVIDER: dict[str, Decimal] = {
     "openai": Decimal("0.01"),
     "anthropic": Decimal("0.01"),
-    "x-ai": Decimal("0.025"),
+    "x-ai": Decimal("0.005"),
     "google": Decimal("0.035"),
 }
 

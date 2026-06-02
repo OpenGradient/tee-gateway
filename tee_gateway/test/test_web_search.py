@@ -43,8 +43,8 @@ class TestWebSearchPricing(unittest.TestCase):
     def test_price_uses_provider_default(self):
         # gpt-4.1 -> openai default ($0.01/search)
         self.assertEqual(get_web_search_price_usd("gpt-4.1"), Decimal("0.01"))
-        # grok-4 -> xAI default ($0.025/source)
-        self.assertEqual(get_web_search_price_usd("grok-4"), Decimal("0.025"))
+        # grok-4 -> xAI default ($0.005/call via Agent Tools API)
+        self.assertEqual(get_web_search_price_usd("grok-4"), Decimal("0.005"))
         # gemini -> google default ($0.035/grounded request)
         self.assertEqual(get_web_search_price_usd("gemini-2.5-flash"), Decimal("0.035"))
 
@@ -74,9 +74,12 @@ class TestGetWebSearchTool(unittest.TestCase):
     def test_google_tool(self):
         self.assertEqual(get_web_search_tool("google"), {"google_search": {}})
 
-    def test_xai_and_bytedance_have_no_bound_tool(self):
-        # xAI configures search at construction; bytedance is unsupported.
-        self.assertIsNone(get_web_search_tool("x-ai"))
+    def test_xai_tool(self):
+        # xAI's Agent Tools API uses the same OpenAI-compatible built-in tool.
+        self.assertEqual(get_web_search_tool("x-ai"), {"type": "web_search"})
+
+    def test_bytedance_has_no_bound_tool(self):
+        # bytedance is unsupported.
         self.assertIsNone(get_web_search_tool("bytedance"))
 
 
@@ -113,12 +116,22 @@ class TestExtractWebSearchCount(unittest.TestCase):
         # Only the server_tool_use (the request) is billed, not the result block.
         self.assertEqual(extract_web_search_count(msg), 1)
 
-    def test_xai_citations_counted_as_sources(self):
+    def test_xai_web_search_call_blocks(self):
+        # xAI's Agent Tools API surfaces web_search_call items (Responses API),
+        # billed per call like OpenAI — not the deprecated Live Search sources.
+        msg = AIMessage(
+            content=[
+                {"type": "web_search_call", "id": "ws_1"},
+                {"type": "text", "text": "answer"},
+            ]
+        )
+        self.assertEqual(extract_web_search_count(msg), 1)
+
+    def test_xai_legacy_citations_not_counted(self):
+        # Live Search citations in additional_kwargs are no longer billed.
         msg = AIMessage(content="answer")
-        msg.additional_kwargs = {
-            "citations": ["https://a.com", "https://b.com", "https://c.com"]
-        }
-        self.assertEqual(extract_web_search_count(msg), 3)
+        msg.additional_kwargs = {"citations": ["https://a.com", "https://b.com"]}
+        self.assertEqual(extract_web_search_count(msg), 0)
 
     def test_google_grounding_counts_as_one_request(self):
         msg = AIMessage(content="answer")

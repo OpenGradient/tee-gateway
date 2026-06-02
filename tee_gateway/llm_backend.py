@@ -220,11 +220,16 @@ def get_chat_model_cached(
         if xai_http_client is None:
             raise RuntimeError("XAI HTTP client has not been initialized")
 
-        # xAI enables Live Search via the search_parameters constructor arg
-        # rather than a bound tool. "auto" lets Grok decide whether to search.
+        # xAI's legacy Live Search (search_parameters) was deprecated and now
+        # returns HTTP 410. Web search is exposed through the Agent Tools API
+        # (the Responses API) via a built-in web_search tool, mirroring OpenAI.
+        # Switch to the Responses API when web search is requested so the
+        # responses/v1 output format surfaces web_search_call items, which we
+        # count for billing. The tool itself is bound in the controller.
         xai_kwargs: dict[str, Any] = {}
         if web_search:
-            xai_kwargs["search_parameters"] = {"mode": "auto"}
+            xai_kwargs["use_responses_api"] = True
+            xai_kwargs["output_version"] = "responses/v1"
 
         return ChatXAI(
             model=api_name,
@@ -375,17 +380,18 @@ ANTHROPIC_WEB_SEARCH_TOOL: Dict[str, Any] = {
 def get_web_search_tool(provider: str) -> Optional[Dict[str, Any]]:
     """Return the provider-specific web search tool spec to bind, or None.
 
-    OpenAI/Anthropic/Google enable web search by binding a built-in tool.
-    xAI configures search at construction (see get_chat_model_cached) and so
-    returns None here. Providers without native web search also return None.
+    OpenAI/xAI/Anthropic/Google enable web search by binding a built-in tool.
+    Providers without native web search return None.
     """
-    if provider == "openai":
+    if provider in ("openai", "x-ai"):
+        # xAI's Agent Tools API uses the same OpenAI-compatible built-in tool
+        # spec; binding it routes ChatXAI to the Responses API.
         return {"type": "web_search"}
     if provider == "anthropic":
         return dict(ANTHROPIC_WEB_SEARCH_TOOL)
     if provider == "google":
         return {"google_search": {}}
-    # x-ai is handled via search_parameters; bytedance has no native web search.
+    # bytedance has no native web search.
     return None
 
 
@@ -395,9 +401,8 @@ def extract_web_search_count(message) -> int:
     Each provider reports search activity differently and bills a different
     unit, so we count the unit that matches that provider's list price:
 
-    - OpenAI (Responses API): ``web_search_call`` content blocks (per call)
+    - OpenAI / xAI (Responses API): ``web_search_call`` content blocks (per call)
     - Anthropic: ``server_tool_use`` web_search content blocks (per request)
-    - xAI Live Search: ``citations`` returned in additional_kwargs (per source)
     - Google: 1 per grounded response (per grounded request)
 
     Works on a completed AIMessage or an accumulated AIMessageChunk.
@@ -417,12 +422,6 @@ def extract_web_search_count(message) -> int:
                 count += 1
             elif btype == "server_tool_use" and block.get("name") == "web_search":
                 count += 1
-
-    # xAI returns the list of sources it grounded on as `citations`.
-    additional_kwargs = getattr(message, "additional_kwargs", None) or {}
-    citations = additional_kwargs.get("citations")
-    if citations:
-        count += len(citations)
 
     # Google reports grounding via response_metadata; billed per grounded request.
     response_metadata = getattr(message, "response_metadata", None) or {}

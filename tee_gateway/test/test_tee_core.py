@@ -22,7 +22,11 @@ from eth_hash.auto import keccak
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from tee_gateway import ohttp
-from tee_gateway.controllers.chat_controller import _canonical_user_content
+from tee_gateway.controllers.chat_controller import (
+    _canonical_user_content,
+    _chat_request_to_dict,
+    _parse_chat_request,
+)
 from tee_gateway.llm_backend import (
     AttachmentValidationError,
     convert_messages,
@@ -865,6 +869,71 @@ class TestCanonicalUserContent(unittest.TestCase):
         self.assertEqual(
             _canonical_user_content(content), _canonical_user_content(content)
         )
+
+
+class TestImageEditRequestHashContract(unittest.TestCase):
+    """Locks the exact canonical request hash for an image-studio "edit the last
+    image" request: a user turn carrying the edit instruction plus the prior
+    generation inline as an ``image_url`` data URI.
+
+    The chat-app reproduces this same canonical form client-side to verify the
+    TEE signature (it mirrors ``_convert_content_part`` / ``_canonical_user_content``).
+    If this serialization ever changes, the client's signature verification
+    breaks — so this test pins the byte-exact output as a cross-repo contract.
+    """
+
+    def _edit_request(self) -> dict:
+        return {
+            "model": "gemini-2.5-flash-image",
+            "messages": [
+                {"role": "system", "content": "env preamble"},
+                {"role": "user", "content": "generate a cat"},
+                {"role": "assistant", "content": "[image]"},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "make it brighter"},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
+                            },
+                        },
+                    ],
+                },
+            ],
+            "temperature": 0.0,
+        }
+
+    def test_canonical_request_is_byte_exact(self):
+        parsed = _parse_chat_request(self._edit_request())
+        canonical = json.dumps(_chat_request_to_dict(parsed), sort_keys=True)
+
+        expected_digest = hashlib.sha256(b"iVBORw0KGgoAAAANSUhEUg==").hexdigest()
+        expected = (
+            "{"
+            '"messages": ['
+            '{"content": "env preamble", "role": "system"}, '
+            '{"content": "generate a cat", "role": "user"}, '
+            '{"content": "[image]", "role": "assistant"}, '
+            '{"content": ['
+            '{"text": "make it brighter", "type": "text"}, '
+            '{"mime_type": "image/png", '
+            f'"sha256": "{expected_digest}", "type": "image"}}'
+            '], "role": "user"}'
+            "], "
+            '"model": "gemini-2.5-flash-image", '
+            '"temperature": 0.0'
+            "}"
+        )
+        self.assertEqual(canonical, expected)
+
+    def test_image_bytes_never_in_signed_payload(self):
+        # The raw base64 image must be digested away, never inlined into the
+        # signed request hash payload.
+        parsed = _parse_chat_request(self._edit_request())
+        canonical = json.dumps(_chat_request_to_dict(parsed), sort_keys=True)
+        self.assertNotIn("iVBORw0KGgoAAAANSUhEUg==", canonical)
 
 
 # ---------------------------------------------------------------------------

@@ -911,9 +911,7 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
             messages.append(
                 {
                     "role": "user",
-                    "content": msg.content
-                    if isinstance(msg.content, str)
-                    else str(msg.content),
+                    "content": msg.content,
                 }
             )
         elif isinstance(msg, ChatCompletionRequestAssistantMessage):

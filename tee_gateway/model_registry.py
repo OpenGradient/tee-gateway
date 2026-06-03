@@ -23,9 +23,17 @@ class ModelConfig:
     # the field is present at all. Set False on models that reject it.
     supports_temperature: bool = True
     # Image-output models (e.g. Gemini "nano banana") return generated images as
-    # inline content blocks. The backend requests the IMAGE modality and the
-    # controller surfaces the image data on the response message.
+    # inline content blocks of a chat response. The backend requests the IMAGE
+    # modality and the controller surfaces the image data on the response message.
     image_output: bool = False
+    # Image-generation models served via a dedicated OpenAI-compatible
+    # ``POST /images/generations`` endpoint (e.g. xAI Grok, ByteDance Seedream)
+    # rather than the chat path. These are billed per generated image
+    # (``per_image_price_usd``) instead of per token.
+    image_generation: bool = False
+    # Flat USD price per generated image, for ``image_generation`` models. Token
+    # prices are ignored for these models (set to 0 in the registry).
+    per_image_price_usd: Optional[Decimal] = None
     # Per-search USD surcharge billed when native web search is used. ``None``
     # means "use the provider default" (see WEB_SEARCH_PRICE_USD_BY_PROVIDER);
     # set an explicit value here to override a single model's web-search price.
@@ -292,6 +300,16 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000002"),
         output_price_usd=Decimal("0.0000015"),
     )
+    # Image generation via xAI's OpenAI-compatible /images/generations endpoint
+    # (Aurora). Billed at a flat $0.07 per generated image; token prices unused.
+    GROK_2_IMAGE = ModelConfig(
+        provider="x-ai",
+        api_name="grok-2-image-1212",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.07"),
+    )
 
     # ── ByteDance (BytePlus ModelArk, OpenAI-compatible) ────────────────
     SEED_1_6 = ModelConfig(
@@ -311,6 +329,17 @@ class SupportedModel(Enum):
         api_name="seed-2-0-lite-260228",
         input_price_usd=Decimal("0.0000004"),
         output_price_usd=Decimal("0.0000016"),
+    )
+    # Seedream 4.0 image generation via ModelArk's OpenAI-compatible
+    # /images/generations endpoint. Billed at a flat $0.03 per generated image;
+    # token prices unused.
+    SEEDREAM_4_0 = ModelConfig(
+        provider="bytedance",
+        api_name="seedream-4-0-250828",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.03"),
     )
 
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──
@@ -376,6 +405,9 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "grok-4.20-reasoning": SupportedModel.GROK_4_20_REASONING,
     "grok-4.20-non-reasoning": SupportedModel.GROK_4_20_NON_REASONING,
     "grok-code-fast-1": SupportedModel.GROK_CODE_FAST_1,
+    "grok-2-image": SupportedModel.GROK_2_IMAGE,
+    "grok-2-image-1212": SupportedModel.GROK_2_IMAGE,
+    "grok-2-image-latest": SupportedModel.GROK_2_IMAGE,
     # ByteDance
     "seed-1-6-250615": SupportedModel.SEED_1_6,
     "seed-1.6": SupportedModel.SEED_1_6,
@@ -383,6 +415,9 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "seed-1.8": SupportedModel.SEED_1_8,
     "seed-2-0-lite-260228": SupportedModel.SEED_2_0_LITE,
     "seed-2.0-lite": SupportedModel.SEED_2_0_LITE,
+    "seedream-4-0-250828": SupportedModel.SEEDREAM_4_0,
+    "seedream-4.0": SupportedModel.SEEDREAM_4_0,
+    "seedream-4-0": SupportedModel.SEEDREAM_4_0,
     # Legacy — not in current SDK, retained for older SDK versions
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
     "grok-3-mini": SupportedModel.GROK_3_MINI,

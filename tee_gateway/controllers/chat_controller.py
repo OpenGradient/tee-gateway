@@ -31,6 +31,7 @@ from tee_gateway.llm_backend import (
     extract_web_search_count,
     convert_messages,
     extract_usage,
+    generate_images,
 )
 from tee_gateway.model_registry import get_model_config
 from tee_gateway.pricing import compute_session_cost
@@ -71,6 +72,23 @@ def _split_text_and_images(content: Any) -> tuple[str, list[str]]:
         else:
             text_parts.append(item.get("text", "") or "")
     return ("".join(text_parts), images)
+
+
+def _extract_image_prompt(langchain_messages: list) -> str:
+    """Collapse the user-turn text into a single image-generation prompt.
+
+    Image-generation models (xAI Grok, ByteDance Seedream) take a single text
+    prompt rather than a chat transcript, so we join the text of all human
+    messages. System/assistant/tool turns are ignored.
+    """
+    from langchain_core.messages import HumanMessage
+
+    parts: list[str] = []
+    for m in langchain_messages:
+        if isinstance(m, HumanMessage):
+            content = m.content
+            parts.append(content if isinstance(content, str) else str(content))
+    return "\n".join(p for p in parts if p)
 
 
 def create_chat_completion(body):
@@ -201,6 +219,111 @@ def _messages_contain_json_word(messages: list) -> bool:
     return False
 
 
+def _create_image_generation_response(
+    chat_request: CreateChatCompletionRequest, request_bytes: bytes
+):
+    """Non-streaming image generation via a provider's images endpoint.
+
+    Surfaces generated images on the message under the ``images`` key exactly
+    like Gemini's inline-image models. There is no text to sign, so the signature
+    covers the request hash and an empty output; the image bytes ride out-of-band
+    inside the OHTTP envelope. Billing is flat per generated image.
+    """
+    langchain_messages = convert_messages(chat_request.messages)
+    prompt = _extract_image_prompt(langchain_messages)
+    images, image_count = generate_images(
+        chat_request.model, prompt, n=chat_request.n or 1
+    )
+
+    message_dict: dict[str, Any] = {"role": "assistant", "content": ""}
+    if images:
+        message_dict["images"] = images
+
+    timestamp = int(time.time())
+    msg_hash, input_hash_hex, output_hash_hex = compute_tee_msg_hash(
+        request_bytes, "", timestamp
+    )
+    tee_keys = get_tee_keys()
+    signature = tee_keys.sign_data(msg_hash)
+
+    openai_response: dict[str, Any] = {
+        "id": f"chatcmpl-{uuid.uuid4()}",
+        "object": "chat.completion",
+        "created": timestamp,
+        "model": chat_request.model,
+        "choices": [{"index": 0, "message": message_dict, "finish_reason": "stop"}],
+        "tee_signature": signature,
+        "tee_request_hash": input_hash_hex,
+        "tee_output_hash": output_hash_hex,
+        "tee_timestamp": timestamp,
+        "tee_id": f"0x{tee_keys.get_tee_id()}",
+    }
+
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    openai_response["usage"] = usage
+    cost = compute_session_cost(chat_request.model, usage, image_count=image_count)
+    if cost is not None:
+        openai_response["opengradient"] = cost.model_dump(mode="json")
+
+    CreateChatCompletionResponse.from_dict(openai_response)
+    return openai_response
+
+
+def _create_image_generation_streaming_response(
+    chat_request: CreateChatCompletionRequest, request_bytes: bytes
+):
+    """Streaming image generation: image gen is not a token stream, so we invoke
+    once and emit the result on the final SSE frame (mirrors the Gemini path)."""
+    tee_keys = get_tee_keys()
+
+    def generate():
+        try:
+            langchain_messages = convert_messages(chat_request.messages)
+            prompt = _extract_image_prompt(langchain_messages)
+            images, image_count = generate_images(
+                chat_request.model, prompt, n=chat_request.n or 1
+            )
+
+            timestamp = int(time.time())
+            msg_hash, input_hash_hex, output_hash_hex = compute_tee_msg_hash(
+                request_bytes, "", timestamp
+            )
+            tee_signature = tee_keys.sign_data(msg_hash)
+
+            final_data: dict[str, Any] = {
+                "choices": [{"delta": {}, "index": 0, "finish_reason": "stop"}],
+                "model": chat_request.model,
+                "tee_signature": tee_signature,
+                "tee_timestamp": timestamp,
+                "tee_request_hash": input_hash_hex,
+                "tee_output_hash": output_hash_hex,
+                "tee_id": f"0x{tee_keys.get_tee_id()}",
+            }
+            # Images travel out-of-band on the final frame; not part of the hash.
+            if images:
+                final_data["images"] = images
+
+            usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            final_data["usage"] = usage
+            cost = compute_session_cost(
+                chat_request.model, usage, image_count=image_count
+            )
+            if cost is not None:
+                final_data["opengradient"] = cost.model_dump(mode="json")
+
+            yield f"data: {json.dumps(final_data)}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            logger.error(f"Image generation streaming error: {str(e)}", exc_info=True)
+            yield f"data: {json.dumps({'error': 'Stream processing failed', 'exception_type': type(e).__name__})}\n\n"
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
 def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
     """Handle non-streaming chat completion via direct LangChain call."""
     try:
@@ -209,10 +332,18 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         logger.info(f"Number of messages: {len(chat_request.messages)}")
 
         provider = get_provider_from_model(chat_request.model)
+        cfg = get_model_config(chat_request.model)
 
         # Serialize request for hashing (canonical, deterministic)
         request_dict = _chat_request_to_dict(chat_request)
         request_bytes = json.dumps(request_dict, sort_keys=True).encode("utf-8")
+
+        # Image-generation models (xAI Grok, ByteDance Seedream) are served via a
+        # dedicated /images/generations endpoint — not the chat path — but are
+        # surfaced through this same endpoint, returning images out-of-band just
+        # like Gemini's inline-image models.
+        if cfg.image_generation:
+            return _create_image_generation_response(chat_request, request_bytes)
 
         model = get_chat_model_cached(
             model=chat_request.model,
@@ -353,12 +484,19 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
         # OpenAI and Anthropic stream tool calls as fragments that must be
         # buffered and flushed once complete. Gemini emits complete tool calls.
         buffer_tool_calls = provider in ["openai", "anthropic"]
-        # Image-generation models return a single image rather than a token
+        # Gemini inline-image models return a single image rather than a token
         # stream — invoke once and emit the result inside the SSE envelope.
         image_output_model = get_model_config(chat_request.model).image_output
 
         request_dict = _chat_request_to_dict(chat_request)
         request_bytes = json.dumps(request_dict, sort_keys=True).encode("utf-8")
+
+        # Image-generation models (xAI Grok, ByteDance Seedream) use a dedicated
+        # images endpoint; handle them without building a chat model.
+        if get_model_config(chat_request.model).image_generation:
+            return _create_image_generation_streaming_response(
+                chat_request, request_bytes
+            )
 
         model = get_chat_model_cached(
             model=chat_request.model,

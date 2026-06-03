@@ -325,6 +325,17 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
     return images, len(images)
 
 
+def _normalize_user_content_parts(content: list) -> list:
+    """Preserve multimodal user content while tolerating primitive text parts."""
+    normalized = []
+    for part in content:
+        if isinstance(part, dict):
+            normalized.append(part)
+        else:
+            normalized.append({"type": "text", "text": str(part)})
+    return normalized
+
+
 def convert_messages(messages: list) -> List[Any]:
     """Convert OpenAI-format message objects or dicts to LangChain message objects."""
     langchain_messages: List[BaseMessage] = []
@@ -348,12 +359,8 @@ def convert_messages(messages: list) -> List[Any]:
             langchain_messages.append(SystemMessage(content=content))
 
         elif role == "user":
-            # content may be a string or a list of content parts; handle both
             if isinstance(content, list):
-                content = "".join(
-                    part.get("text", "") if isinstance(part, dict) else str(part)
-                    for part in content
-                )
+                content = _normalize_user_content_parts(content)
             langchain_messages.append(HumanMessage(content=content))
 
         elif role == "assistant":

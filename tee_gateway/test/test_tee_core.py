@@ -569,20 +569,24 @@ class TestConvertMessages(unittest.TestCase):
         self.assertIsInstance(result[2], AIMessage)
 
     def test_user_content_as_list_of_parts(self):
-        """Multimodal content parts should be concatenated into a single string."""
+        """Multimodal content parts should be preserved for vision-capable models."""
+        content = [
+            {"type": "text", "text": "Hello world"},
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,abcd"},
+            },
+        ]
         result = convert_messages(
             [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": "Hello "},
-                        {"type": "text", "text": "world"},
-                    ],
+                    "content": content,
                 }
             ]
         )
         self.assertIsInstance(result[0], HumanMessage)
-        self.assertEqual(result[0].content, "Hello world")
+        self.assertEqual(result[0].content, content)
 
     def test_full_tool_call_conversation(self):
         """End-to-end multi-turn with tool use: user → assistant (tool call) → tool result."""

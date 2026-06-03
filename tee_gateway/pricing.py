@@ -75,9 +75,26 @@ def compute_session_cost(
         in_tok = max(0, int(usage["prompt_tokens"]))
         out_tok = max(0, int(usage["completion_tokens"]))
 
-        raw_usd = (Decimal(in_tok) * cfg.input_price_usd) + (
-            Decimal(out_tok) * cfg.output_price_usd
-        )
+        if cfg.image_output and cfg.image_output_price_usd is not None:
+            # Dual-rate output for Gemini image models: image-modality tokens are
+            # billed at image_output_price_usd, text + thinking at output_price_usd.
+            # langchain folds image+text+thinking into output_tokens and only
+            # breaks out thinking (reasoning), so bill reasoning at the text rate
+            # and the remainder (image, plus any small text caption) at the image
+            # rate. Conservative: never undercharges the image and is far below
+            # billing all output at the image rate (the previous behavior).
+            reasoning_tok = max(0, int(usage.get("reasoning_tokens", 0) or 0))
+            reasoning_tok = min(reasoning_tok, out_tok)
+            image_tok = out_tok - reasoning_tok
+            raw_usd = (
+                (Decimal(in_tok) * cfg.input_price_usd)
+                + (Decimal(image_tok) * cfg.image_output_price_usd)
+                + (Decimal(reasoning_tok) * cfg.output_price_usd)
+            )
+        else:
+            raw_usd = (Decimal(in_tok) * cfg.input_price_usd) + (
+                Decimal(out_tok) * cfg.output_price_usd
+            )
 
         # Native web search is billed per search unit on top of token cost.
         searches = max(0, int(web_search_count))

@@ -34,6 +34,14 @@ class ModelConfig:
     # Flat USD price per generated image, for ``image_generation`` models. Token
     # prices are ignored for these models (set to 0 in the registry).
     per_image_price_usd: Optional[Decimal] = None
+    # USD per image-modality output token, for ``image_output`` models (Gemini
+    # "nano banana"). These providers bill image output at a higher rate than
+    # text/thinking output: image tokens at this rate, text + thinking tokens at
+    # ``output_price_usd``. ``None`` => single-rate billing (all output at
+    # ``output_price_usd``). langchain folds image+text+thinking into one
+    # ``output_tokens`` count and only breaks out thinking (``reasoning``), so the
+    # billing splits reasoning at ``output_price_usd`` and the remainder here.
+    image_output_price_usd: Optional[Decimal] = None
     # Per-search USD surcharge billed when native web search is used. ``None``
     # means "use the provider default" (see WEB_SEARCH_PRICE_USD_BY_PROVIDER);
     # set an explicit value here to override a single model's web-search price.
@@ -225,24 +233,28 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.0000015"),
         thinking_budget=0,
     )
-    # Native image generation ("nano banana"). Image output is billed as output
-    # tokens (~1290 tokens per image); pricing mirrors Google's image token rate.
+    # Native image generation ("nano banana"). Google bills output at two rates:
+    # text/thinking at $1.50/MTok and images at $30/MTok (~1290 tokens per
+    # 1024x1024 image ≈ $0.039/image); input (text/image) is $0.30/MTok.
     GEMINI_2_5_FLASH_IMAGE = ModelConfig(
         provider="google",
         api_name="gemini-2.5-flash-image",
         input_price_usd=Decimal("0.0000003"),
-        output_price_usd=Decimal("0.00003"),
+        output_price_usd=Decimal("0.0000015"),
         image_output=True,
+        image_output_price_usd=Decimal("0.00003"),
     )
     # Native image generation ("nano banana 2"), the latest Gemini image model.
-    # Image output is billed as output tokens (~1120 tokens per 1024x1024 image
-    # ≈ $0.067/image at $60/MTok); input (text/image) is $0.50/MTok.
+    # Google bills output at two rates: text/thinking at $3/MTok and images at
+    # $60/MTok (~1120 tokens per 1K image ≈ $0.067/image; $0.045/0.101/0.151 at
+    # 0.5K/2K/4K); input (text/image) is $0.50/MTok.
     GEMINI_3_1_FLASH_IMAGE = ModelConfig(
         provider="google",
         api_name="gemini-3.1-flash-image",
         input_price_usd=Decimal("0.0000005"),
-        output_price_usd=Decimal("0.00006"),
+        output_price_usd=Decimal("0.000003"),
         image_output=True,
+        image_output_price_usd=Decimal("0.00006"),
     )
     GEMINI_3_5_FLASH = ModelConfig(
         provider="google",

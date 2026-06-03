@@ -421,10 +421,15 @@ def extract_usage(response) -> Optional[Dict[str, int]]:
     """Extract token usage from a LangChain response object."""
     if hasattr(response, "usage_metadata") and response.usage_metadata:
         meta = response.usage_metadata
+        # Thinking tokens, when present, are folded into output_tokens but also
+        # broken out here. Image-output models bill them at the cheaper
+        # text/thinking rate (see compute_session_cost), so surface them.
+        details = meta.get("output_token_details") or {}
         return {
             "prompt_tokens": meta.get("input_tokens", 0),
             "completion_tokens": meta.get("output_tokens", 0),
             "total_tokens": meta.get("total_tokens", 0),
+            "reasoning_tokens": details.get("reasoning", 0),
         }
     return None
 

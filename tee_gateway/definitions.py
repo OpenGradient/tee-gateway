@@ -73,6 +73,11 @@ DEFAULT_ASSET_DECIMALS: int = 18
 # based on actual token usage, so clients are never overcharged beyond what they consumed.
 CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"
 
+# /v1/ohttp — maximum OPG spend per session (18 decimals: 5000000000000000000 = 5 OPG).
+# OHTTP image-generation requests can be much more expensive than text chat,
+# so the relay-paid encrypted endpoint needs a higher per-session cap.
+OHTTP_OPG_SESSION_MAX_SPEND: str = "5000000000000000000"
+
 # /v1/completions — maximum OPG spend per session (18 decimals: 100000000000000000 = 0.1 OPG).
 # This is the upper-bound amount presented to the client during the x402 pre-check handshake.
 # The x402 "upto" scheme allows the actual charge to be any value up to this cap;

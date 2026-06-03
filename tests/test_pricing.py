@@ -238,7 +238,10 @@ class TestModelRegistry(unittest.TestCase):
         cfg = get_model_config("gemini-3.1-flash-image")
         self.assertEqual(cfg.provider, "google")
         self.assertEqual(cfg.input_price_usd, Decimal("0.0000005"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.00006"))
+        # Output is dual-rate: text/thinking at output_price_usd, images at
+        # image_output_price_usd ($3 vs $60 per MTok).
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000003"))
+        self.assertEqual(cfg.image_output_price_usd, Decimal("0.00006"))
         self.assertTrue(cfg.image_output)
 
     # ── xAI Grok ────────────────────────────────────────────────────────────

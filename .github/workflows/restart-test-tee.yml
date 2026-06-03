@@ -1,0 +1,80 @@
+name: Restart Test TEE
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Git branch to checkout/restart. Defaults to the workflow branch."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restart-test-tee
+  cancel-in-progress: false
+
+jobs:
+  restart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      TEE_HOST: ${{ secrets.TEE_TEST_HOST }}
+      TEE_SSH_USER: ${{ secrets.TEE_TEST_SSH_USER }}
+      TEE_BRANCH: ${{ inputs.branch || github.ref_name }}
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.TEE_TEST_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          if [ -z "$SSH_PRIVATE_KEY" ]; then
+            echo "::error::Missing required secret TEE_TEST_SSH_PRIVATE_KEY"
+            exit 1
+          fi
+          if [ -z "$TEE_HOST" ]; then
+            echo "::error::Missing required secret TEE_TEST_HOST"
+            exit 1
+          fi
+          if [ -z "$TEE_SSH_USER" ]; then
+            echo "::error::Missing required secret TEE_TEST_SSH_USER"
+            exit 1
+          fi
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/tee_test_key"
+          chmod 600 "$HOME/.ssh/tee_test_key"
+          ssh-keyscan -H "$TEE_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: Restart TEE through restricted deploy command
+        run: |
+          set -Eeuo pipefail
+
+          output_file="$RUNNER_TEMP/tee-restart-output.log"
+
+          set +e
+          ssh \
+            -i "$HOME/.ssh/tee_test_key" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            "$TEE_SSH_USER@$TEE_HOST" \
+            "$TEE_BRANCH" >"$output_file" 2>&1
+          status="$?"
+          set -e
+
+          echo "== PCR measurements =="
+          awk '
+            /^== PCR measurements ==$/ { printing = 1; next }
+            /^== .* ==$/ && printing { exit }
+            printing { print }
+          ' "$output_file"
+
+          if [ "$status" -ne 0 ]; then
+            echo "::error::TEE restart failed. Full remote output is intentionally hidden to avoid leaking enclave/runtime details."
+            exit "$status"
+          fi
+
+          if ! grep -q '^== PCR measurements ==$' "$output_file"; then
+            echo "::error::TEE restart completed but PCR measurements were not found in remote output."
+            exit 1
+          fi

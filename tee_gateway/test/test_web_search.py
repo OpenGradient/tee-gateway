@@ -44,7 +44,7 @@ class TestWebSearchPricing(unittest.TestCase):
     def test_price_uses_provider_default(self):
         # gpt-4.1 -> openai default ($0.01/search)
         self.assertEqual(get_web_search_price_usd("gpt-4.1"), Decimal("0.01"))
-        # grok-4 -> xAI default ($0.025/source)
+        # grok-4 -> xAI default ($0.025/search unit)
         self.assertEqual(get_web_search_price_usd("grok-4"), Decimal("0.025"))
         # gemini -> google default ($0.035/grounded request)
         self.assertEqual(get_web_search_price_usd("gemini-2.5-flash"), Decimal("0.035"))
@@ -75,9 +75,10 @@ class TestGetWebSearchTool(unittest.TestCase):
     def test_google_tool(self):
         self.assertEqual(get_web_search_tool("google"), {"google_search": {}})
 
-    def test_xai_and_bytedance_have_no_bound_tool(self):
-        # xAI configures search at construction; bytedance is unsupported.
-        self.assertIsNone(get_web_search_tool("x-ai"))
+    def test_xai_tool(self):
+        self.assertEqual(get_web_search_tool("x-ai"), {"type": "web_search"})
+
+    def test_bytedance_has_no_bound_tool(self):
         self.assertIsNone(get_web_search_tool("bytedance"))
 
 

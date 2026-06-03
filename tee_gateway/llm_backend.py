@@ -220,11 +220,11 @@ def get_chat_model_cached(
         if xai_http_client is None:
             raise RuntimeError("XAI HTTP client has not been initialized")
 
-        # xAI enables Live Search via the search_parameters constructor arg
-        # rather than a bound tool. "auto" lets Grok decide whether to search.
+        # xAI deprecated Live Search on Chat Completions. Web search now lives on
+        # the Responses API and is enabled by binding the built-in web_search tool.
         xai_kwargs: dict[str, Any] = {}
         if web_search:
-            xai_kwargs["search_parameters"] = {"mode": "auto"}
+            xai_kwargs["use_responses_api"] = True
 
         return ChatXAI(
             model=api_name,
@@ -375,9 +375,9 @@ ANTHROPIC_WEB_SEARCH_TOOL: Dict[str, Any] = {
 def get_web_search_tool(provider: str) -> Optional[Dict[str, Any]]:
     """Return the provider-specific web search tool spec to bind, or None.
 
-    OpenAI/Anthropic/Google enable web search by binding a built-in tool.
-    xAI configures search at construction (see get_chat_model_cached) and so
-    returns None here. Providers without native web search also return None.
+    OpenAI/Anthropic/Google/xAI enable web search by binding a built-in tool.
+    xAI requires this on the Responses API path; its old Live Search
+    ``search_parameters`` path is deprecated.
     """
     if provider == "openai":
         return {"type": "web_search"}
@@ -385,7 +385,9 @@ def get_web_search_tool(provider: str) -> Optional[Dict[str, Any]]:
         return dict(ANTHROPIC_WEB_SEARCH_TOOL)
     if provider == "google":
         return {"google_search": {}}
-    # x-ai is handled via search_parameters; bytedance has no native web search.
+    if provider == "x-ai":
+        return {"type": "web_search"}
+    # bytedance has no native web search.
     return None
 
 
@@ -397,7 +399,8 @@ def extract_web_search_count(message) -> int:
 
     - OpenAI (Responses API): ``web_search_call`` content blocks (per call)
     - Anthropic: ``server_tool_use`` web_search content blocks (per request)
-    - xAI Live Search: ``citations`` returned in additional_kwargs (per source)
+    - xAI/OpenAI Responses API: ``web_search_call`` content blocks (per call)
+      or legacy xAI ``citations`` in additional_kwargs (per source)
     - Google: 1 per grounded response (per grounded request)
 
     Works on a completed AIMessage or an accumulated AIMessageChunk.

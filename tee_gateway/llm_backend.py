@@ -259,6 +259,72 @@ def get_chat_model_cached(
         raise ValueError(f"Unsupported provider: {provider}")
 
 
+# Endpoint path appended to each provider's OpenAI-compatible base URL.
+_IMAGE_GENERATION_PATH = "/images/generations"
+
+
+def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int]:
+    """Generate images via a provider's OpenAI-compatible images endpoint.
+
+    Unlike Gemini's inline-image chat models, xAI (Aurora) and ByteDance
+    (Seedream) expose image generation through a dedicated
+    ``POST /images/generations`` endpoint. We request ``b64_json`` so the image
+    bytes ride inline inside the OHTTP/TEE envelope rather than as external URLs
+    that leak the content and expire.
+
+    Returns ``(data_uris, image_count)`` where each entry is a ``data:`` URI. The
+    count is used for per-image billing. Falls back to provider-returned URLs if
+    a provider ignores ``b64_json``.
+    """
+    cfg = get_model_config(model)
+    provider = cfg.provider
+
+    if provider == "x-ai":
+        client = xai_http_client
+    elif provider == "bytedance":
+        client = bytedance_http_client
+    else:
+        raise ValueError(
+            f"Provider {provider!r} does not support the image-generation endpoint"
+        )
+
+    if client is None:
+        raise RuntimeError(f"{provider} HTTP client has not been initialized")
+
+    # n is clamped to the providers' documented 1..10 range.
+    count = max(1, min(int(n), 10))
+    payload: dict[str, Any] = {
+        "model": cfg.api_name,
+        "prompt": prompt,
+        "n": count,
+        "response_format": "b64_json",
+    }
+
+    logger.info(
+        "Generating %d image(s) - Provider: %s, Model: %s",
+        count,
+        provider,
+        cfg.api_name,
+    )
+    resp = client.post(_IMAGE_GENERATION_PATH, json=payload)
+    resp.raise_for_status()
+    data = resp.json().get("data", []) or []
+
+    images: list[str] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        b64 = item.get("b64_json")
+        if b64:
+            images.append(f"data:image/jpeg;base64,{b64}")
+            continue
+        url = item.get("url")
+        if url:
+            images.append(url)
+
+    return images, len(images)
+
+
 def convert_messages(messages: list) -> List[Any]:
     """Convert OpenAI-format message objects or dicts to LangChain message objects."""
     langchain_messages: List[BaseMessage] = []

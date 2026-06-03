@@ -67,8 +67,14 @@ class TestModelRegistry(unittest.TestCase):
                 self.assertIsNotNone(cfg)
                 self.assertIsNotNone(cfg.provider)
                 self.assertIsNotNone(cfg.api_name)
-                self.assertGreater(cfg.input_price_usd, 0)
-                self.assertGreater(cfg.output_price_usd, 0)
+                if cfg.image_generation:
+                    # Endpoint-based image models (Grok, Seedream) bill a flat
+                    # per-image price; their token prices are intentionally 0.
+                    self.assertIsNotNone(cfg.per_image_price_usd)
+                    self.assertGreater(cfg.per_image_price_usd, 0)
+                else:
+                    self.assertGreater(cfg.input_price_usd, 0)
+                    self.assertGreater(cfg.output_price_usd, 0)
 
     # ── Anthropic Sonnet ────────────────────────────────────────────────────
 

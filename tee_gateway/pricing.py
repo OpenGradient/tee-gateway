@@ -50,7 +50,7 @@ class SessionCost(BaseModel):
 
 
 def compute_session_cost(
-    model: str, usage: dict, web_search_count: int = 0
+    model: str, usage: dict, web_search_count: int = 0, image_count: int = 0
 ) -> SessionCost | None:
     """Compute the settled cost for a completed inference request.
 
@@ -88,6 +88,16 @@ def compute_session_cost(
         )
         raw_usd += web_search_usd
 
+        # Image-generation models (xAI Grok, ByteDance Seedream) are billed a flat
+        # price per generated image rather than per token; token prices are 0.
+        images = max(0, int(image_count))
+        image_usd = (
+            Decimal(images) * cfg.per_image_price_usd
+            if images and cfg.per_image_price_usd is not None
+            else Decimal(0)
+        )
+        raw_usd += image_usd
+
         token_price_usd = get_price_feed().get_price()
         if token_price_usd <= 0:
             raise ValueError(f"Token price is non-positive: {token_price_usd}")
@@ -107,13 +117,15 @@ def compute_session_cost(
 
         logger.info(
             "DYNAMIC_SESSION_COST model=%s input_tokens=%d output_tokens=%d "
-            "web_searches=%d web_search_usd=%s raw_usd=%s settled_usd=%s "
-            "token_price_usd=%s decimals=%d cost=%d",
+            "web_searches=%d web_search_usd=%s images=%d image_usd=%s raw_usd=%s "
+            "settled_usd=%s token_price_usd=%s decimals=%d cost=%d",
             model,
             in_tok,
             out_tok,
             searches,
             str(web_search_usd),
+            images,
+            str(image_usd),
             str(raw_usd),
             str(settled_usd),
             str(token_price_usd),

@@ -127,7 +127,7 @@ def _make_app(inner_responder, sk):
 
 def test_oversized_body_returns_413(monkeypatch):
     sk, _ = ohttp.generate_keypair()
-    # Body is well past _MAX_ENCAPSULATED_REQUEST_BYTES (512 KiB). Werkzeug
+    # Body is well past _MAX_ENCAPSULATED_REQUEST_BYTES. Werkzeug
     # will set Content-Length from the data length, so the up-front check
     # fires before any HPKE work.
     app, captured, fake_keys = _make_app(lambda: ("200 OK", [], iter([])), sk)

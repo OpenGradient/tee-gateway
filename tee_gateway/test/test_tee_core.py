@@ -588,6 +588,12 @@ class TestConvertMessages(unittest.TestCase):
         self.assertIsInstance(result[0], HumanMessage)
         self.assertEqual(result[0].content, content)
 
+    def test_empty_user_content_list_is_preserved(self):
+        """Empty multimodal content lists should not be coerced to empty strings."""
+        result = convert_messages([{"role": "user", "content": []}])
+        self.assertIsInstance(result[0], HumanMessage)
+        self.assertEqual(result[0].content, [])
+
     def test_full_tool_call_conversation(self):
         """End-to-end multi-turn with tool use: user → assistant (tool call) → tool result."""
         msgs = [

@@ -9,6 +9,9 @@ from tee_gateway.controllers.chat_controller import (
 from tee_gateway.models.create_chat_completion_request import (
     CreateChatCompletionRequest,
 )
+from tee_gateway.models.chat_completion_request_user_message import (
+    ChatCompletionRequestUserMessage,
+)
 
 
 class TestResponseFormatParsing(unittest.TestCase):
@@ -108,6 +111,28 @@ class TestResponseFormatInHashDict(unittest.TestCase):
         h1 = json.dumps(chat_request_to_dict(req_plain), sort_keys=True)
         h2 = json.dumps(chat_request_to_dict(req_json), sort_keys=True)
         self.assertNotEqual(h1, h2)
+
+    def test_hash_dict_preserves_multimodal_user_content(self):
+        content = [
+            {"type": "text", "text": "Describe this image"},
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,abcd"},
+            },
+        ]
+        req = CreateChatCompletionRequest(
+            model="gpt-4.1",
+            messages=[
+                ChatCompletionRequestUserMessage(role="user", content=content)
+            ],
+            temperature=1.0,
+        )
+        request_dict = chat_request_to_dict(req)
+        self.assertEqual(request_dict["messages"][0]["content"], content)
+
+        dumped_once = json.dumps(request_dict, sort_keys=True)
+        dumped_twice = json.dumps(chat_request_to_dict(req), sort_keys=True)
+        self.assertEqual(dumped_once, dumped_twice)
 
 
 class TestResponseFormatModelBinding(unittest.TestCase):

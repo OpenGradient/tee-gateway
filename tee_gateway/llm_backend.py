@@ -344,13 +344,17 @@ def convert_messages(messages: list) -> List[Any]:
         # Support both OpenAPI model objects and plain dicts
         if isinstance(msg, dict):
             role = msg.get("role", "").lower()
-            content = msg.get("content", "") or ""
+            content = msg.get("content", "")
+            if content is None:
+                content = ""
             tool_calls = msg.get("tool_calls")
             tool_call_id = msg.get("tool_call_id")
             name = msg.get("name")
         else:
             role = getattr(msg, "role", "").lower()
-            content = getattr(msg, "content", "") or ""
+            content = getattr(msg, "content", "")
+            if content is None:
+                content = ""
             tool_calls = getattr(msg, "tool_calls", None)
             tool_call_id = getattr(msg, "tool_call_id", None)
             name = getattr(msg, "name", None)

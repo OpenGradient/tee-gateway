@@ -122,9 +122,7 @@ class TestResponseFormatInHashDict(unittest.TestCase):
         ]
         req = CreateChatCompletionRequest(
             model="gpt-4.1",
-            messages=[
-                ChatCompletionRequestUserMessage(role="user", content=content)
-            ],
+            messages=[ChatCompletionRequestUserMessage(role="user", content=content)],
             temperature=1.0,
         )
         request_dict = chat_request_to_dict(req)

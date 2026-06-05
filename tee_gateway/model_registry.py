@@ -27,12 +27,15 @@ class ModelConfig:
     # modality and the controller surfaces the image data on the response message.
     image_output: bool = False
     # Image-generation models served via a dedicated OpenAI-compatible
-    # ``POST /images/generations`` endpoint (e.g. xAI Grok, ByteDance Seedream)
-    # rather than the chat path. These are billed per generated image
-    # (``per_image_price_usd``) instead of per token.
+    # ``POST /images/generations`` endpoint (e.g. OpenAI gpt-image-1, xAI Grok,
+    # ByteDance Seedream) rather than the chat path. Billing depends on what the
+    # provider reports: models with ``per_image_price_usd`` set are charged a flat
+    # price per image (token prices 0); models without it are billed on the token
+    # usage the endpoint returns (e.g. gpt-image-1).
     image_generation: bool = False
-    # Flat USD price per generated image, for ``image_generation`` models. Token
-    # prices are ignored for these models (set to 0 in the registry).
+    # Flat USD price per generated image. When set, ``image_generation`` models are
+    # billed this per image and token prices are ignored (set to 0). Leave unset to
+    # bill on the endpoint's reported token usage instead.
     per_image_price_usd: Optional[Decimal] = None
     # Per-search USD surcharge billed when native web search is used. ``None``
     # means "use the provider default" (see WEB_SEARCH_PRICE_USD_BY_PROVIDER);
@@ -132,6 +135,18 @@ class SupportedModel(Enum):
         api_name="gpt-5.5",
         input_price_usd=Decimal("0.000005"),
         output_price_usd=Decimal("0.00003"),
+    )
+    # Image generation via OpenAI's OpenAI-compatible /images/generations
+    # endpoint (gpt-image-1). Unlike Grok/Seedream's flat per-image price, the
+    # endpoint reports real token usage, so we bill on it: text input at $5/MTok
+    # and generated-image output at $40/MTok. Token prices are therefore real and
+    # per_image_price_usd is intentionally left unset (no flat charge).
+    GPT_IMAGE_1 = ModelConfig(
+        provider="openai",
+        api_name="gpt-image-1",
+        input_price_usd=Decimal("0.000005"),
+        output_price_usd=Decimal("0.00004"),
+        image_generation=True,
     )
 
     # ── Anthropic ───────────────────────────────────────────────────────
@@ -377,6 +392,7 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gpt-5.4-mini": SupportedModel.GPT_5_4_MINI,
     "gpt-5.4-nano": SupportedModel.GPT_5_4_NANO,
     "gpt-5.5": SupportedModel.GPT_5_5,
+    "gpt-image-1": SupportedModel.GPT_IMAGE_1,
     # Anthropic
     "claude-sonnet-4-5": SupportedModel.CLAUDE_SONNET_4_5,
     "claude-sonnet-4-6": SupportedModel.CLAUDE_SONNET_4_6,

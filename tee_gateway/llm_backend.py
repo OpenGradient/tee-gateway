@@ -263,26 +263,55 @@ def get_chat_model_cached(
 _IMAGE_GENERATION_PATH = "/images/generations"
 
 
-def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int]:
+def _parse_image_usage(raw: Any) -> Optional[Dict[str, int]]:
+    """Normalize an images-endpoint ``usage`` object to token counts.
+
+    OpenAI's gpt-image-1 reports token usage (text input + generated-image
+    output) which we bill on; xAI/ByteDance image endpoints omit usage (they are
+    billed a flat per-image price instead, so ``None`` is returned).
+    """
+    if not isinstance(raw, dict):
+        return None
+    input_tokens = int(raw.get("input_tokens", 0) or 0)
+    output_tokens = int(raw.get("output_tokens", 0) or 0)
+    total_tokens = int(raw.get("total_tokens", input_tokens + output_tokens) or 0)
+    return {
+        "prompt_tokens": input_tokens,
+        "completion_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def generate_images(
+    model: str, prompt: str, n: int = 1
+) -> tuple[list[str], int, Optional[Dict[str, int]]]:
     """Generate images via a provider's OpenAI-compatible images endpoint.
 
-    Unlike Gemini's inline-image chat models, xAI (Aurora) and ByteDance
-    (Seedream) expose image generation through a dedicated
+    Unlike Gemini's inline-image chat models, OpenAI (gpt-image-1), xAI (Aurora)
+    and ByteDance (Seedream) expose image generation through a dedicated
     ``POST /images/generations`` endpoint. We request ``b64_json`` so the image
     bytes ride inline inside the OHTTP/TEE envelope rather than as external URLs
     that leak the content and expire.
 
-    Returns ``(data_uris, image_count)`` where each entry is a ``data:`` URI. The
-    count is used for per-image billing. Falls back to provider-returned URLs if
-    a provider ignores ``b64_json``.
+    Returns ``(data_uris, image_count, usage)`` where each entry is a ``data:``
+    URI. ``usage`` is the endpoint's reported token usage (gpt-image-1) used for
+    token-based billing, or ``None`` for providers that omit it (flat per-image
+    billing). Falls back to provider-returned URLs if a provider ignores
+    ``b64_json``.
     """
     cfg = get_model_config(model)
     provider = cfg.provider
 
     if provider == "x-ai":
         client = xai_http_client
+        image_mime = "image/jpeg"
     elif provider == "bytedance":
         client = bytedance_http_client
+        image_mime = "image/jpeg"
+    elif provider == "openai":
+        client = openai_http_client
+        # gpt-image-1 returns PNG by default.
+        image_mime = "image/png"
     else:
         raise ValueError(
             f"Provider {provider!r} does not support the image-generation endpoint"
@@ -297,8 +326,12 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
         "model": cfg.api_name,
         "prompt": prompt,
         "n": count,
-        "response_format": "b64_json",
     }
+    # xAI/ByteDance return expiring URLs unless we request inline base64. OpenAI's
+    # gpt-image-1 always returns base64 and rejects ``response_format`` (HTTP 400),
+    # so only set it for the providers that need it.
+    if provider != "openai":
+        payload["response_format"] = "b64_json"
 
     logger.info(
         "Generating %d image(s) - Provider: %s, Model: %s",
@@ -308,7 +341,8 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
     )
     resp = client.post(_IMAGE_GENERATION_PATH, json=payload)
     resp.raise_for_status()
-    data = resp.json().get("data", []) or []
+    body = resp.json()
+    data = body.get("data", []) or []
 
     images: list[str] = []
     for item in data:
@@ -316,13 +350,14 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
             continue
         b64 = item.get("b64_json")
         if b64:
-            images.append(f"data:image/jpeg;base64,{b64}")
+            images.append(f"data:{image_mime};base64,{b64}")
             continue
         url = item.get("url")
         if url:
             images.append(url)
 
-    return images, len(images)
+    usage = _parse_image_usage(body.get("usage"))
+    return images, len(images), usage
 
 
 def _normalize_user_content_parts(content: list) -> list:

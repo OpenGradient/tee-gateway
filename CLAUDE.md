@@ -111,18 +111,20 @@ Server configuration:
 ### Supported Providers
 
 Model name prefixes determine routing:
-- **OpenAI**: gpt-4.1, gpt-5, gpt-5-mini, gpt-5.2, o4-mini
+- **OpenAI**: gpt-4.1, gpt-5, gpt-5-mini, gpt-5.2, o4-mini; image generation: gpt-image-1
 - **Anthropic**: claude-sonnet-4-0/4-5/4-6, claude-haiku-4-5, claude-opus-4-5/4-6, claude-3-7-sonnet, claude-3-5-haiku
 - **Google**: gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview, gemini-3.1-pro-preview, gemini-3.1-flash-lite-preview, gemini-3.5-flash; image generation: gemini-2.5-flash-image, gemini-3.1-flash-image
 - **xAI**: grok-2, grok-3, grok-3-mini, grok-4, grok-4-fast, grok-4-1-fast; image generation: grok-2-image
 - **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite; image generation: seedream-4.0
 
-Image generation via xAI (grok-2-image) and ByteDance (seedream-4.0) is served
-through a provider `/images/generations` endpoint rather than the chat path, but
-is surfaced on `/v1/chat/completions` exactly like Gemini's inline-image models
-(images returned out-of-band under the message `images` key). These models are
-billed a flat per-image price (see `per_image_price_usd` in `model_registry.py`),
-not per token.
+Image generation via OpenAI (gpt-image-1), xAI (grok-2-image) and ByteDance
+(seedream-4.0) is served through a provider `/images/generations` endpoint rather
+than the chat path, but is surfaced on `/v1/chat/completions` exactly like
+Gemini's inline-image models (images returned out-of-band under the message
+`images` key). Grok and Seedream are billed a flat per-image price (see
+`per_image_price_usd` in `model_registry.py`); gpt-image-1 has no flat price and
+is billed on the token usage the endpoint reports (text input + generated-image
+output tokens).
 
 ## Verification Examples
 

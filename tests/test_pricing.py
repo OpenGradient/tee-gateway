@@ -67,12 +67,13 @@ class TestModelRegistry(unittest.TestCase):
                 self.assertIsNotNone(cfg)
                 self.assertIsNotNone(cfg.provider)
                 self.assertIsNotNone(cfg.api_name)
-                if cfg.image_generation:
-                    # Endpoint-based image models (Grok, Seedream) bill a flat
+                if cfg.image_generation and cfg.per_image_price_usd is not None:
+                    # Flat-priced endpoint image models (Grok, Seedream) bill a
                     # per-image price; their token prices are intentionally 0.
-                    self.assertIsNotNone(cfg.per_image_price_usd)
                     self.assertGreater(cfg.per_image_price_usd, 0)
                 else:
+                    # Chat models and token-billed image models (gpt-image-1)
+                    # must have real per-token prices.
                     self.assertGreater(cfg.input_price_usd, 0)
                     self.assertGreater(cfg.output_price_usd, 0)
 

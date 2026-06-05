@@ -231,7 +231,7 @@ def _create_image_generation_response(
     """
     langchain_messages = convert_messages(chat_request.messages)
     prompt = _extract_image_prompt(langchain_messages)
-    images, image_count = generate_images(
+    images, image_count, image_usage = generate_images(
         chat_request.model, prompt, n=chat_request.n or 1
     )
 
@@ -259,7 +259,13 @@ def _create_image_generation_response(
         "tee_id": f"0x{tee_keys.get_tee_id()}",
     }
 
-    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    # gpt-image-1 reports real token usage we bill on; flat-priced models (Grok,
+    # Seedream) omit it, so fall back to zeros and let image_count drive the cost.
+    usage = image_usage or {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+    }
     openai_response["usage"] = usage
     cost = compute_session_cost(chat_request.model, usage, image_count=image_count)
     if cost is not None:
@@ -280,7 +286,7 @@ def _create_image_generation_streaming_response(
         try:
             langchain_messages = convert_messages(chat_request.messages)
             prompt = _extract_image_prompt(langchain_messages)
-            images, image_count = generate_images(
+            images, image_count, image_usage = generate_images(
                 chat_request.model, prompt, n=chat_request.n or 1
             )
 
@@ -303,7 +309,14 @@ def _create_image_generation_streaming_response(
             if images:
                 final_data["images"] = images
 
-            usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            # gpt-image-1 reports real token usage we bill on; flat-priced models
+            # (Grok, Seedream) omit it, so fall back to zeros and let image_count
+            # drive the cost.
+            usage = image_usage or {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            }
             final_data["usage"] = usage
             cost = compute_session_cost(
                 chat_request.model, usage, image_count=image_count

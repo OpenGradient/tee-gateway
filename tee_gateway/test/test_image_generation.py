@@ -24,12 +24,16 @@ from tee_gateway.pricing import compute_session_cost
 
 GROK_IMAGE = "grok-2-image"
 SEEDREAM = "seedream-4.0"
+GPT_IMAGE = "gpt-image-1"
 
 
-def _mock_response(data: list[dict]) -> MagicMock:
+def _mock_response(data: list[dict], usage: dict | None = None) -> MagicMock:
     resp = MagicMock()
     resp.raise_for_status.return_value = None
-    resp.json.return_value = {"data": data}
+    body: dict = {"data": data}
+    if usage is not None:
+        body["usage"] = usage
+    resp.json.return_value = body
     return resp
 
 
@@ -42,9 +46,10 @@ class TestGenerateImages(unittest.TestCase):
             [{"b64_json": "aGVsbG8="}, {"b64_json": "d29ybGQ="}]
         )
         with patch.object(llm_backend, "xai_http_client", client):
-            images, count = generate_images(GROK_IMAGE, "a red cube", n=2)
+            images, count, usage = generate_images(GROK_IMAGE, "a red cube", n=2)
 
         self.assertEqual(count, 2)
+        self.assertIsNone(usage)
         self.assertEqual(
             images,
             [
@@ -65,10 +70,31 @@ class TestGenerateImages(unittest.TestCase):
         client = MagicMock()
         client.post.return_value = _mock_response([{"url": "https://img/1.jpg"}])
         with patch.object(llm_backend, "bytedance_http_client", client):
-            images, count = generate_images(SEEDREAM, "a blue sphere", n=1)
+            images, count, _usage = generate_images(SEEDREAM, "a blue sphere", n=1)
 
         self.assertEqual(count, 1)
         self.assertEqual(images, ["https://img/1.jpg"])
+
+    def test_openai_omits_response_format_and_returns_usage(self):
+        # gpt-image-1 always returns base64 (PNG) and rejects response_format;
+        # it also reports token usage that we bill on.
+        client = MagicMock()
+        client.post.return_value = _mock_response(
+            [{"b64_json": "aW1n"}],
+            usage={"input_tokens": 12, "output_tokens": 1056, "total_tokens": 1068},
+        )
+        with patch.object(llm_backend, "openai_http_client", client):
+            images, count, usage = generate_images(GPT_IMAGE, "a green pyramid", n=1)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(images, ["data:image/png;base64,aW1n"])
+        self.assertEqual(
+            usage,
+            {"prompt_tokens": 12, "completion_tokens": 1056, "total_tokens": 1068},
+        )
+        payload = client.post.call_args.kwargs["json"]
+        self.assertEqual(payload["model"], get_model_config(GPT_IMAGE).api_name)
+        self.assertNotIn("response_format", payload)
 
     def test_n_is_clamped_to_provider_range(self):
         client = MagicMock()
@@ -129,6 +155,19 @@ class TestPerImageBilling(unittest.TestCase):
         cost = compute_session_cost(GROK_IMAGE, self._zero_usage(), image_count=0)
         self.assertIsNotNone(cost)
         self.assertEqual(cost.cost_opg, 0)
+
+    def test_gpt_image_billed_on_tokens_not_flat(self):
+        # gpt-image-1 has no flat per-image price; it is billed on the token usage
+        # the endpoint reports. image_count is passed but must not add any charge.
+        cfg = get_model_config(GPT_IMAGE)
+        self.assertIsNone(cfg.per_image_price_usd)
+        usage = {"prompt_tokens": 12, "completion_tokens": 1056, "total_tokens": 1068}
+        expected_usd = (
+            Decimal(12) * cfg.input_price_usd + Decimal(1056) * cfg.output_price_usd
+        )
+        cost = compute_session_cost(GPT_IMAGE, usage, image_count=1)
+        self.assertIsNotNone(cost)
+        self.assertAlmostEqual(cost.cost_usd, expected_usd, places=9)
 
 
 if __name__ == "__main__":

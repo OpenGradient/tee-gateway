@@ -593,6 +593,12 @@ class TestConvertMessages(unittest.TestCase):
         self.assertIsInstance(result[0], HumanMessage)
         self.assertEqual(result[0].content, "Hello world")
 
+    def test_empty_user_content_list_is_preserved(self):
+        """Empty multimodal content lists should not be coerced to empty strings."""
+        result = convert_messages([{"role": "user", "content": []}])
+        self.assertIsInstance(result[0], HumanMessage)
+        self.assertEqual(result[0].content, [])
+
     def test_user_content_with_base64_image(self):
         """An image_url data URI becomes a standard image content block, so the
         image survives conversion instead of being dropped."""

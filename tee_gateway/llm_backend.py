@@ -425,27 +425,27 @@ def _convert_content_part(part: Any) -> Optional[Dict[str, Any]]:
     return {"type": "text", "text": text} if text else None
 
 
-def _convert_user_content(content: Any) -> Any:
-    """Convert user-message content into a value accepted by ``HumanMessage``.
+def _normalize_user_content_parts(content: list) -> list:
+    """Pass OpenAI content parts through to LangChain mostly unchanged.
 
-    A list of OpenAI content parts becomes a list of LangChain standard content
-    blocks. When every part is text, it collapses back to a plain string so simple
-    requests stay simple (and to preserve prior behavior). Non-list content is
-    returned unchanged.
+    Text and image parts already convert correctly to every provider's native
+    API in their OpenAI form, so they are forwarded as-is. Only ``file`` /
+    ``input_file`` parts are rewritten into LangChain standard file blocks: the
+    raw OpenAI ``{"type": "file", "file": {...}}`` shape is passed straight
+    through to providers like Anthropic, which expect a ``document`` block and
+    would otherwise reject it. Primitive (non-dict) parts are wrapped as text.
     """
-    if not isinstance(content, list):
-        return content
-
-    blocks: List[Dict[str, Any]] = []
+    normalized: List[Any] = []
     for part in content:
-        block = _convert_content_part(part)
-        if block is not None:
-            blocks.append(block)
-
-    if blocks and all(b["type"] == "text" for b in blocks):
-        return "".join(b["text"] for b in blocks)
-
-    return blocks
+        if isinstance(part, dict):
+            if part.get("type") in ("file", "input_file"):
+                block = _convert_content_part(part)
+                normalized.append(block if block is not None else part)
+            else:
+                normalized.append(part)
+        else:
+            normalized.append({"type": "text", "text": str(part)})
+    return normalized
 
 
 class AttachmentValidationError(ValueError):
@@ -539,13 +539,17 @@ def convert_messages(messages: list) -> List[Any]:
         # Support both OpenAPI model objects and plain dicts
         if isinstance(msg, dict):
             role = msg.get("role", "").lower()
-            content = msg.get("content", "") or ""
+            content = msg.get("content", "")
+            if content is None:
+                content = ""
             tool_calls = msg.get("tool_calls")
             tool_call_id = msg.get("tool_call_id")
             name = msg.get("name")
         else:
             role = getattr(msg, "role", "").lower()
-            content = getattr(msg, "content", "") or ""
+            content = getattr(msg, "content", "")
+            if content is None:
+                content = ""
             tool_calls = getattr(msg, "tool_calls", None)
             tool_call_id = getattr(msg, "tool_call_id", None)
             name = getattr(msg, "name", None)
@@ -555,10 +559,12 @@ def convert_messages(messages: list) -> List[Any]:
 
         elif role == "user":
             # content may be a string or a list of multimodal content parts
-            # (text / image / file); convert to native LangChain content blocks.
-            langchain_messages.append(
-                HumanMessage(content=_convert_user_content(content))
-            )
+            # (text / image / file). Pass parts through as-is (file parts are
+            # normalized to standard LangChain blocks) so the providers handle
+            # the native conversion.
+            if isinstance(content, list):
+                content = _normalize_user_content_parts(content)
+            langchain_messages.append(HumanMessage(content=content))
 
         elif role == "assistant":
             if tool_calls:

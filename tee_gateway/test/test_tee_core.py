@@ -577,8 +577,8 @@ class TestConvertMessages(unittest.TestCase):
         self.assertIsInstance(result[1], HumanMessage)
         self.assertIsInstance(result[2], AIMessage)
 
-    def test_user_content_text_only_parts_collapse_to_string(self):
-        """A list of text-only parts collapses back to a plain string."""
+    def test_user_content_text_parts_passthrough(self):
+        """A list of text parts is passed through unchanged for the provider."""
         result = convert_messages(
             [
                 {
@@ -591,7 +591,13 @@ class TestConvertMessages(unittest.TestCase):
             ]
         )
         self.assertIsInstance(result[0], HumanMessage)
-        self.assertEqual(result[0].content, "Hello world")
+        self.assertEqual(
+            result[0].content,
+            [
+                {"type": "text", "text": "Hello "},
+                {"type": "text", "text": "world"},
+            ],
+        )
 
     def test_empty_user_content_list_is_preserved(self):
         """Empty multimodal content lists should not be coerced to empty strings."""
@@ -600,8 +606,8 @@ class TestConvertMessages(unittest.TestCase):
         self.assertEqual(result[0].content, [])
 
     def test_user_content_with_base64_image(self):
-        """An image_url data URI becomes a standard image content block, so the
-        image survives conversion instead of being dropped."""
+        """An image_url part is passed through unchanged; each provider converts
+        it to its native image format at send time."""
         result = convert_messages(
             [
                 {
@@ -624,9 +630,8 @@ class TestConvertMessages(unittest.TestCase):
         self.assertEqual(
             content[1],
             {
-                "type": "image",
-                "base64": "iVBORw0KGgoAAAANSUhEUg==",
-                "mime_type": "image/png",
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="},
             },
         )
 
@@ -663,7 +668,7 @@ class TestConvertMessages(unittest.TestCase):
         )
 
     def test_user_content_image_remote_url(self):
-        """A non-data-URI image URL is passed through as a url image block."""
+        """A remote (non-data-URI) image URL part is passed through unchanged."""
         result = convert_messages(
             [
                 {
@@ -679,7 +684,12 @@ class TestConvertMessages(unittest.TestCase):
         )
         self.assertEqual(
             result[0].content,
-            [{"type": "image", "url": "https://example.com/cat.png"}],
+            [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "https://example.com/cat.png"},
+                }
+            ],
         )
 
     def test_multimodal_blocks_convert_for_providers(self):

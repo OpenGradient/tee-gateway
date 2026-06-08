@@ -455,7 +455,13 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         # TODO: If no usage is returned, we should compute it here.
         usage = extract_usage(response)
         if usage:
-            openai_response["usage"] = usage
+            # Surface the standard OpenAI usage triple on the response; the
+            # reasoning split rides along to the cost calculator via `usage`.
+            openai_response["usage"] = {
+                "prompt_tokens": usage["prompt_tokens"],
+                "completion_tokens": usage["completion_tokens"],
+                "total_tokens": usage["total_tokens"],
+            }
             web_search_count = (
                 extract_web_search_count(response) if chat_request.web_search else 0
             )
@@ -625,6 +631,14 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                         for k, v in response.usage_metadata.items():
                             if isinstance(v, (int, float)):
                                 final_usage[k] = v
+                        # Thinking tokens are billed at the cheaper text rate; they
+                        # live in the nested output_token_details dict (skipped by
+                        # the int/float loop above), so pull them out explicitly.
+                        _otd = response.usage_metadata.get("output_token_details")
+                        if isinstance(_otd, dict) and isinstance(
+                            _otd.get("reasoning"), (int, float)
+                        ):
+                            final_usage["reasoning"] = _otd["reasoning"]
                     chunks_iter: list = []
                 elif anthropic_structured_content is not None:
                     # Emit the pre-computed structured result as a single chunk.
@@ -780,6 +794,16 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                         for k, v in chunk.usage_metadata.items():
                             if isinstance(v, (int, float)):
                                 final_usage[k] = final_usage.get(k, 0) + v
+                        # Thinking tokens (billed at the cheaper text rate) are
+                        # nested in output_token_details and emitted as deltas like
+                        # the top-level counts, so accumulate them the same way.
+                        _otd = chunk.usage_metadata.get("output_token_details")
+                        if isinstance(_otd, dict) and isinstance(
+                            _otd.get("reasoning"), (int, float)
+                        ):
+                            final_usage["reasoning"] = (
+                                final_usage.get("reasoning", 0) + _otd["reasoning"]
+                            )
 
                 # Flush buffered tool calls for OpenAI/Anthropic
                 if buffer_tool_calls and buffered_tool_calls:
@@ -856,9 +880,15 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                         if chat_request.web_search
                         else 0
                     )
+                    # Pass thinking tokens to the cost calculator (for the image
+                    # dual-rate split) without polluting the OpenAI usage triple.
+                    cost_usage = dict(
+                        final_data["usage"],
+                        reasoning_tokens=final_usage.get("reasoning", 0),
+                    )
                     cost = compute_session_cost(
                         chat_request.model,
-                        final_data["usage"],
+                        cost_usage,
                         web_search_count=web_search_count,
                     )
                     if cost is not None:

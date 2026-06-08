@@ -3,10 +3,12 @@
 Gemini image-output models (e.g. ``gemini-2.5-flash-image``) bill each generated
 image as ~1290 output tokens reported in ``candidates_token_count``. Our billing
 relies on langchain-google-genai folding that field into
-``usage_metadata.output_tokens`` so the image rides the normal token-priced path
-(``output_tokens -> completion_tokens -> output_price_usd``). These tests pin
-that assumption: if a future library bump stops folding image tokens into
-``output_tokens``, or our pricing stops charging them, they fail loudly.
+``usage_metadata.output_tokens`` so the image rides the token-priced path. Google
+bills output at TWO rates, though — image-modality tokens at ``image_output_price_usd``
+and text/thinking at the cheaper ``output_price_usd`` — so billing splits the
+folded ``output_tokens`` using the ``reasoning`` count langchain breaks out:
+thinking is charged at the text rate, the rest (image + any caption) at the image
+rate. These tests pin both the langchain folding assumption and the split.
 
 No network or API key required — we construct a synthetic Gemini response object
 and inject a stub price feed.
@@ -19,6 +21,8 @@ from unittest.mock import MagicMock
 from google.genai.types import GenerateContentResponse
 from langchain_google_genai.chat_models import _response_to_result
 
+from tee_gateway.llm_backend import extract_usage
+from tee_gateway.model_registry import get_model_config
 from tee_gateway.price_feed import get_price_feed, set_price_feed
 from tee_gateway.pricing import compute_session_cost
 
@@ -104,32 +108,70 @@ class TestImageBilling(unittest.TestCase):
             set_price_feed(self._prev_feed)
 
     def _usage_dict(self, response) -> dict:
-        """Mirror how chat_controller shapes usage_metadata into the OpenAI form."""
-        um = response.generations[0].message.usage_metadata
-        return {
-            "prompt_tokens": um["input_tokens"],
-            "completion_tokens": um["output_tokens"],
-            "total_tokens": um["total_tokens"],
-        }
+        """Mirror how chat_controller bills: extract_usage carries reasoning."""
+        usage = extract_usage(response.generations[0].message)
+        assert usage is not None
+        return usage
 
-    def test_generated_image_is_charged_as_output_tokens(self):
+    def test_generated_image_is_charged_at_image_rate(self):
         resp = _response_to_result(
             _gemini_image_response(candidates_tokens=IMAGE_TOKENS)
         )
         cost = compute_session_cost(IMAGE_MODEL, self._usage_dict(resp))
 
         self.assertIsNotNone(cost)
-        # Expected raw cost: 9 input + 1290 output tokens at the registry rates.
-        from tee_gateway.model_registry import get_model_config
-
+        # No thinking: all 1290 output tokens are image-modality, billed at the
+        # image rate (NOT the cheaper text/thinking output_price_usd).
         cfg = get_model_config(IMAGE_MODEL)
+        self.assertIsNotNone(cfg.image_output_price_usd)
         expected = (Decimal(9) * cfg.input_price_usd) + (
-            Decimal(IMAGE_TOKENS) * cfg.output_price_usd
+            Decimal(IMAGE_TOKENS) * cfg.image_output_price_usd
         )
         # settled_usd rounds the OPG integer up, so it is >= raw by at most one
         # smallest unit (1e-18 USD here) — assert effectively-equal.
         self.assertAlmostEqual(cost.cost_usd, expected, places=9)
         self.assertGreater(cost.cost_opg, 0)
+
+    def test_thinking_tokens_billed_at_text_rate(self):
+        """Thinking tokens are charged at output_price_usd, image at image rate."""
+        thoughts = 800
+        resp = _response_to_result(
+            _gemini_image_response(
+                candidates_tokens=IMAGE_TOKENS, thoughts_tokens=thoughts
+            )
+        )
+        usage = self._usage_dict(resp)
+        # langchain folds thoughts into output_tokens and breaks them out.
+        self.assertEqual(usage["reasoning_tokens"], thoughts)
+
+        cost = compute_session_cost(IMAGE_MODEL, usage)
+        self.assertIsNotNone(cost)
+
+        cfg = get_model_config(IMAGE_MODEL)
+        expected = (
+            (Decimal(9) * cfg.input_price_usd)
+            + (Decimal(IMAGE_TOKENS) * cfg.image_output_price_usd)
+            + (Decimal(thoughts) * cfg.output_price_usd)
+        )
+        self.assertAlmostEqual(cost.cost_usd, expected, places=9)
+
+    def test_thinking_is_cheaper_than_billing_all_at_image_rate(self):
+        """Regression: thinking tokens must not be billed at the image rate."""
+        thoughts = 800
+        resp = _response_to_result(
+            _gemini_image_response(
+                candidates_tokens=IMAGE_TOKENS, thoughts_tokens=thoughts
+            )
+        )
+        cost = compute_session_cost(IMAGE_MODEL, self._usage_dict(resp))
+
+        cfg = get_model_config(IMAGE_MODEL)
+        # The old (buggy) behavior billed every output token at the image rate.
+        all_at_image_rate = (Decimal(9) * cfg.input_price_usd) + (
+            Decimal(IMAGE_TOKENS + thoughts) * cfg.image_output_price_usd
+        )
+        self.assertIsNotNone(cost)
+        self.assertLess(cost.cost_usd, all_at_image_rate)
 
     def test_more_images_cost_more(self):
         """Cost scales with image tokens — not a flat per-request fee."""

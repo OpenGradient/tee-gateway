@@ -401,6 +401,9 @@ class TestCalculateSessionCost(unittest.TestCase):
         cfg = MagicMock()
         cfg.input_price_usd = Decimal(input_price)
         cfg.output_price_usd = Decimal(output_price)
+        # Not an image-output model: keep the single-rate output path.
+        cfg.image_output = False
+        cfg.image_output_price_usd = None
         return patch("tee_gateway.pricing.get_model_config", return_value=cfg)
 
     def test_calls_get_price(self):

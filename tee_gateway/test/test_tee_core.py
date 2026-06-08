@@ -11,7 +11,6 @@ None of these tests require a running server, API keys, or nitriding.
 """
 
 import base64
-import hashlib
 import json
 import unittest
 from unittest import mock
@@ -847,13 +846,13 @@ class TestValidateAttachments(unittest.TestCase):
 
 
 class TestCanonicalUserContent(unittest.TestCase):
-    """The signed request commits to attachments via digest, never inlining the
-    base64 — otherwise the hash payload bloats and signatures become unwieldy."""
+    """The signed request commits to text and attachment filenames, never the
+    attachment bytes — those would bloat the signed payload for no benefit."""
 
     def test_string_content_passthrough(self):
         self.assertEqual(canonical_user_content("hello"), "hello")
 
-    def test_attachment_digested_not_inlined(self):
+    def test_attachment_keeps_filename_drops_bytes(self):
         content = [
             {"type": "text", "text": "summarize"},
             {
@@ -866,12 +865,8 @@ class TestCanonicalUserContent(unittest.TestCase):
         ]
         out = canonical_user_content(content)
         self.assertEqual(out[0], {"type": "text", "text": "summarize"})
-        entry = out[1]
-        self.assertEqual(entry["type"], "file")
-        self.assertEqual(entry["mime_type"], "application/pdf")
-        self.assertEqual(entry["filename"], "a.pdf")
-        self.assertEqual(entry["sha256"], hashlib.sha256(b"JVBERi0xLjQK").hexdigest())
-        # The raw base64 must not appear anywhere in the hashed payload.
+        self.assertEqual(out[1], {"type": "file", "filename": "a.pdf"})
+        # The raw base64 must not appear anywhere in the signed payload.
         self.assertNotIn("JVBERi0xLjQK", json.dumps(out))
 
     def test_deterministic(self):

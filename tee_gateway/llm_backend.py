@@ -6,7 +6,6 @@ and shared HTTP clients. Replaces src/server.py as the direct LLM backend
 called from the Flask/connexion controllers.
 """
 
-import hashlib
 import json
 import logging
 from typing import List, Dict, Optional, Any, Generator
@@ -430,10 +429,10 @@ def canonical_user_content(content: Any) -> Any:
     """Canonicalize user-message content for request hashing.
 
     Plain-string content is returned unchanged. For multimodal content (a list of
-    parts), inline attachment bytes are replaced with a ``sha256`` digest so the
-    signed request commits to the exact attachment content without bloating the
-    hashed payload with megabytes of base64. URL / file_id references are kept
-    verbatim.
+    parts), text is kept verbatim and each attachment is reduced to its type and
+    filename — the inline bytes are dropped, never hashed, so the signed request
+    stays small. The attachment bytes still travel inside the encrypted transport;
+    the request hash just commits to which files were sent.
     """
     if isinstance(content, str):
         return content
@@ -442,20 +441,20 @@ def canonical_user_content(content: Any) -> Any:
 
     canonical = []
     for part in content:
-        block = _convert_content_part(part)
-        if block is None:
+        if not isinstance(part, dict):
+            canonical.append({"type": "text", "text": str(part)})
             continue
-        if block["type"] == "text":
-            canonical.append({"type": "text", "text": block.get("text", "")})
+        if part.get("type") == "text":
+            canonical.append({"type": "text", "text": part.get("text", "") or ""})
             continue
-        entry = {"type": block["type"]}
-        if "base64" in block:
-            entry["sha256"] = hashlib.sha256(
-                block["base64"].encode("utf-8")
-            ).hexdigest()
-        for key in ("mime_type", "filename", "url", "file_id"):
-            if block.get(key):
-                entry[key] = block[key]
+        # Attachment: commit only to its type and filename, never the bytes.
+        entry: Dict[str, Any] = {"type": part.get("type")}
+        file_obj = part.get("file")
+        filename = (
+            file_obj.get("filename") if isinstance(file_obj, dict) else None
+        ) or part.get("filename")
+        if filename:
+            entry["filename"] = filename
         canonical.append(entry)
     return canonical
 

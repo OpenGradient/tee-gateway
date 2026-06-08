@@ -516,6 +516,13 @@ def validate_attachments(messages: list, model: str) -> None:
     (the provider would still reject a truly unsupported combination). Raises
     ``AttachmentValidationError``.
     """
+    # Fast path: if the request contains no multimodal parts, skip model lookup.
+    for part in _iter_content_parts(messages):
+        if part.get("type") in ("image_url", "image", "file", "input_file"):
+            break
+    else:
+        return
+
     caps = get_model_capabilities(model)
     image_supported = caps.get("image_inputs")
     pdf_supported = caps.get("pdf_inputs")

@@ -32,6 +32,9 @@ from tee_gateway.llm_backend import (
     convert_messages,
     extract_usage,
     generate_images,
+    validate_attachments,
+    AttachmentValidationError,
+    canonical_user_content,
 )
 from tee_gateway.model_registry import get_model_config
 from tee_gateway.pricing import compute_session_cost
@@ -102,6 +105,12 @@ def create_chat_completion(body):
     chat_request: CreateChatCompletionRequest = _parse_chat_request(
         connexion.request.get_json()
     )
+
+    # Reject attachments the target model can't handle before doing provider work.
+    try:
+        validate_attachments(chat_request.messages, chat_request.model)
+    except AttachmentValidationError as e:
+        return {"error": "Invalid attachment", "message": str(e)}, 400
 
     if chat_request.stream:
         return _create_streaming_response(chat_request)
@@ -941,7 +950,7 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
             messages.append(
                 {
                     "role": "user",
-                    "content": msg.content,
+                    "content": canonical_user_content(msg.content),
                 }
             )
         elif isinstance(msg, ChatCompletionRequestAssistantMessage):

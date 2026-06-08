@@ -11,7 +11,9 @@ None of these tests require a running server, API keys, or nitriding.
 """
 
 import base64
+import json
 import unittest
+from unittest import mock
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -19,7 +21,13 @@ from eth_hash.auto import keccak
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from tee_gateway import ohttp
-from tee_gateway.llm_backend import convert_messages, extract_usage
+from tee_gateway.llm_backend import (
+    AttachmentValidationError,
+    canonical_user_content,
+    convert_messages,
+    extract_usage,
+    validate_attachments,
+)
 from tee_gateway.model_registry import get_model_config, get_rate_card
 from tee_gateway.tee_manager import (
     TEEKeyManager,
@@ -568,31 +576,161 @@ class TestConvertMessages(unittest.TestCase):
         self.assertIsInstance(result[1], HumanMessage)
         self.assertIsInstance(result[2], AIMessage)
 
-    def test_user_content_as_list_of_parts(self):
-        """Multimodal content parts should be preserved for vision-capable models."""
-        content = [
-            {"type": "text", "text": "Hello world"},
-            {
-                "type": "image_url",
-                "image_url": {"url": "data:image/png;base64,abcd"},
-            },
-        ]
+    def test_user_content_text_parts_passthrough(self):
+        """A list of text parts is passed through unchanged for the provider."""
         result = convert_messages(
             [
                 {
                     "role": "user",
-                    "content": content,
+                    "content": [
+                        {"type": "text", "text": "Hello "},
+                        {"type": "text", "text": "world"},
+                    ],
                 }
             ]
         )
         self.assertIsInstance(result[0], HumanMessage)
-        self.assertEqual(result[0].content, content)
+        self.assertEqual(
+            result[0].content,
+            [
+                {"type": "text", "text": "Hello "},
+                {"type": "text", "text": "world"},
+            ],
+        )
 
     def test_empty_user_content_list_is_preserved(self):
         """Empty multimodal content lists should not be coerced to empty strings."""
         result = convert_messages([{"role": "user", "content": []}])
         self.assertIsInstance(result[0], HumanMessage)
         self.assertEqual(result[0].content, [])
+
+    def test_user_content_with_base64_image(self):
+        """An image_url part is passed through unchanged; each provider converts
+        it to its native image format at send time."""
+        result = convert_messages(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "What is this?"},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
+                            },
+                        },
+                    ],
+                }
+            ]
+        )
+        content = result[0].content
+        self.assertIsInstance(content, list)
+        self.assertEqual(content[0], {"type": "text", "text": "What is this?"})
+        self.assertEqual(
+            content[1],
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="},
+            },
+        )
+
+    def test_user_content_with_base64_pdf(self):
+        """A file part with a base64 PDF data URI becomes a standard file block,
+        carrying mime_type and the original filename through to the provider."""
+        result = convert_messages(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Summarize this."},
+                        {
+                            "type": "file",
+                            "file": {
+                                "filename": "contract.pdf",
+                                "file_data": "data:application/pdf;base64,JVBERi0xLjQK",
+                            },
+                        },
+                    ],
+                }
+            ]
+        )
+        content = result[0].content
+        self.assertIsInstance(content, list)
+        self.assertEqual(
+            content[1],
+            {
+                "type": "file",
+                "base64": "JVBERi0xLjQK",
+                "mime_type": "application/pdf",
+                "filename": "contract.pdf",
+            },
+        )
+
+    def test_user_content_image_remote_url(self):
+        """A remote (non-data-URI) image URL part is passed through unchanged."""
+        result = convert_messages(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "https://example.com/cat.png"},
+                        },
+                    ],
+                }
+            ]
+        )
+        self.assertEqual(
+            result[0].content,
+            [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "https://example.com/cat.png"},
+                }
+            ],
+        )
+
+    def test_multimodal_blocks_convert_for_providers(self):
+        """The standard blocks produced here must be accepted by the provider
+        message converters — otherwise multimodal requests fail at send time.
+        This guards the cross-provider contract without needing network access."""
+        from langchain_anthropic.chat_models import _format_messages
+        from langchain_openai.chat_models.base import _convert_message_to_dict
+
+        msg = convert_messages(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Read these."},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
+                            },
+                        },
+                        {
+                            "type": "file",
+                            "file": {
+                                "filename": "doc.pdf",
+                                "file_data": "data:application/pdf;base64,JVBERi0xLjQK",
+                            },
+                        },
+                    ],
+                }
+            ]
+        )[0]
+
+        # Anthropic: file block -> document with application/pdf media type.
+        _system, anthropic_msgs = _format_messages([msg])
+        anthropic_types = {b["type"] for b in anthropic_msgs[0]["content"]}
+        self.assertEqual(anthropic_types, {"text", "image", "document"})
+
+        # OpenAI: file block -> file_data data URI.
+        openai_msg = _convert_message_to_dict(msg)
+        openai_types = {b["type"] for b in openai_msg["content"]}
+        self.assertEqual(openai_types, {"text", "image_url", "file"})
 
     def test_full_tool_call_conversation(self):
         """End-to-end multi-turn with tool use: user → assistant (tool call) → tool result."""
@@ -621,6 +759,112 @@ class TestConvertMessages(unittest.TestCase):
         self.assertEqual(len(result[1].tool_calls), 1)
         self.assertIsInstance(result[2], ToolMessage)
         self.assertEqual(result[2].tool_call_id, "call_xyz")
+
+
+# ---------------------------------------------------------------------------
+# llm_backend.validate_attachments
+# ---------------------------------------------------------------------------
+
+
+class TestValidateAttachments(unittest.TestCase):
+    """Attachment gating must reject modalities a model can't handle, while never
+    blocking a model whose capabilities are unknown."""
+
+    CAPS = "tee_gateway.llm_backend.get_model_capabilities"
+
+    @staticmethod
+    def _image_msg(b64):
+        return [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64}"},
+                    }
+                ],
+            }
+        ]
+
+    @staticmethod
+    def _pdf_msg(b64):
+        return [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "file",
+                        "file": {
+                            "filename": "a.pdf",
+                            "file_data": f"data:application/pdf;base64,{b64}",
+                        },
+                    }
+                ],
+            }
+        ]
+
+    def test_plain_text_request_passes(self):
+        # No model instantiation should be needed for a text-only request.
+        validate_attachments([{"role": "user", "content": "hi"}], "gpt-5")
+
+    def test_image_blocked_when_model_lacks_support(self):
+        with mock.patch(self.CAPS, return_value={"image_inputs": False}):
+            with self.assertRaises(AttachmentValidationError):
+                validate_attachments(self._image_msg("aGVsbG8="), "grok-4")
+
+    def test_image_allowed_when_model_supports(self):
+        with mock.patch(self.CAPS, return_value={"image_inputs": True}):
+            validate_attachments(self._image_msg("aGVsbG8="), "gpt-5")
+
+    def test_fails_open_when_profile_unknown(self):
+        # Empty profile (no capability data) must not block — provider decides.
+        with mock.patch(self.CAPS, return_value={}):
+            validate_attachments(self._image_msg("aGVsbG8="), "seed-2.0-lite")
+
+    def test_pdf_blocked_when_model_lacks_support(self):
+        with mock.patch(
+            self.CAPS, return_value={"image_inputs": True, "pdf_inputs": False}
+        ):
+            with self.assertRaises(AttachmentValidationError):
+                validate_attachments(self._pdf_msg("JVBERi0="), "grok-4")
+
+
+# ---------------------------------------------------------------------------
+# llm_backend.canonical_user_content (request-hashing canonicalization)
+# ---------------------------------------------------------------------------
+
+
+class TestCanonicalUserContent(unittest.TestCase):
+    """The signed request commits to text and attachment filenames, never the
+    attachment bytes — those would bloat the signed payload for no benefit."""
+
+    def test_string_content_passthrough(self):
+        self.assertEqual(canonical_user_content("hello"), "hello")
+
+    def test_attachment_keeps_filename_drops_bytes(self):
+        content = [
+            {"type": "text", "text": "summarize"},
+            {
+                "type": "file",
+                "file": {
+                    "filename": "a.pdf",
+                    "file_data": "data:application/pdf;base64,JVBERi0xLjQK",
+                },
+            },
+        ]
+        out = canonical_user_content(content)
+        self.assertEqual(out[0], {"type": "text", "text": "summarize"})
+        self.assertEqual(out[1], {"type": "file", "filename": "a.pdf"})
+        # The raw base64 must not appear anywhere in the signed payload.
+        self.assertNotIn("JVBERi0xLjQK", json.dumps(out))
+
+    def test_deterministic(self):
+        content = [
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR=="}}
+        ]
+        self.assertEqual(
+            canonical_user_content(content), canonical_user_content(content)
+        )
 
 
 # ---------------------------------------------------------------------------

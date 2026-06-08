@@ -8,7 +8,7 @@ called from the Flask/connexion controllers.
 
 import json
 import logging
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Generator
 from functools import lru_cache
 
 import httpx
@@ -325,15 +325,223 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
     return images, len(images)
 
 
+def _parse_data_uri(uri: str) -> Optional[tuple[str, str]]:
+    """Parse a ``data:<mime>;base64,<data>`` URI into ``(mime_type, base64_data)``.
+
+    Returns ``None`` if the string is not a base64 data URI.
+    """
+    if not isinstance(uri, str) or not uri.startswith("data:"):
+        return None
+    try:
+        header, data = uri.split(",", 1)
+    except ValueError:
+        return None
+    if ";base64" not in header:
+        return None
+    mime_type = header[len("data:") :].split(";", 1)[0]
+    return mime_type, data
+
+
+def _convert_content_part(part: Any) -> Optional[Dict[str, Any]]:
+    """Convert one OpenAI-format content part into a LangChain v1 standard content
+    block (``text`` / ``image`` / ``file``).
+
+    The standard blocks (``langchain_core.messages.content``) are translated into
+    each provider's native API by the respective ``langchain-<provider>`` package,
+    so a single representation works for Anthropic, OpenAI, Gemini and xAI. Returns
+    ``None`` for empty or unrecognized parts.
+    """
+    if not isinstance(part, dict):
+        text = str(part)
+        return {"type": "text", "text": text} if text else None
+
+    ptype = part.get("type")
+
+    if ptype == "text":
+        text = part.get("text", "") or ""
+        return {"type": "text", "text": text} if text else None
+
+    if ptype in ("image_url", "image"):
+        image_url = part.get("image_url", part)
+        url = image_url.get("url") if isinstance(image_url, dict) else image_url
+        if not url:
+            # Already-standard image block carrying base64 directly.
+            if part.get("base64"):
+                block: Dict[str, Any] = {"type": "image", "base64": part["base64"]}
+                if part.get("mime_type"):
+                    block["mime_type"] = part["mime_type"]
+                return block
+            return None
+        parsed = _parse_data_uri(url)
+        if parsed:
+            mime_type, data = parsed
+            return {"type": "image", "base64": data, "mime_type": mime_type}
+        return {"type": "image", "url": url}
+
+    if ptype in ("file", "input_file"):
+        file_obj = part.get("file", part)
+        if not isinstance(file_obj, dict):
+            file_obj = {}
+        file_id = file_obj.get("file_id") or part.get("file_id")
+        if file_id:
+            return {"type": "file", "file_id": file_id}
+
+        filename = file_obj.get("filename") or part.get("filename")
+        file_data = (
+            file_obj.get("file_data") or file_obj.get("base64") or part.get("base64")
+        )
+        if file_data:
+            file_mime: Optional[str]
+            parsed_file = _parse_data_uri(file_data)
+            if parsed_file:
+                file_mime, file_b64 = parsed_file
+            else:
+                file_mime = part.get("mime_type") or file_obj.get("mime_type")
+                file_b64 = file_data
+            block = {"type": "file", "base64": file_b64}
+            if file_mime:
+                block["mime_type"] = file_mime
+            # OpenAI requires a filename for file uploads; carry it through so
+            # langchain-openai doesn't substitute a placeholder.
+            if filename:
+                block["filename"] = filename
+            return block
+
+        file_url = file_obj.get("file_url") or file_obj.get("url") or part.get("url")
+        if file_url:
+            block = {"type": "file", "url": file_url}
+            if filename:
+                block["filename"] = filename
+            return block
+        return None
+
+    # Unknown part type: best-effort text extraction.
+    text = part.get("text", "") or ""
+    return {"type": "text", "text": text} if text else None
+
+
+def canonical_user_content(content: Any) -> Any:
+    """Canonicalize user-message content for request hashing.
+
+    Plain-string content is returned unchanged. For multimodal content (a list of
+    parts), text is kept verbatim and each attachment is reduced to its type and
+    filename — the inline bytes are dropped, never hashed, so the signed request
+    stays small. The attachment bytes still travel inside the encrypted transport;
+    the request hash just commits to which files were sent.
+    """
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content)
+
+    canonical = []
+    for part in content:
+        if not isinstance(part, dict):
+            canonical.append({"type": "text", "text": str(part)})
+            continue
+        if part.get("type") == "text":
+            canonical.append({"type": "text", "text": part.get("text", "") or ""})
+            continue
+        # Attachment: commit only to its type and filename, never the bytes.
+        entry: Dict[str, Any] = {"type": part.get("type")}
+        file_obj = part.get("file")
+        filename = (
+            file_obj.get("filename") if isinstance(file_obj, dict) else None
+        ) or part.get("filename")
+        if filename:
+            entry["filename"] = filename
+        canonical.append(entry)
+    return canonical
+
+
 def _normalize_user_content_parts(content: list) -> list:
-    """Preserve multimodal user content while tolerating primitive text parts."""
-    normalized = []
+    """Pass OpenAI content parts through to LangChain mostly unchanged.
+
+    Text and image parts already convert correctly to every provider's native
+    API in their OpenAI form, so they are forwarded as-is. Only ``file`` /
+    ``input_file`` parts are rewritten into LangChain standard file blocks: the
+    raw OpenAI ``{"type": "file", "file": {...}}`` shape is passed straight
+    through to providers like Anthropic, which expect a ``document`` block and
+    would otherwise reject it. Primitive (non-dict) parts are wrapped as text.
+    """
+    normalized: List[Any] = []
     for part in content:
         if isinstance(part, dict):
-            normalized.append(part)
+            if part.get("type") in ("file", "input_file"):
+                block = _convert_content_part(part)
+                normalized.append(block if block is not None else part)
+            else:
+                normalized.append(part)
         else:
             normalized.append({"type": "text", "text": str(part)})
     return normalized
+
+
+class AttachmentValidationError(ValueError):
+    """Raised when a request's attachments aren't supported by the target model."""
+
+
+def get_model_capabilities(model: str) -> Dict[str, Any]:
+    """Return the LangChain capability profile for a model (``image_inputs``,
+    ``pdf_inputs``, ...), or ``{}`` when the model has no profile data.
+
+    Reads the public ``.profile`` attribute of the instantiated chat model, which
+    each ``langchain-<provider>`` package populates from maintained model data.
+    """
+    try:
+        chat = get_chat_model_cached(model, 0.0, 16)
+        return getattr(chat, "profile", None) or {}
+    except Exception:
+        return {}
+
+
+def _iter_content_parts(messages: list) -> Generator[Dict[str, Any], None, None]:
+    for msg in messages:
+        content = (
+            msg.get("content")
+            if isinstance(msg, dict)
+            else getattr(msg, "content", None)
+        )
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict):
+                    yield part
+
+
+def validate_attachments(messages: list, model: str) -> None:
+    """Reject attachments the target model can't handle.
+
+    Fails *open*: a modality is only rejected when the model's profile explicitly
+    marks it unsupported, so models without profile data are never wrongly blocked
+    (the provider would still reject a truly unsupported combination). Raises
+    ``AttachmentValidationError``.
+    """
+    # Fast path: if the request contains no multimodal parts, skip model lookup.
+    for part in _iter_content_parts(messages):
+        if part.get("type") in ("image_url", "image", "file", "input_file"):
+            break
+    else:
+        return
+
+    caps = get_model_capabilities(model)
+    image_supported = caps.get("image_inputs")
+    pdf_supported = caps.get("pdf_inputs")
+
+    if image_supported is not False and pdf_supported is not False:
+        return  # model accepts every modality; nothing to gate
+
+    for part in _iter_content_parts(messages):
+        block = _convert_content_part(part)
+        if block is None:
+            continue
+        if block["type"] == "image" and image_supported is False:
+            raise AttachmentValidationError(
+                f"Model {model!r} does not support image attachments."
+            )
+        if block["type"] == "file" and pdf_supported is False:
+            raise AttachmentValidationError(
+                f"Model {model!r} does not support document attachments."
+            )
 
 
 def convert_messages(messages: list) -> List[Any]:
@@ -363,6 +571,10 @@ def convert_messages(messages: list) -> List[Any]:
             langchain_messages.append(SystemMessage(content=content))
 
         elif role == "user":
+            # content may be a string or a list of multimodal content parts
+            # (text / image / file). Pass parts through as-is (file parts are
+            # normalized to standard LangChain blocks) so the providers handle
+            # the native conversion.
             if isinstance(content, list):
                 content = _normalize_user_content_parts(content)
             langchain_messages.append(HumanMessage(content=content))

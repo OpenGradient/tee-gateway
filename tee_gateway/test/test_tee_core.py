@@ -767,8 +767,8 @@ class TestConvertMessages(unittest.TestCase):
 
 
 class TestValidateAttachments(unittest.TestCase):
-    """Attachment gating must reject modalities a model can't handle and enforce
-    the size cap, while never blocking a model whose capabilities are unknown."""
+    """Attachment gating must reject modalities a model can't handle, while never
+    blocking a model whose capabilities are unknown."""
 
     CAPS = "tee_gateway.llm_backend.get_model_capabilities"
 
@@ -809,9 +809,8 @@ class TestValidateAttachments(unittest.TestCase):
 
     def test_image_blocked_when_model_lacks_support(self):
         with mock.patch(self.CAPS, return_value={"image_inputs": False}):
-            with self.assertRaises(AttachmentValidationError) as cm:
+            with self.assertRaises(AttachmentValidationError):
                 validate_attachments(self._image_msg("aGVsbG8="), "grok-4")
-        self.assertEqual(cm.exception.status, 400)
 
     def test_image_allowed_when_model_supports(self):
         with mock.patch(self.CAPS, return_value={"image_inputs": True}):
@@ -828,16 +827,6 @@ class TestValidateAttachments(unittest.TestCase):
         ):
             with self.assertRaises(AttachmentValidationError):
                 validate_attachments(self._pdf_msg("JVBERi0="), "grok-4")
-
-    def test_size_cap_enforced(self):
-        big = "A" * 1000  # ~750 decoded bytes
-        with (
-            mock.patch(self.CAPS, return_value={"image_inputs": True}),
-            mock.patch("tee_gateway.llm_backend.MAX_ATTACHMENT_BYTES", 100),
-        ):
-            with self.assertRaises(AttachmentValidationError) as cm:
-                validate_attachments(self._image_msg(big), "gpt-5")
-        self.assertEqual(cm.exception.status, 413)
 
 
 # ---------------------------------------------------------------------------

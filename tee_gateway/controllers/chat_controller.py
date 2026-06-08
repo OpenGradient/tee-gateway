@@ -106,12 +106,11 @@ def create_chat_completion(body):
         connexion.request.get_json()
     )
 
-    # Reject attachments the target model can't handle, and enforce the size cap,
-    # before doing any provider work.
+    # Reject attachments the target model can't handle before doing provider work.
     try:
         validate_attachments(chat_request.messages, chat_request.model)
     except AttachmentValidationError as e:
-        return {"error": "Invalid attachment", "message": str(e)}, e.status
+        return {"error": "Invalid attachment", "message": str(e)}, 400
 
     if chat_request.stream:
         return _create_streaming_response(chat_request)

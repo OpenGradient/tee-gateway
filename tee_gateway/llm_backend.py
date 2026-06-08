@@ -50,11 +50,6 @@ _LIMITS = httpx.Limits(
 # BytePlus ModelArk OpenAI-compatible endpoint (ap-southeast)
 BYTEDANCE_BASE_URL = "https://ark.ap-southeast.bytepluses.com/api/v3"
 
-# Hard cap on total inline (base64) attachment bytes per request, enforced
-# regardless of model. Inline base64 rides inside the encrypted payload, so this
-# bounds the request size the enclave will accept.
-MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024  # 30 MB
-
 # Shared synchronous HTTP clients for each provider.
 # Initialized to None; built by set_provider_config() after key injection.
 openai_http_client: Optional[httpx.Client] = None
@@ -483,20 +478,7 @@ def _normalize_user_content_parts(content: list) -> list:
 
 
 class AttachmentValidationError(ValueError):
-    """Raised when a request's attachments violate model capabilities or size
-    limits. Carries the HTTP status the caller should return."""
-
-    def __init__(self, message: str, status: int = 400) -> None:
-        super().__init__(message)
-        self.status = status
-
-
-def _decoded_base64_len(b64: str) -> int:
-    """Length in bytes of base64-encoded data without decoding it."""
-    data = b64.split(",", 1)[-1]  # tolerate a leftover data: prefix
-    n = len(data)
-    padding = data[-2:].count("=") if n >= 2 else 0
-    return max((n * 3) // 4 - padding, 0)
+    """Raised when a request's attachments aren't supported by the target model."""
 
 
 def get_model_capabilities(model: str) -> Dict[str, Any]:
@@ -527,42 +509,32 @@ def _iter_content_parts(messages: list) -> Generator[Dict[str, Any], None, None]
 
 
 def validate_attachments(messages: list, model: str) -> None:
-    """Enforce per-model modality support and the inline attachment size cap.
+    """Reject attachments the target model can't handle.
 
-    Modality gating fails *open*: a modality is only rejected when the model's
-    profile explicitly marks it unsupported, so models without profile data are
-    never wrongly blocked (the provider would still reject a truly unsupported
-    combination). The size cap is a hard limit. Raises ``AttachmentValidationError``.
+    Fails *open*: a modality is only rejected when the model's profile explicitly
+    marks it unsupported, so models without profile data are never wrongly blocked
+    (the provider would still reject a truly unsupported combination). Raises
+    ``AttachmentValidationError``.
     """
     caps = get_model_capabilities(model)
     image_supported = caps.get("image_inputs")
     pdf_supported = caps.get("pdf_inputs")
 
-    total_bytes = 0
+    if image_supported is not False and pdf_supported is not False:
+        return  # model accepts every modality; nothing to gate
+
     for part in _iter_content_parts(messages):
         block = _convert_content_part(part)
         if block is None:
             continue
-        if block["type"] == "image":
-            if image_supported is False:
-                raise AttachmentValidationError(
-                    f"Model {model!r} does not support image attachments."
-                )
-            if "base64" in block:
-                total_bytes += _decoded_base64_len(block["base64"])
-        elif block["type"] == "file":
-            if pdf_supported is False:
-                raise AttachmentValidationError(
-                    f"Model {model!r} does not support document attachments."
-                )
-            if "base64" in block:
-                total_bytes += _decoded_base64_len(block["base64"])
-
-    if total_bytes > MAX_ATTACHMENT_BYTES:
-        raise AttachmentValidationError(
-            f"Attachments exceed the {MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB limit.",
-            status=413,
-        )
+        if block["type"] == "image" and image_supported is False:
+            raise AttachmentValidationError(
+                f"Model {model!r} does not support image attachments."
+            )
+        if block["type"] == "file" and pdf_supported is False:
+            raise AttachmentValidationError(
+                f"Model {model!r} does not support document attachments."
+            )
 
 
 def convert_messages(messages: list) -> List[Any]:

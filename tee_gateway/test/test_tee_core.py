@@ -11,7 +11,6 @@ None of these tests require a running server, API keys, or nitriding.
 """
 
 import base64
-import hashlib
 import json
 import unittest
 from unittest import mock
@@ -22,9 +21,9 @@ from eth_hash.auto import keccak
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from tee_gateway import ohttp
-from tee_gateway.controllers.chat_controller import _canonical_user_content
 from tee_gateway.llm_backend import (
     AttachmentValidationError,
+    canonical_user_content,
     convert_messages,
     extract_usage,
     validate_attachments,
@@ -768,8 +767,8 @@ class TestConvertMessages(unittest.TestCase):
 
 
 class TestValidateAttachments(unittest.TestCase):
-    """Attachment gating must reject modalities a model can't handle and enforce
-    the size cap, while never blocking a model whose capabilities are unknown."""
+    """Attachment gating must reject modalities a model can't handle, while never
+    blocking a model whose capabilities are unknown."""
 
     CAPS = "tee_gateway.llm_backend.get_model_capabilities"
 
@@ -810,9 +809,8 @@ class TestValidateAttachments(unittest.TestCase):
 
     def test_image_blocked_when_model_lacks_support(self):
         with mock.patch(self.CAPS, return_value={"image_inputs": False}):
-            with self.assertRaises(AttachmentValidationError) as cm:
+            with self.assertRaises(AttachmentValidationError):
                 validate_attachments(self._image_msg("aGVsbG8="), "grok-4")
-        self.assertEqual(cm.exception.status, 400)
 
     def test_image_allowed_when_model_supports(self):
         with mock.patch(self.CAPS, return_value={"image_inputs": True}):
@@ -830,30 +828,20 @@ class TestValidateAttachments(unittest.TestCase):
             with self.assertRaises(AttachmentValidationError):
                 validate_attachments(self._pdf_msg("JVBERi0="), "grok-4")
 
-    def test_size_cap_enforced(self):
-        big = "A" * 1000  # ~750 decoded bytes
-        with (
-            mock.patch(self.CAPS, return_value={"image_inputs": True}),
-            mock.patch("tee_gateway.llm_backend.MAX_ATTACHMENT_BYTES", 100),
-        ):
-            with self.assertRaises(AttachmentValidationError) as cm:
-                validate_attachments(self._image_msg(big), "gpt-5")
-        self.assertEqual(cm.exception.status, 413)
-
 
 # ---------------------------------------------------------------------------
-# chat_controller._canonical_user_content (request-hashing canonicalization)
+# llm_backend.canonical_user_content (request-hashing canonicalization)
 # ---------------------------------------------------------------------------
 
 
 class TestCanonicalUserContent(unittest.TestCase):
-    """The signed request commits to attachments via digest, never inlining the
-    base64 — otherwise the hash payload bloats and signatures become unwieldy."""
+    """The signed request commits to text and attachment filenames, never the
+    attachment bytes — those would bloat the signed payload for no benefit."""
 
     def test_string_content_passthrough(self):
-        self.assertEqual(_canonical_user_content("hello"), "hello")
+        self.assertEqual(canonical_user_content("hello"), "hello")
 
-    def test_attachment_digested_not_inlined(self):
+    def test_attachment_keeps_filename_drops_bytes(self):
         content = [
             {"type": "text", "text": "summarize"},
             {
@@ -864,14 +852,10 @@ class TestCanonicalUserContent(unittest.TestCase):
                 },
             },
         ]
-        out = _canonical_user_content(content)
+        out = canonical_user_content(content)
         self.assertEqual(out[0], {"type": "text", "text": "summarize"})
-        entry = out[1]
-        self.assertEqual(entry["type"], "file")
-        self.assertEqual(entry["mime_type"], "application/pdf")
-        self.assertEqual(entry["filename"], "a.pdf")
-        self.assertEqual(entry["sha256"], hashlib.sha256(b"JVBERi0xLjQK").hexdigest())
-        # The raw base64 must not appear anywhere in the hashed payload.
+        self.assertEqual(out[1], {"type": "file", "filename": "a.pdf"})
+        # The raw base64 must not appear anywhere in the signed payload.
         self.assertNotIn("JVBERi0xLjQK", json.dumps(out))
 
     def test_deterministic(self):
@@ -879,7 +863,7 @@ class TestCanonicalUserContent(unittest.TestCase):
             {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR=="}}
         ]
         self.assertEqual(
-            _canonical_user_content(content), _canonical_user_content(content)
+            canonical_user_content(content), canonical_user_content(content)
         )
 
 

@@ -22,9 +22,9 @@ from eth_hash.auto import keccak
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from tee_gateway import ohttp
-from tee_gateway.controllers.chat_controller import _canonical_user_content
 from tee_gateway.llm_backend import (
     AttachmentValidationError,
+    canonical_user_content,
     convert_messages,
     extract_usage,
     validate_attachments,
@@ -842,7 +842,7 @@ class TestValidateAttachments(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# chat_controller._canonical_user_content (request-hashing canonicalization)
+# llm_backend.canonical_user_content (request-hashing canonicalization)
 # ---------------------------------------------------------------------------
 
 
@@ -851,7 +851,7 @@ class TestCanonicalUserContent(unittest.TestCase):
     base64 — otherwise the hash payload bloats and signatures become unwieldy."""
 
     def test_string_content_passthrough(self):
-        self.assertEqual(_canonical_user_content("hello"), "hello")
+        self.assertEqual(canonical_user_content("hello"), "hello")
 
     def test_attachment_digested_not_inlined(self):
         content = [
@@ -864,7 +864,7 @@ class TestCanonicalUserContent(unittest.TestCase):
                 },
             },
         ]
-        out = _canonical_user_content(content)
+        out = canonical_user_content(content)
         self.assertEqual(out[0], {"type": "text", "text": "summarize"})
         entry = out[1]
         self.assertEqual(entry["type"], "file")
@@ -879,7 +879,7 @@ class TestCanonicalUserContent(unittest.TestCase):
             {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBOR=="}}
         ]
         self.assertEqual(
-            _canonical_user_content(content), _canonical_user_content(content)
+            canonical_user_content(content), canonical_user_content(content)
         )
 
 

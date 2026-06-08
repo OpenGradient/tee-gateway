@@ -1,4 +1,3 @@
-import hashlib
 import json
 import time
 import uuid
@@ -35,7 +34,7 @@ from tee_gateway.llm_backend import (
     generate_images,
     validate_attachments,
     AttachmentValidationError,
-    _convert_content_part,
+    canonical_user_content,
 )
 from tee_gateway.model_registry import get_model_config
 from tee_gateway.pricing import compute_session_cost
@@ -912,40 +911,6 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
 # ---------------------------------------------------------------------------
 
 
-def _canonical_user_content(content) -> Any:
-    """Canonicalize user-message content for request hashing.
-
-    Plain-string content is returned unchanged. For multimodal content (a list of
-    parts), inline attachment bytes are replaced with a ``sha256`` digest so the
-    signed request commits to the exact attachment content without bloating the
-    hashed payload with megabytes of base64. URL / file_id references are kept
-    verbatim.
-    """
-    if isinstance(content, str):
-        return content
-    if not isinstance(content, list):
-        return str(content)
-
-    canonical = []
-    for part in content:
-        block = _convert_content_part(part)
-        if block is None:
-            continue
-        if block["type"] == "text":
-            canonical.append({"type": "text", "text": block.get("text", "")})
-            continue
-        entry = {"type": block["type"]}
-        if "base64" in block:
-            entry["sha256"] = hashlib.sha256(
-                block["base64"].encode("utf-8")
-            ).hexdigest()
-        for key in ("mime_type", "filename", "url", "file_id"):
-            if block.get(key):
-                entry[key] = block[key]
-        canonical.append(entry)
-    return canonical
-
-
 def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
     """Serialize a CreateChatCompletionRequest to a canonical dict for hashing."""
     messages = []
@@ -956,7 +921,7 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
             messages.append(
                 {
                     "role": "user",
-                    "content": _canonical_user_content(msg.content),
+                    "content": canonical_user_content(msg.content),
                 }
             )
         elif isinstance(msg, ChatCompletionRequestAssistantMessage):

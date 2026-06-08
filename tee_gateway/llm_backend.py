@@ -6,6 +6,7 @@ and shared HTTP clients. Replaces src/server.py as the direct LLM backend
 called from the Flask/connexion controllers.
 """
 
+import hashlib
 import json
 import logging
 from typing import List, Dict, Optional, Any, Generator
@@ -423,6 +424,40 @@ def _convert_content_part(part: Any) -> Optional[Dict[str, Any]]:
     # Unknown part type: best-effort text extraction.
     text = part.get("text", "") or ""
     return {"type": "text", "text": text} if text else None
+
+
+def canonical_user_content(content: Any) -> Any:
+    """Canonicalize user-message content for request hashing.
+
+    Plain-string content is returned unchanged. For multimodal content (a list of
+    parts), inline attachment bytes are replaced with a ``sha256`` digest so the
+    signed request commits to the exact attachment content without bloating the
+    hashed payload with megabytes of base64. URL / file_id references are kept
+    verbatim.
+    """
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content)
+
+    canonical = []
+    for part in content:
+        block = _convert_content_part(part)
+        if block is None:
+            continue
+        if block["type"] == "text":
+            canonical.append({"type": "text", "text": block.get("text", "")})
+            continue
+        entry = {"type": block["type"]}
+        if "base64" in block:
+            entry["sha256"] = hashlib.sha256(
+                block["base64"].encode("utf-8")
+            ).hexdigest()
+        for key in ("mime_type", "filename", "url", "file_id"):
+            if block.get(key):
+                entry[key] = block[key]
+        canonical.append(entry)
+    return canonical
 
 
 def _normalize_user_content_parts(content: list) -> list:

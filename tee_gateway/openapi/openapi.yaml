@@ -2092,6 +2092,45 @@ components:
       - type
       title: Image content part
       type: object
+    ChatCompletionRequestMessageContentPartFile:
+      description: |
+        Learn about [file inputs](/docs/guides/text-generation) for text generation.
+      properties:
+        type:
+          description: The type of the content part. Always `file`.
+          enum:
+          - file
+          title: type
+          type: string
+        file:
+          $ref: "#/components/schemas/ChatCompletionRequestMessageContentPartFile_file"
+      required:
+      - file
+      - type
+      title: File content part
+      type: object
+    ChatCompletionRequestMessageContentPartFile_file:
+      description: |
+        The file to pass to the model. Either inline base64 data (`file_data`,
+        optionally with a `filename`) or a reference to a previously uploaded
+        file (`file_id`).
+      properties:
+        filename:
+          description: The name of the file, used when passing the file to the model
+            as inline data.
+          title: filename
+          type: string
+        file_data:
+          description: The base64 encoded file data (data URI), used when passing
+            the file to the model as inline data.
+          title: file_data
+          type: string
+        file_id:
+          description: The ID of an uploaded file to use as input.
+          title: file_id
+          type: string
+      title: ChatCompletionRequestMessageContentPartFile_file
+      type: object
     ChatCompletionRequestMessageContentPartRefusal:
       properties:
         type:
@@ -2204,6 +2243,7 @@ components:
       - $ref: "#/components/schemas/ChatCompletionRequestMessageContentPartText"
       - $ref: "#/components/schemas/ChatCompletionRequestMessageContentPartImage"
       - $ref: "#/components/schemas/ChatCompletionRequestMessageContentPartAudio"
+      - $ref: "#/components/schemas/ChatCompletionRequestMessageContentPartFile"
       title: ChatCompletionRequestUserMessageContentPart
       x-oaiExpandable: true
     ChatCompletionResponseMessage:

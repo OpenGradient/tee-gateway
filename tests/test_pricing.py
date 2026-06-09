@@ -118,6 +118,15 @@ class TestModelRegistry(unittest.TestCase):
         # Opus 4.7+ rejects the `temperature` field (HTTP 400)
         self.assertFalse(cfg.supports_temperature)
 
+    def test_claude_fable_5_resolves(self):
+        cfg = get_model_config("claude-fable-5")
+        self.assertEqual(cfg.provider, "anthropic")
+        self.assertEqual(cfg.api_name, "claude-fable-5")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00001"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00005"))
+        # Adaptive-thinking-only; rejects the `temperature` field (HTTP 400)
+        self.assertFalse(cfg.supports_temperature)
+
     # ── OpenAI ──────────────────────────────────────────────────────────────
 
     def test_gpt_4_1_resolves(self):

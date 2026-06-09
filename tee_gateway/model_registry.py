@@ -187,6 +187,16 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.000025"),
         supports_temperature=False,
     )
+    # Claude Fable 5 — Anthropic's most capable widely released model (GA on the
+    # first-party API from 2026-06-09). Adaptive-thinking-only; like Opus 4.7+ it
+    # rejects `temperature` (HTTP 400), so supports_temperature=False.
+    CLAUDE_FABLE_5 = ModelConfig(
+        provider="anthropic",
+        api_name="claude-fable-5",
+        input_price_usd=Decimal("0.00001"),
+        output_price_usd=Decimal("0.00005"),
+        supports_temperature=False,
+    )
 
     # ── Google Gemini ───────────────────────────────────────────────────
     # Note: gemini-2.5-flash, gemini-2.5-pro, and gemini-2.5-flash-lite are scheduled
@@ -418,6 +428,7 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "claude-opus-4-6": SupportedModel.CLAUDE_OPUS_4_6,
     "claude-opus-4-7": SupportedModel.CLAUDE_OPUS_4_7,
     "claude-opus-4-8": SupportedModel.CLAUDE_OPUS_4_8,
+    "claude-fable-5": SupportedModel.CLAUDE_FABLE_5,
     # Google
     "gemini-2.5-flash": SupportedModel.GEMINI_2_5_FLASH,
     "gemini-2.5-pro": SupportedModel.GEMINI_2_5_PRO,

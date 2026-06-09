@@ -334,14 +334,14 @@ class TestModelRegistry(unittest.TestCase):
     def test_hermes_4_405b_resolves(self):
         cfg = get_model_config("hermes-4-405b")
         self.assertEqual(cfg.provider, "nous")
-        self.assertEqual(cfg.api_name, "nousresearch/hermes-4-405b")
+        self.assertEqual(cfg.api_name, "Hermes-4-405B")
         self.assertEqual(cfg.input_price_usd, Decimal("0.00000009"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.00000037"))
 
     def test_hermes_4_70b_resolves(self):
         cfg = get_model_config("hermes-4-70b")
         self.assertEqual(cfg.provider, "nous")
-        self.assertEqual(cfg.api_name, "nousresearch/hermes-4-70b")
+        self.assertEqual(cfg.api_name, "Hermes-4-70B")
         self.assertEqual(cfg.input_price_usd, Decimal("0.00000013"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.0000004"))
 

@@ -28,6 +28,7 @@ class ProviderConfig:
     google_api_key: Optional[str] = None
     xai_api_key: Optional[str] = None
     bytedance_api_key: Optional[str] = None
+    nous_api_key: Optional[str] = None
 
     def initialized_providers(self) -> list[str]:
         """Return provider names whose API key is set (non-empty)."""
@@ -42,6 +43,8 @@ class ProviderConfig:
             providers.append("xai")
         if self.bytedance_api_key:
             providers.append("bytedance")
+        if self.nous_api_key:
+            providers.append("nous")
         return providers
 
 

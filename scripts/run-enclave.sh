@@ -90,6 +90,7 @@ if [ -f "$ENV_FILE" ]; then
         ANTHROPIC_API_KEY="$(grep -E '^ANTHROPIC_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         XAI_API_KEY="$(grep -E '^XAI_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         ARK_API_KEY="$(grep -E '^ARK_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
+        NOUS_API_KEY="$(grep -E '^NOUS_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
 
         # FACILITATOR_URL is used for both x402 payment verification and the heartbeat relay.
         # HEARTBEAT_CONTRACT_ADDRESS and TEE_HEARTBEAT_INTERVAL are optional heartbeat parameters.
@@ -106,6 +107,7 @@ if [ -f "$ENV_FILE" ]; then
             --arg anthropic "$ANTHROPIC_API_KEY" \
             --arg xai "$XAI_API_KEY" \
             --arg bytedance "$ARK_API_KEY" \
+            --arg nous "$NOUS_API_KEY" \
             --arg hb_contract "$HEARTBEAT_CONTRACT_ADDRESS" \
             --arg facilitator "$FACILITATOR_URL" \
             --arg hb_interval "$TEE_HEARTBEAT_INTERVAL" \
@@ -114,7 +116,8 @@ if [ -f "$ENV_FILE" ]; then
                 google_api_key: $google,
                 anthropic_api_key: $anthropic,
                 xai_api_key: $xai,
-                bytedance_api_key: $bytedance
+                bytedance_api_key: $bytedance,
+                nous_api_key: $nous
             }
             + if $hb_contract != "" then {heartbeat_contract_address: $hb_contract} else {} end
             + if $facilitator != "" then {facilitator_url: $facilitator} else {} end

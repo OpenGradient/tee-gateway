@@ -357,15 +357,20 @@ class SupportedModel(Enum):
     # ── Nous Research (Nous Portal, OpenAI-compatible) ──────────────────
     # Hermes 4 family, served via Nous's OpenAI-compatible inference API.
     # Pricing mirrors Nous Portal's published per-token rates.
+    #
+    # The Nous inference API is an OpenRouter-style aggregator: model ids are
+    # namespaced as "<org>/<model>" (e.g. "nousresearch/hermes-4-405b"). The bare
+    # "hermes-4-405b" form is NOT an accepted alias and is rejected with HTTP 400,
+    # so the provider-facing api_name must carry the "nousresearch/" prefix.
     HERMES_4_405B = ModelConfig(
         provider="nous",
-        api_name="hermes-4-405b",
+        api_name="nousresearch/hermes-4-405b",
         input_price_usd=Decimal("0.00000009"),
         output_price_usd=Decimal("0.00000037"),
     )
     HERMES_4_70B = ModelConfig(
         provider="nous",
-        api_name="hermes-4-70b",
+        api_name="nousresearch/hermes-4-70b",
         input_price_usd=Decimal("0.00000013"),
         output_price_usd=Decimal("0.0000004"),
     )

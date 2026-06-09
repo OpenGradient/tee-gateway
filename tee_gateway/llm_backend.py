@@ -50,11 +50,15 @@ _LIMITS = httpx.Limits(
 # BytePlus ModelArk OpenAI-compatible endpoint (ap-southeast)
 BYTEDANCE_BASE_URL = "https://ark.ap-southeast.bytepluses.com/api/v3"
 
+# Nous Research OpenAI-compatible inference endpoint (Nous Portal).
+NOUS_BASE_URL = "https://inference-api.nousresearch.com/v1"
+
 # Shared synchronous HTTP clients for each provider.
 # Initialized to None; built by set_provider_config() after key injection.
 openai_http_client: Optional[httpx.Client] = None
 xai_http_client: Optional[httpx.Client] = None
 bytedance_http_client: Optional[httpx.Client] = None
+nous_http_client: Optional[httpx.Client] = None
 
 
 _provider_config: Optional[ProviderConfig] = None
@@ -63,10 +67,12 @@ _provider_config: Optional[ProviderConfig] = None
 def set_provider_config(config: ProviderConfig) -> None:
     """Store the provider config and rebuild HTTP clients. Called once after key injection."""
     global _provider_config, openai_http_client, xai_http_client, bytedance_http_client
+    global nous_http_client
 
     old_openai = openai_http_client
     old_xai = xai_http_client
     old_bytedance = bytedance_http_client
+    old_nous = nous_http_client
 
     openai_http_client = httpx.Client(
         base_url="https://api.openai.com/v1",
@@ -92,6 +98,14 @@ def set_provider_config(config: ProviderConfig) -> None:
         http2=True,
         follow_redirects=False,
     )
+    nous_http_client = httpx.Client(
+        base_url=NOUS_BASE_URL,
+        headers={"Authorization": f"Bearer {config.nous_api_key or ''}"},
+        timeout=_TIMEOUT,
+        limits=_LIMITS,
+        http2=True,
+        follow_redirects=False,
+    )
 
     get_chat_model_cached.cache_clear()
     _provider_config = config
@@ -102,6 +116,8 @@ def set_provider_config(config: ProviderConfig) -> None:
         old_xai.close()
     if old_bytedance is not None:
         old_bytedance.close()
+    if old_nous is not None:
+        old_nous.close()
 
 
 def get_provider_config() -> Optional[ProviderConfig]:
@@ -251,6 +267,24 @@ def get_chat_model_cached(
             http_client=bytedance_http_client,
             api_key=SecretStr(config.bytedance_api_key),
             base_url=BYTEDANCE_BASE_URL,
+            streaming=True,
+            stream_usage=True,
+        )  # type: ignore [call-arg]
+
+    elif provider == "nous":
+        if not config.nous_api_key:
+            raise ValueError("nous_api_key not set in ProviderConfig")
+
+        if nous_http_client is None:
+            raise RuntimeError("Nous HTTP client has not been initialized")
+
+        return ChatOpenAI(
+            model=api_name,
+            temperature=effective_temp,
+            max_tokens=max_tokens,
+            http_client=nous_http_client,
+            api_key=SecretStr(config.nous_api_key),
+            base_url=NOUS_BASE_URL,
             streaming=True,
             stream_usage=True,
         )  # type: ignore [call-arg]

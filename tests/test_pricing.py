@@ -329,6 +329,22 @@ class TestModelRegistry(unittest.TestCase):
         cfg = get_model_config("seed-2-0-lite-260228")
         self.assertEqual(cfg, get_model_config("seed-2.0-lite"))
 
+    # ── Nous Research (Nous Portal) ─────────────────────────────────────────
+
+    def test_hermes_4_405b_resolves(self):
+        cfg = get_model_config("hermes-4-405b")
+        self.assertEqual(cfg.provider, "nous")
+        self.assertEqual(cfg.api_name, "hermes-4-405b")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00000009"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00000037"))
+
+    def test_hermes_4_70b_resolves(self):
+        cfg = get_model_config("hermes-4-70b")
+        self.assertEqual(cfg.provider, "nous")
+        self.assertEqual(cfg.api_name, "hermes-4-70b")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00000013"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000004"))
+
     # ── Errors ───────────────────────────────────────────────────────────────
 
     def test_unknown_model_raises(self):

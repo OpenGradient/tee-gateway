@@ -66,6 +66,7 @@ API keys (injected at runtime via POST /v1/keys — do NOT bake into the image):
 - `GOOGLE_API_KEY`
 - `XAI_API_KEY`
 - `ARK_API_KEY` (BytePlus / ByteDance ModelArk; injected as `bytedance_api_key`)
+- `NOUS_API_KEY` (Nous Research / Nous Portal; injected as `nous_api_key`)
 
 Server configuration:
 - `API_SERVER_PORT` (default: 8000)
@@ -116,6 +117,7 @@ Model name prefixes determine routing:
 - **Google**: gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview, gemini-3.1-pro-preview, gemini-3.1-flash-lite-preview, gemini-3.5-flash; image generation: gemini-2.5-flash-image, gemini-3.1-flash-image
 - **xAI**: grok-2, grok-3, grok-3-mini, grok-4, grok-4-fast, grok-4-1-fast; image generation: grok-2-image
 - **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite; image generation: seedream-4.0
+- **Nous Research** (Nous Portal, OpenAI-compatible): hermes-4-405b, hermes-4-70b
 
 Image generation via xAI (grok-2-image) and ByteDance (seedream-4.0) is served
 through a provider `/images/generations` endpoint rather than the chat path, but

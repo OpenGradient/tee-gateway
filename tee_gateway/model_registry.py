@@ -13,7 +13,7 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class ModelConfig:
-    provider: str  # "openai" | "anthropic" | "google" | "x-ai" | "bytedance"
+    provider: str  # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" | "nous"
     api_name: str  # model name sent to provider API
     input_price_usd: Decimal  # USD per token
     output_price_usd: Decimal  # USD per token
@@ -354,6 +354,22 @@ class SupportedModel(Enum):
         per_image_price_usd=Decimal("0.03"),
     )
 
+    # ── Nous Research (Nous Portal, OpenAI-compatible) ──────────────────
+    # Hermes 4 family, served via Nous's OpenAI-compatible inference API.
+    # Pricing mirrors Nous Portal's published per-token rates.
+    HERMES_4_405B = ModelConfig(
+        provider="nous",
+        api_name="hermes-4-405b",
+        input_price_usd=Decimal("0.00000009"),
+        output_price_usd=Decimal("0.00000037"),
+    )
+    HERMES_4_70B = ModelConfig(
+        provider="nous",
+        api_name="hermes-4-70b",
+        input_price_usd=Decimal("0.00000013"),
+        output_price_usd=Decimal("0.0000004"),
+    )
+
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──
     GROK_3_MINI = ModelConfig(
         provider="x-ai",
@@ -430,6 +446,9 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "seedream-4-0-250828": SupportedModel.SEEDREAM_4_0,
     "seedream-4.0": SupportedModel.SEEDREAM_4_0,
     "seedream-4-0": SupportedModel.SEEDREAM_4_0,
+    # Nous Research
+    "hermes-4-405b": SupportedModel.HERMES_4_405B,
+    "hermes-4-70b": SupportedModel.HERMES_4_70B,
     # Legacy — not in current SDK, retained for older SDK versions
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
     "grok-3-mini": SupportedModel.GROK_3_MINI,

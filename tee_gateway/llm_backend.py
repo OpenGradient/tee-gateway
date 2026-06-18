@@ -36,8 +36,8 @@ ANTHROPIC_TIMEOUT = 120.0
 _TIMEOUT = httpx.Timeout(
     timeout=120.0,
     connect=15.0,
-    read=15.0,
-    write=30.0,
+    read=60.0,
+    write=60.0,
     pool=10.0,
 )
 

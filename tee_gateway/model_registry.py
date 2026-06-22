@@ -13,7 +13,8 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class ModelConfig:
-    provider: str  # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" | "nous" | "zai"
+    # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" | "nous" | "zai"
+    provider: str
     api_name: str  # model name sent to provider API
     input_price_usd: Decimal  # USD per token
     output_price_usd: Decimal  # USD per token

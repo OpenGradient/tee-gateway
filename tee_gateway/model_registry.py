@@ -13,7 +13,8 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class ModelConfig:
-    provider: str  # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" | "nous"
+    # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" | "nous" | "zai"
+    provider: str
     api_name: str  # model name sent to provider API
     input_price_usd: Decimal  # USD per token
     output_price_usd: Decimal  # USD per token
@@ -385,6 +386,24 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.0000004"),
     )
 
+    # ── Z.ai (Model API, OpenAI-compatible) ─────────────────────────────
+    # Z.ai publishes GLM-5.2 prices per 1M tokens: $1.40 input, $4.40 output.
+    GLM_5_2 = ModelConfig(
+        provider="zai",
+        api_name="glm-5.2",
+        input_price_usd=Decimal("0.0000014"),
+        output_price_usd=Decimal("0.0000044"),
+    )
+    # GLM-Image uses Z.ai's image endpoint and is billed per generated image.
+    GLM_IMAGE = ModelConfig(
+        provider="zai",
+        api_name="glm-image",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.015"),
+    )
+
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──
     GROK_3_MINI = ModelConfig(
         provider="x-ai",
@@ -465,6 +484,9 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     # Nous Research
     "hermes-4-405b": SupportedModel.HERMES_4_405B,
     "hermes-4-70b": SupportedModel.HERMES_4_70B,
+    # Z.ai
+    "glm-5.2": SupportedModel.GLM_5_2,
+    "glm-image": SupportedModel.GLM_IMAGE,
     # Legacy — not in current SDK, retained for older SDK versions
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
     "grok-3-mini": SupportedModel.GROK_3_MINI,

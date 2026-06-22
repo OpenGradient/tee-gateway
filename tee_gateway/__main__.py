@@ -394,6 +394,7 @@ def set_provider_keys():
             xai_api_key=body.get("xai_api_key") or None,
             bytedance_api_key=body.get("bytedance_api_key") or None,
             nous_api_key=body.get("nous_api_key") or None,
+            zai_api_key=body.get("zai_api_key") or None,
         )
         set_provider_config(provider_config)
 
@@ -456,6 +457,9 @@ def set_provider_keys():
         logger.info(
             "  nous_api_key                : %s", _set(provider_config.nous_api_key)
         )
+        logger.info(
+            "  zai_api_key                 : %s", _set(provider_config.zai_api_key)
+        )
         logger.info("  facilitator_url             : %s", facilitator_url)
         logger.info(
             "  heartbeat_contract_address  : %s",
@@ -489,6 +493,7 @@ def set_provider_keys():
             "xai": provider_config.xai_api_key,
             "bytedance": provider_config.bytedance_api_key,
             "nous": provider_config.nous_api_key,
+            "zai": provider_config.zai_api_key,
         }.items()
         if k
     ]

@@ -1,11 +1,12 @@
-"""Tests for endpoint-based image generation (xAI Grok, ByteDance Seedream).
+"""Tests for endpoint-based image generation (xAI Grok, ByteDance Seedream,
+Z.ai GLM-Image).
 
 Unlike Gemini's inline-image chat models (see test_image_billing.py), these
 models are served via a dedicated OpenAI-compatible ``/images/generations``
 endpoint and billed a flat price per generated image. These tests pin:
 
   1. The request/response handling in ``generate_images`` (b64_json -> data URI,
-     n clamping, url fallback).
+     n clamping, url fallback, provider-specific payloads).
   2. The flat per-image billing in ``compute_session_cost``.
 
 No network or API key required — the provider HTTP client is mocked and a stub
@@ -24,6 +25,7 @@ from tee_gateway.pricing import compute_session_cost
 
 GROK_IMAGE = "grok-2-image"
 SEEDREAM = "seedream-4.0"
+GLM_IMAGE = "glm-image"
 
 
 def _mock_response(data: list[dict]) -> MagicMock:
@@ -70,6 +72,23 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertEqual(images, ["https://img/1.jpg"])
 
+    def test_zai_glm_image_uses_documented_payload_and_url_response(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"url": "https://z.ai/img.png"}])
+        with patch.object(llm_backend, "zai_http_client", client):
+            images, count = generate_images(GLM_IMAGE, "a poster", n=3)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(images, ["https://z.ai/img.png"])
+
+        _, kwargs = client.post.call_args
+        payload = kwargs["json"]
+        self.assertEqual(payload["model"], "glm-image")
+        self.assertEqual(payload["prompt"], "a poster")
+        self.assertEqual(payload["size"], "1280x1280")
+        self.assertNotIn("n", payload)
+        self.assertNotIn("response_format", payload)
+
     def test_n_is_clamped_to_provider_range(self):
         client = MagicMock()
         client.post.return_value = _mock_response([{"b64_json": "x"}])
@@ -109,7 +128,7 @@ class TestPerImageBilling(unittest.TestCase):
         return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     def test_single_image_charged_flat_price(self):
-        for model in (GROK_IMAGE, SEEDREAM):
+        for model in (GROK_IMAGE, SEEDREAM, GLM_IMAGE):
             with self.subTest(model=model):
                 cfg = get_model_config(model)
                 cost = compute_session_cost(model, self._zero_usage(), image_count=1)

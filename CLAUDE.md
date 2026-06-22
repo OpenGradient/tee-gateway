@@ -67,6 +67,7 @@ API keys (injected at runtime via POST /v1/keys — do NOT bake into the image):
 - `XAI_API_KEY`
 - `ARK_API_KEY` (BytePlus / ByteDance ModelArk; injected as `bytedance_api_key`)
 - `NOUS_API_KEY` (Nous Research / Nous Portal; injected as `nous_api_key`)
+- `ZAI_API_KEY` (Z.ai Model API; injected as `zai_api_key`)
 
 Server configuration:
 - `API_SERVER_PORT` (default: 8000)
@@ -118,13 +119,14 @@ Model name prefixes determine routing:
 - **xAI**: grok-2, grok-3, grok-3-mini, grok-4, grok-4-fast, grok-4-1-fast; image generation: grok-2-image
 - **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite; image generation: seedream-4.0
 - **Nous Research** (Nous Portal, OpenAI-compatible): hermes-4-405b, hermes-4-70b
+- **Z.ai** (Model API, OpenAI-compatible): glm-5.2; image generation: glm-image
 
-Image generation via xAI (grok-2-image) and ByteDance (seedream-4.0) is served
-through a provider `/images/generations` endpoint rather than the chat path, but
-is surfaced on `/v1/chat/completions` exactly like Gemini's inline-image models
-(images returned out-of-band under the message `images` key). These models are
-billed a flat per-image price (see `per_image_price_usd` in `model_registry.py`),
-not per token.
+Image generation via xAI (grok-2-image), ByteDance (seedream-4.0), and Z.ai
+(glm-image) is served through a provider `/images/generations` endpoint rather
+than the chat path, but is surfaced on `/v1/chat/completions` exactly like
+Gemini's inline-image models (images returned out-of-band under the message
+`images` key). These models are billed a flat per-image price (see
+`per_image_price_usd` in `model_registry.py`), not per token.
 
 ## Verification Examples
 

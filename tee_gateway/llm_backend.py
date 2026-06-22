@@ -53,12 +53,19 @@ BYTEDANCE_BASE_URL = "https://ark.ap-southeast.bytepluses.com/api/v3"
 # Nous Research OpenAI-compatible inference endpoint (Nous Portal).
 NOUS_BASE_URL = "https://inference-api.nousresearch.com/v1"
 
+# Z.ai Model API OpenAI-compatible endpoint. The full chat URL is
+# https://api.z.ai/api/paas/v4/chat/completions; ChatOpenAI appends
+# /chat/completions to this base URL. Do not confuse this paid Model API with
+# the subscription Coding Plan endpoint at /api/coding/paas/v4.
+ZAI_BASE_URL = "https://api.z.ai/api/paas/v4"
+
 # Shared synchronous HTTP clients for each provider.
 # Initialized to None; built by set_provider_config() after key injection.
 openai_http_client: Optional[httpx.Client] = None
 xai_http_client: Optional[httpx.Client] = None
 bytedance_http_client: Optional[httpx.Client] = None
 nous_http_client: Optional[httpx.Client] = None
+zai_http_client: Optional[httpx.Client] = None
 
 
 _provider_config: Optional[ProviderConfig] = None
@@ -67,12 +74,13 @@ _provider_config: Optional[ProviderConfig] = None
 def set_provider_config(config: ProviderConfig) -> None:
     """Store the provider config and rebuild HTTP clients. Called once after key injection."""
     global _provider_config, openai_http_client, xai_http_client, bytedance_http_client
-    global nous_http_client
+    global nous_http_client, zai_http_client
 
     old_openai = openai_http_client
     old_xai = xai_http_client
     old_bytedance = bytedance_http_client
     old_nous = nous_http_client
+    old_zai = zai_http_client
 
     openai_http_client = httpx.Client(
         base_url="https://api.openai.com/v1",
@@ -106,6 +114,14 @@ def set_provider_config(config: ProviderConfig) -> None:
         http2=True,
         follow_redirects=False,
     )
+    zai_http_client = httpx.Client(
+        base_url=ZAI_BASE_URL,
+        headers={"Authorization": f"Bearer {config.zai_api_key or ''}"},
+        timeout=_TIMEOUT,
+        limits=_LIMITS,
+        http2=True,
+        follow_redirects=False,
+    )
 
     get_chat_model_cached.cache_clear()
     _provider_config = config
@@ -118,6 +134,8 @@ def set_provider_config(config: ProviderConfig) -> None:
         old_bytedance.close()
     if old_nous is not None:
         old_nous.close()
+    if old_zai is not None:
+        old_zai.close()
 
 
 def get_provider_config() -> Optional[ProviderConfig]:
@@ -289,6 +307,24 @@ def get_chat_model_cached(
             stream_usage=True,
         )  # type: ignore [call-arg]
 
+    elif provider == "zai":
+        if not config.zai_api_key:
+            raise ValueError("zai_api_key not set in ProviderConfig")
+
+        if zai_http_client is None:
+            raise RuntimeError("Z.ai HTTP client has not been initialized")
+
+        return ChatOpenAI(
+            model=api_name,
+            temperature=effective_temp,
+            max_tokens=max_tokens,
+            http_client=zai_http_client,
+            api_key=SecretStr(config.zai_api_key),
+            base_url=ZAI_BASE_URL,
+            streaming=True,
+            stream_usage=True,
+        )  # type: ignore [call-arg]
+
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
@@ -300,11 +336,11 @@ _IMAGE_GENERATION_PATH = "/images/generations"
 def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int]:
     """Generate images via a provider's OpenAI-compatible images endpoint.
 
-    Unlike Gemini's inline-image chat models, xAI (Aurora) and ByteDance
-    (Seedream) expose image generation through a dedicated
+    Unlike Gemini's inline-image chat models, xAI (Aurora), ByteDance
+    (Seedream), and Z.ai (GLM-Image) expose image generation through a dedicated
     ``POST /images/generations`` endpoint. We request ``b64_json`` so the image
-    bytes ride inline inside the OHTTP/TEE envelope rather than as external URLs
-    that leak the content and expire.
+    bytes ride inline inside the OHTTP/TEE envelope for providers that support
+    it. Z.ai returns temporary image URLs only.
 
     Returns ``(data_uris, image_count)`` where each entry is a ``data:`` URI. The
     count is used for per-image billing. Falls back to provider-returned URLs if
@@ -317,6 +353,8 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
         client = xai_http_client
     elif provider == "bytedance":
         client = bytedance_http_client
+    elif provider == "zai":
+        client = zai_http_client
     else:
         raise ValueError(
             f"Provider {provider!r} does not support the image-generation endpoint"
@@ -325,14 +363,20 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
     if client is None:
         raise RuntimeError(f"{provider} HTTP client has not been initialized")
 
-    # n is clamped to the providers' documented 1..10 range.
+    # n is clamped to the OpenAI-compatible providers' documented 1..10 range.
+    # Z.ai's GLM-Image endpoint currently returns exactly one image and does not
+    # document n/response_format support, so keep its payload to the documented
+    # fields.
     count = max(1, min(int(n), 10))
     payload: dict[str, Any] = {
         "model": cfg.api_name,
         "prompt": prompt,
-        "n": count,
-        "response_format": "b64_json",
     }
+    if provider == "zai":
+        payload["size"] = "1280x1280"
+    else:
+        payload["n"] = count
+        payload["response_format"] = "b64_json"
 
     logger.info(
         "Generating %d image(s) - Provider: %s, Model: %s",

@@ -354,6 +354,22 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.00000013"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.0000004"))
 
+    # ── Z.ai (Model API) ───────────────────────────────────────────────────
+
+    def test_glm_5_2_resolves(self):
+        cfg = get_model_config("glm-5.2")
+        self.assertEqual(cfg.provider, "zai")
+        self.assertEqual(cfg.api_name, "glm-5.2")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000014"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000044"))
+
+    def test_glm_image_resolves(self):
+        cfg = get_model_config("glm-image")
+        self.assertEqual(cfg.provider, "zai")
+        self.assertEqual(cfg.api_name, "glm-image")
+        self.assertTrue(cfg.image_generation)
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.015"))
+
     # ── Errors ───────────────────────────────────────────────────────────────
 
     def test_unknown_model_raises(self):

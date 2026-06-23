@@ -7,6 +7,7 @@ called from the Flask/connexion controllers.
 """
 
 import json
+import base64
 import logging
 from typing import List, Dict, Optional, Any, Generator
 from functools import lru_cache
@@ -404,7 +405,17 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
             continue
         url = item.get("url")
         if url:
-            images.append(url)
+            # Fetch the CDN URL and convert to a data: URI so the SDK always
+            # receives inline base64 rather than an expiring pre-signed link.
+            try:
+                img_resp = httpx.get(url, timeout=60, follow_redirects=True)
+                img_resp.raise_for_status()
+                mime = img_resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+                b64_data = base64.b64encode(img_resp.content).decode("ascii")
+                images.append(f"data:{mime};base64,{b64_data}")
+            except Exception:
+                logger.warning("Failed to fetch image URL %s, returning URL as-is", url)
+                images.append(url)
 
     return images, len(images)
 

@@ -376,6 +376,17 @@ class SupportedModel(Enum):
         image_generation=True,
         per_image_price_usd=Decimal("0.03"),
     )
+    # Seedance 4.5 image generation via a ModelArk deployment endpoint.
+    # Uses URL response format and seedance-specific request params
+    # (sequential_image_generation, watermark, size). Billed per image.
+    SEEDANCE_4_5 = ModelConfig(
+        provider="bytedance",
+        api_name="ep-20260624042612-7dxcv",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.05"),
+    )
 
     # ── Nous Research (Nous Portal, OpenAI-compatible) ──────────────────
     # Hermes 4 family, served via Nous's OpenAI-compatible inference API.
@@ -497,6 +508,9 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "seedream-4-0-250828": SupportedModel.SEEDREAM_4_0,
     "seedream-4.0": SupportedModel.SEEDREAM_4_0,
     "seedream-4-0": SupportedModel.SEEDREAM_4_0,
+    "ep-20260624042612-7dxcv": SupportedModel.SEEDANCE_4_5,
+    "seedance-4.5": SupportedModel.SEEDANCE_4_5,
+    "seedance-4-5": SupportedModel.SEEDANCE_4_5,
     # Nous Research
     "hermes-4-405b": SupportedModel.HERMES_4_405B,
     "hermes-4-70b": SupportedModel.HERMES_4_70B,

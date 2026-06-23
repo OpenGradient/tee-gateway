@@ -1,5 +1,5 @@
 """Tests for endpoint-based image generation (xAI Grok, ByteDance Seedream,
-Z.ai GLM-Image).
+ByteDance Seedance, Z.ai GLM-Image).
 
 Unlike Gemini's inline-image chat models (see test_image_billing.py), these
 models are served via a dedicated OpenAI-compatible ``/images/generations``
@@ -25,6 +25,7 @@ from tee_gateway.pricing import compute_session_cost
 
 GROK_IMAGE = "grok-2-image"
 SEEDREAM = "seedream-4.0"
+SEEDANCE = "seedance-4.5"
 GLM_IMAGE = "glm-image"
 
 
@@ -89,6 +90,26 @@ class TestGenerateImages(unittest.TestCase):
         self.assertNotIn("n", payload)
         self.assertNotIn("response_format", payload)
 
+    def test_seedance_uses_url_format_and_extra_params(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"url": "https://cdn/img.jpg"}])
+        with patch.object(llm_backend, "bytedance_http_client", client):
+            images, count = generate_images(SEEDANCE, "a black hole", n=1)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(images, ["https://cdn/img.jpg"])
+
+        _, kwargs = client.post.call_args
+        payload = kwargs["json"]
+        self.assertEqual(payload["model"], get_model_config(SEEDANCE).api_name)
+        self.assertEqual(payload["prompt"], "a black hole")
+        self.assertEqual(payload["response_format"], "url")
+        self.assertEqual(payload["sequential_image_generation"], "disabled")
+        self.assertFalse(payload["watermark"])
+        self.assertEqual(payload["size"], "2K")
+        self.assertFalse(payload["stream"])
+        self.assertNotIn("n", payload)
+
     def test_n_is_clamped_to_provider_range(self):
         client = MagicMock()
         client.post.return_value = _mock_response([{"b64_json": "x"}])
@@ -128,7 +149,7 @@ class TestPerImageBilling(unittest.TestCase):
         return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     def test_single_image_charged_flat_price(self):
-        for model in (GROK_IMAGE, SEEDREAM, GLM_IMAGE):
+        for model in (GROK_IMAGE, SEEDREAM, SEEDANCE, GLM_IMAGE):
             with self.subTest(model=model):
                 cfg = get_model_config(model)
                 cost = compute_session_cost(model, self._zero_usage(), image_count=1)

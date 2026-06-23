@@ -13,7 +13,6 @@ No network or API key required — the provider HTTP client is mocked and a stub
 price feed is injected.
 """
 
-import base64
 import unittest
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -65,38 +64,23 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(payload["n"], 2)
         self.assertEqual(payload["response_format"], "b64_json")
 
-    def _mock_httpx_get(self, content: bytes = b"\xff\xd8\xff", content_type: str = "image/jpeg"):
-        """Return a mock for httpx.get that yields fake image bytes."""
-        img_resp = MagicMock()
-        img_resp.raise_for_status.return_value = None
-        img_resp.content = content
-        img_resp.headers = {"content-type": content_type}
-        return img_resp
-
-    def test_url_fallback_fetches_and_converts_to_data_uri(self):
+    def test_url_fallback_when_no_b64(self):
         client = MagicMock()
         client.post.return_value = _mock_response([{"url": "https://img/1.jpg"}])
-        fake_bytes = b"\xff\xd8\xff"
-        with patch.object(llm_backend, "bytedance_http_client", client), \
-             patch("httpx.get", return_value=self._mock_httpx_get(fake_bytes)) as mock_get:
+        with patch.object(llm_backend, "bytedance_http_client", client):
             images, count = generate_images(SEEDREAM, "a blue sphere", n=1)
 
-        mock_get.assert_called_once_with("https://img/1.jpg", timeout=60, follow_redirects=True)
         self.assertEqual(count, 1)
-        expected = f"data:image/jpeg;base64,{base64.b64encode(fake_bytes).decode()}"
-        self.assertEqual(images, [expected])
+        self.assertEqual(images, ["https://img/1.jpg"])
 
     def test_zai_glm_image_uses_documented_payload_and_url_response(self):
         client = MagicMock()
         client.post.return_value = _mock_response([{"url": "https://z.ai/img.png"}])
-        fake_bytes = b"\x89PNG"
-        with patch.object(llm_backend, "zai_http_client", client), \
-             patch("httpx.get", return_value=self._mock_httpx_get(fake_bytes, "image/png")):
+        with patch.object(llm_backend, "zai_http_client", client):
             images, count = generate_images(GLM_IMAGE, "a poster", n=3)
 
         self.assertEqual(count, 1)
-        expected = f"data:image/png;base64,{base64.b64encode(fake_bytes).decode()}"
-        self.assertEqual(images, [expected])
+        self.assertEqual(images, ["https://z.ai/img.png"])
 
         _, kwargs = client.post.call_args
         payload = kwargs["json"]
@@ -109,14 +93,11 @@ class TestGenerateImages(unittest.TestCase):
     def test_seedance_uses_url_format_and_extra_params(self):
         client = MagicMock()
         client.post.return_value = _mock_response([{"url": "https://cdn/img.jpg"}])
-        fake_bytes = b"\xff\xd8\xff"
-        with patch.object(llm_backend, "bytedance_http_client", client), \
-             patch("httpx.get", return_value=self._mock_httpx_get(fake_bytes)):
+        with patch.object(llm_backend, "bytedance_http_client", client):
             images, count = generate_images(SEEDANCE, "a black hole", n=1)
 
         self.assertEqual(count, 1)
-        expected = f"data:image/jpeg;base64,{base64.b64encode(fake_bytes).decode()}"
-        self.assertEqual(images, [expected])
+        self.assertEqual(images, ["https://cdn/img.jpg"])
 
         _, kwargs = client.post.call_args
         payload = kwargs["json"]

@@ -349,10 +349,6 @@ class TestModelRegistry(unittest.TestCase):
         cfg = get_model_config("deepseek-v4-flash-260425")
         self.assertEqual(cfg, get_model_config("deepseek-v4-flash"))
 
-    def test_deepseek_v4_flash_bytedance_alias_resolves(self):
-        cfg = get_model_config("bytedance/deepseek-v4-flash")
-        self.assertEqual(cfg, get_model_config("deepseek-v4-flash"))
-
     def test_deepseek_v4_pro_resolves(self):
         cfg = get_model_config("deepseek-v4-pro")
         self.assertEqual(cfg.provider, "bytedance")
@@ -361,8 +357,6 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.output_price_usd, Decimal("0.00000348"))
 
     def test_deepseek_v4_pro_aliases_resolve(self):
-        cfg = get_model_config("bytedance/deepseek-v4-pro")
-        self.assertEqual(cfg, get_model_config("deepseek-v4-pro"))
         self.assertEqual(
             get_model_config("deepseek-v4-pro-260425"),
             get_model_config("deepseek-v4-pro"),

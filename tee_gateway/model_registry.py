@@ -359,6 +359,12 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.00000014"),
         output_price_usd=Decimal("0.00000028"),
     )
+    DEEPSEEK_V4_PRO = ModelConfig(
+        provider="bytedance",
+        api_name="deepseek-v4-pro-260425",
+        input_price_usd=Decimal("0.00000174"),
+        output_price_usd=Decimal("0.00000348"),
+    )
     # Seedream 4.0 image generation via ModelArk's OpenAI-compatible
     # /images/generations endpoint. Billed at a flat $0.03 per generated image;
     # token prices unused.
@@ -486,6 +492,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "seed-2.0-lite": SupportedModel.SEED_2_0_LITE,
     "deepseek-v4-flash-260425": SupportedModel.DEEPSEEK_V4_FLASH,
     "deepseek-v4-flash": SupportedModel.DEEPSEEK_V4_FLASH,
+    "deepseek-v4-pro-260425": SupportedModel.DEEPSEEK_V4_PRO,
+    "deepseek-v4-pro": SupportedModel.DEEPSEEK_V4_PRO,
     "seedream-4-0-250828": SupportedModel.SEEDREAM_4_0,
     "seedream-4.0": SupportedModel.SEEDREAM_4_0,
     "seedream-4-0": SupportedModel.SEEDREAM_4_0,

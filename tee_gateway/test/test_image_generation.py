@@ -110,6 +110,53 @@ class TestGenerateImages(unittest.TestCase):
         self.assertFalse(payload["stream"])
         self.assertNotIn("n", payload)
 
+    def test_seedance_forwards_single_reference_image(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"url": "https://cdn/edited.jpg"}])
+        with patch.object(llm_backend, "bytedance_http_client", client):
+            generate_images(
+                SEEDANCE,
+                "add a hat",
+                n=1,
+                reference_images=["https://cdn/original.jpg"],
+            )
+
+        payload = client.post.call_args.kwargs["json"]
+        # A single reference is sent as a bare string (Seedream/Seedance accept
+        # either a string or an array for the `image` field).
+        self.assertEqual(payload["image"], "https://cdn/original.jpg")
+
+    def test_seedream_forwards_multiple_reference_images_as_array(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "x"}])
+        refs = ["data:image/png;base64,AAA", "https://cdn/b.jpg"]
+        with patch.object(llm_backend, "bytedance_http_client", client):
+            generate_images(SEEDREAM, "fuse these", n=1, reference_images=refs)
+
+        payload = client.post.call_args.kwargs["json"]
+        self.assertEqual(payload["image"], refs)
+
+    def test_reference_images_clamped_to_ten(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "x"}])
+        refs = [f"https://cdn/{i}.jpg" for i in range(15)]
+        with patch.object(llm_backend, "bytedance_http_client", client):
+            generate_images(SEEDREAM, "p", n=1, reference_images=refs)
+
+        payload = client.post.call_args.kwargs["json"]
+        self.assertEqual(len(payload["image"]), 10)
+
+    def test_reference_images_ignored_for_non_bytedance(self):
+        # xAI/Z.ai text-to-image endpoints don't support image edit; the `image`
+        # field must not leak into their payloads.
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "x"}])
+        with patch.object(llm_backend, "xai_http_client", client):
+            generate_images(
+                GROK_IMAGE, "p", n=1, reference_images=["https://cdn/x.jpg"]
+            )
+        self.assertNotIn("image", client.post.call_args.kwargs["json"])
+
     def test_n_is_clamped_to_provider_range(self):
         client = MagicMock()
         client.post.return_value = _mock_response([{"b64_json": "x"}])

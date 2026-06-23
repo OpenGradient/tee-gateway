@@ -333,7 +333,12 @@ def get_chat_model_cached(
 _IMAGE_GENERATION_PATH = "/images/generations"
 
 
-def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int]:
+def generate_images(
+    model: str,
+    prompt: str,
+    n: int = 1,
+    reference_images: Optional[List[str]] = None,
+) -> tuple[list[str], int]:
     """Generate images via a provider's OpenAI-compatible images endpoint.
 
     Unlike Gemini's inline-image chat models, xAI (Aurora), ByteDance
@@ -341,6 +346,12 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
     ``POST /images/generations`` endpoint. We request ``b64_json`` so the image
     bytes ride inline inside the OHTTP/TEE envelope for providers that support
     it. Z.ai returns temporary image URLs only.
+
+    ``reference_images`` carries input images for image-to-image editing (e.g. a
+    follow-up "add a hat" that builds on the previously generated image). On
+    ByteDance Seedream/Seedance these ride on the same endpoint via the ``image``
+    field, which accepts a URL or a base64 ``data:`` URI (or an array of them, up
+    to 10). Providers without image-edit support ignore the references.
 
     Returns ``(data_uris, image_count)`` where each entry is a ``data:`` URI. The
     count is used for per-image billing. Falls back to provider-returned URLs if
@@ -383,6 +394,16 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
     else:
         payload["n"] = count
         payload["response_format"] = "b64_json"
+
+    # Image-to-image editing: ByteDance Seedream/Seedance accept reference images
+    # on the same endpoint via the ``image`` field (URL or base64 data URI; an
+    # array for multi-reference edits, up to 10). Without this, a follow-up edit
+    # like "add a hat" would silently ignore the prior image and generate a fresh
+    # one from the prompt text alone. Only ByteDance is known to support this;
+    # other providers' text-to-image endpoints reject unknown fields, so gate it.
+    if reference_images and provider == "bytedance":
+        refs = reference_images[:10]
+        payload["image"] = refs[0] if len(refs) == 1 else refs
 
     logger.info(
         "Generating %d image(s) - Provider: %s, Model: %s",

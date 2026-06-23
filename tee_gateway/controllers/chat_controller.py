@@ -83,15 +83,69 @@ def _extract_image_prompt(langchain_messages: list) -> str:
     Image-generation models (xAI Grok, ByteDance Seedream) take a single text
     prompt rather than a chat transcript, so we join the text of all human
     messages. System/assistant/tool turns are ignored.
+
+    A user turn carrying an attached reference image has list (multimodal)
+    content; we pull out only its ``text`` parts. (Naively stringifying the list
+    would splice the base64 image blob into the prompt — the reference image is
+    forwarded separately via ``_extract_reference_images``.)
     """
     from langchain_core.messages import HumanMessage
 
     parts: list[str] = []
     for m in langchain_messages:
-        if isinstance(m, HumanMessage):
-            content = m.content
-            parts.append(content if isinstance(content, str) else str(content))
-    return "\n".join(p for p in parts if p)
+        if not isinstance(m, HumanMessage):
+            continue
+        content = m.content
+        if isinstance(content, str):
+            if content:
+                parts.append(content)
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get("type") == "text" and part.get("text"):
+                        parts.append(part["text"])
+                elif isinstance(part, str) and part:
+                    parts.append(part)
+    return "\n".join(parts)
+
+
+def _extract_reference_images(langchain_messages: list) -> list[str]:
+    """Collect reference-image URLs/data-URIs from the user turns.
+
+    Endpoint-based image models (Seedream/Seedance) support image-to-image
+    editing: the client attaches the prior generated image (or an uploaded one)
+    to the latest user turn as an ``image_url`` content part. We pull those out
+    so they can be forwarded to the provider as reference images — without them a
+    follow-up like "add a hat" ignores the previous image and generates from the
+    prompt text alone. In practice only the latest user turn carries images, so
+    collecting across turns just yields the active references.
+    """
+    from langchain_core.messages import HumanMessage
+
+    images: list[str] = []
+    for m in langchain_messages:
+        if not isinstance(m, HumanMessage):
+            continue
+        content = m.content
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            ptype = part.get("type")
+            if ptype == "image_url":
+                image_url = part.get("image_url")
+                url = image_url.get("url") if isinstance(image_url, dict) else image_url
+                if url:
+                    images.append(url)
+            elif ptype == "image":
+                # Standard LangChain image block: inline base64 + mime, or a url.
+                if part.get("base64"):
+                    mime = part.get("mime_type") or "image/png"
+                    images.append(f"data:{mime};base64,{part['base64']}")
+                elif part.get("url"):
+                    images.append(part["url"])
+    return images
 
 
 def create_chat_completion(body):
@@ -240,8 +294,12 @@ def _create_image_generation_response(
     """
     langchain_messages = convert_messages(chat_request.messages)
     prompt = _extract_image_prompt(langchain_messages)
+    reference_images = _extract_reference_images(langchain_messages)
     images, image_count = generate_images(
-        chat_request.model, prompt, n=chat_request.n or 1
+        chat_request.model,
+        prompt,
+        n=chat_request.n or 1,
+        reference_images=reference_images,
     )
 
     message_dict: dict[str, Any] = {"role": "assistant", "content": ""}
@@ -289,8 +347,12 @@ def _create_image_generation_streaming_response(
         try:
             langchain_messages = convert_messages(chat_request.messages)
             prompt = _extract_image_prompt(langchain_messages)
+            reference_images = _extract_reference_images(langchain_messages)
             images, image_count = generate_images(
-                chat_request.model, prompt, n=chat_request.n or 1
+                chat_request.model,
+                prompt,
+                n=chat_request.n or 1,
+                reference_images=reference_images,
             )
 
             timestamp = int(time.time())

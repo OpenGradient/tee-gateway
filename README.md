@@ -36,7 +36,7 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 | Anthropic | claude-sonnet-4-5, claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-5, claude-opus-4-6 |
 | Google | gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview |
 | xAI | grok-4, grok-4-fast, grok-4-1-fast, grok-4-1-fast-non-reasoning |
-| ByteDance | seed-1.6, seed-1.8, seed-2.0-lite |
+| ByteDance | seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro |
 
 ## Quick Start
 
@@ -52,6 +52,8 @@ export ANTHROPIC_API_KEY=sk-ant-...
 export GOOGLE_API_KEY=...
 export XAI_API_KEY=...
 export ARK_API_KEY=...   # BytePlus / ByteDance ModelArk
+export NOUS_API_KEY=...  # Nous Research / Nous Portal
+export ZAI_API_KEY=...   # Z.ai Model API
 
 # Run server (starts the Flask/connexion app on port 8000)
 make test-local
@@ -394,6 +396,8 @@ Clients use an x402-compatible client (e.g., the [x402 SDK](https://github.com/o
 | `GOOGLE_API_KEY` | - | Google AI API key |
 | `XAI_API_KEY` | - | xAI API key |
 | `ARK_API_KEY` | - | BytePlus / ByteDance ModelArk API key (injected as `bytedance_api_key`) |
+| `NOUS_API_KEY` | - | Nous Research / Nous Portal API key (injected as `nous_api_key`) |
+| `ZAI_API_KEY` | - | Z.ai Model API key (injected as `zai_api_key`) |
 | `EVM_PAYMENT_ADDRESS` | - | Wallet address to receive x402 payments |
 | `FACILITATOR_URL` | see `tee_gateway/__main__.py` | x402 payment facilitator endpoint |
 

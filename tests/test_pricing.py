@@ -338,6 +338,17 @@ class TestModelRegistry(unittest.TestCase):
         cfg = get_model_config("seed-2-0-lite-260228")
         self.assertEqual(cfg, get_model_config("seed-2.0-lite"))
 
+    def test_deepseek_v4_flash_resolves(self):
+        cfg = get_model_config("deepseek-v4-flash")
+        self.assertEqual(cfg.provider, "bytedance")
+        self.assertEqual(cfg.api_name, "deepseek-v4-flash-260425")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00000014"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00000028"))
+
+    def test_deepseek_v4_flash_dated_alias_resolves(self):
+        cfg = get_model_config("deepseek-v4-flash-260425")
+        self.assertEqual(cfg, get_model_config("deepseek-v4-flash"))
+
     # ── Nous Research (Nous Portal) ─────────────────────────────────────────
 
     def test_hermes_4_405b_resolves(self):
@@ -617,6 +628,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         lite = self._calc("seed-2.0-lite", 1000, 1000)
         full = self._calc("seed-1.6", 1000, 1000)
         self.assertLess(lite, full)
+
+    def test_deepseek_v4_flash_cost(self):
+        cost = self._calc("deepseek-v4-flash", 1000, 500)
+        expected = _expected_cost_opg("deepseek-v4-flash", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.00000014 + 500*0.00000028 = 0.00014 + 0.00014 = 0.00028 USD
+        self.assertEqual(cost, 280_000_000_000_000)
 
     # ── Haiku is cheaper than Sonnet ────────────────────────────────────────
 

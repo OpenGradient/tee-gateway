@@ -36,7 +36,7 @@ from tee_gateway.llm_backend import (
     AttachmentValidationError,
     canonical_user_content,
 )
-from tee_gateway.model_registry import get_model_config
+from tee_gateway.model_registry import get_model_config, VALID_IMAGE_QUALITIES
 from tee_gateway.pricing import compute_session_cost
 
 logger = logging.getLogger(__name__)
@@ -111,6 +111,17 @@ def create_chat_completion(body):
         validate_attachments(chat_request.messages, chat_request.model)
     except AttachmentValidationError as e:
         return {"error": "Invalid attachment", "message": str(e)}, 400
+
+    # Validate the optional image-quality tier up front for a clean 400. Models
+    # without resolution control silently ignore it (handled downstream).
+    if chat_request.quality is not None and (
+        not isinstance(chat_request.quality, str)
+        or chat_request.quality.strip().lower() not in VALID_IMAGE_QUALITIES
+    ):
+        return {
+            "error": "Invalid quality",
+            "message": (f"quality must be one of {', '.join(VALID_IMAGE_QUALITIES)}."),
+        }, 400
 
     if chat_request.stream:
         return _create_streaming_response(chat_request)
@@ -241,7 +252,7 @@ def _create_image_generation_response(
     langchain_messages = convert_messages(chat_request.messages)
     prompt = _extract_image_prompt(langchain_messages)
     images, image_count = generate_images(
-        chat_request.model, prompt, n=chat_request.n or 1
+        chat_request.model, prompt, n=chat_request.n or 1, quality=chat_request.quality
     )
 
     message_dict: dict[str, Any] = {"role": "assistant", "content": ""}
@@ -290,7 +301,10 @@ def _create_image_generation_streaming_response(
             langchain_messages = convert_messages(chat_request.messages)
             prompt = _extract_image_prompt(langchain_messages)
             images, image_count = generate_images(
-                chat_request.model, prompt, n=chat_request.n or 1
+                chat_request.model,
+                prompt,
+                n=chat_request.n or 1,
+                quality=chat_request.quality,
             )
 
             timestamp = int(time.time())
@@ -361,6 +375,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
             else 0.0,
             max_tokens=chat_request.max_tokens or 4096,
             web_search=bool(chat_request.web_search),
+            image_quality=chat_request.quality,
         )
 
         # Bind user tools and/or the native web search tool if requested.
@@ -520,6 +535,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
             else 0.0,
             max_tokens=chat_request.max_tokens or 4096,
             web_search=bool(chat_request.web_search),
+            image_quality=chat_request.quality,
         )
 
         # Bind user tools and/or the native web search tool if requested.
@@ -1002,6 +1018,8 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
         d["response_format"] = _normalize_response_format(chat_request.response_format)
     if chat_request.web_search:
         d["web_search"] = True
+    if chat_request.quality:
+        d["quality"] = chat_request.quality
     return d
 
 
@@ -1025,6 +1043,7 @@ def _parse_chat_request(chat_request_dict: dict) -> CreateChatCompletionRequest:
         tool_choice=chat_request_dict.get("tool_choice"),
         user=chat_request_dict.get("user"),
         web_search=chat_request_dict.get("web_search", False),
+        quality=chat_request_dict.get("quality"),
     )
 
 

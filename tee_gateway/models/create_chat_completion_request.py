@@ -34,6 +34,7 @@ class CreateChatCompletionRequest:
         function_call=None,
         functions=None,
         web_search=False,
+        quality=None,
     ):
         self.messages = messages
         self.model = model
@@ -66,6 +67,7 @@ class CreateChatCompletionRequest:
         self.function_call = function_call
         self.functions = functions
         self.web_search = web_search
+        self.quality = quality
 
     @classmethod
     def from_dict(cls, dikt) -> "CreateChatCompletionRequest":
@@ -103,5 +105,6 @@ class CreateChatCompletionRequest:
             "function_call",
             "functions",
             "web_search",
+            "quality",
         }
         return cls(**{k: v for k, v in dikt.items() if k in known})

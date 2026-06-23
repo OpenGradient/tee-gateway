@@ -128,6 +128,13 @@ Gemini's inline-image models (images returned out-of-band under the message
 `images` key). These models are billed a flat per-image price (see
 `per_image_price_usd` in `model_registry.py`), not per token.
 
+Image output resolution is selected with a single `quality` request field —
+`low` / `medium` / `high` — which each model maps to its own native size via
+`image_quality_sizes` in `model_registry.py` (Seedream/Seedance/Gemini image:
+`1K`/`2K`/`4K`; Z.ai GLM-Image: `1024`/`1280`/`2048` px). Models with no
+resolution control (xAI Grok, Gemini 2.5 Flash Image) ignore it; `medium`
+mirrors each model's previous default, so omitting `quality` is unchanged.
+
 ## Verification Examples
 
 - `examples/verify_attestation.py` — Validates AWS Nitro attestation documents against the root CA

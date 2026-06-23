@@ -364,9 +364,8 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
         raise RuntimeError(f"{provider} HTTP client has not been initialized")
 
     # n is clamped to the OpenAI-compatible providers' documented 1..10 range.
-    # Z.ai's GLM-Image endpoint currently returns exactly one image and does not
-    # document n/response_format support, so keep its payload to the documented
-    # fields.
+    # Z.ai's GLM-Image and ByteDance Seedance endpoints don't document n/
+    # response_format support, so keep their payloads to documented fields.
     count = max(1, min(int(n), 10))
     payload: dict[str, Any] = {
         "model": cfg.api_name,
@@ -374,6 +373,13 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
     }
     if provider == "zai":
         payload["size"] = "1280x1280"
+    elif provider == "bytedance" and cfg.api_name.startswith("ep-"):
+        # Seedance deployment endpoints use URL format and require extra params.
+        payload["response_format"] = "url"
+        payload["sequential_image_generation"] = "disabled"
+        payload["watermark"] = False
+        payload["size"] = "2K"
+        payload["stream"] = False
     else:
         payload["n"] = count
         payload["response_format"] = "b64_json"

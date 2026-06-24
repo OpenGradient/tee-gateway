@@ -10,6 +10,7 @@ The repo must provide a stable AWS Nitro PCR when the code doesn't change in ord
 ├── tee_gateway/             # Main application package (Flask/connexion)
 │   ├── __main__.py          # Entry point: app factory, x402 middleware setup, key injection
 │   ├── llm_backend.py       # LLM provider routing via LangChain, HTTP client management
+│   ├── image_generation.py  # Endpoint-based image gen (/images/generations): request shaping, URL→inline-bytes, signed responses
 │   ├── tee_manager.py       # TEE key generation, nitriding registration, response signing
 │   ├── model_registry.py    # Model config and per-token pricing
 │   ├── definitions.py       # On-chain addresses, network IDs, payment amounts
@@ -123,10 +124,16 @@ Model name prefixes determine routing:
 
 Image generation via xAI (grok-2-image), ByteDance (seedream-4.0, seedance-4.5), and Z.ai
 (glm-image) is served through a provider `/images/generations` endpoint rather
-than the chat path, but is surfaced on `/v1/chat/completions` exactly like
-Gemini's inline-image models (images returned out-of-band under the message
-`images` key). These models are billed a flat per-image price (see
-`per_image_price_usd` in `model_registry.py`), not per token.
+than the chat path (see `image_generation.py`), but is surfaced on
+`/v1/chat/completions` exactly like Gemini's inline-image models (images returned
+out-of-band under the message `images` key). The client always receives inline
+bytes: providers that hand back a hosted URL (Z.ai, Seedance) are fetched inside
+the enclave and inlined as `data:` URIs. Image-to-image editing sends the prior
+image back inline (a `data:` URI / `image_url` content part on the user turn),
+forwarded to providers that support it via the endpoint's `image` field.
+Per-provider request quirks (response format, `n`, size/watermark, reference
+support) live in `model_registry.py`. These models are billed a flat per-image
+price (see `per_image_price_usd`), not per token.
 
 ## Verification Examples
 

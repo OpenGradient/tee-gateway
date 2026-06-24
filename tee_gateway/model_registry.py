@@ -8,7 +8,7 @@ Unknown models are rejected — there is no fallback.
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum, unique
-from typing import Optional
+from typing import Any, Mapping, Optional
 
 
 @dataclass(frozen=True)
@@ -35,6 +35,21 @@ class ModelConfig:
     # Flat USD price per generated image, for ``image_generation`` models. Token
     # prices are ignored for these models (set to 0 in the registry).
     per_image_price_usd: Optional[Decimal] = None
+    # ── /images/generations request shaping (image_generation models only) ──
+    # The ``response_format`` to request. ``"b64_json"`` returns inline bytes;
+    # ``"url"`` returns a hosted link the gateway fetches and inlines (so the
+    # client always receives bytes). ``None`` omits the field for endpoints that
+    # don't document it (Z.ai GLM-Image).
+    image_response_format: Optional[str] = "b64_json"
+    # Whether to send the OpenAI-style ``n`` count. Some endpoints (Z.ai
+    # GLM-Image, ByteDance Seedance) don't document it and reject/ignore it.
+    image_send_n: bool = True
+    # Whether the endpoint accepts reference images for image-to-image editing,
+    # sent via the ``image`` field. Text-to-image-only endpoints reject it.
+    image_supports_reference: bool = False
+    # Static extra params merged verbatim into the request payload (e.g. size,
+    # watermark). Keyed by field name; values must be JSON-serializable.
+    image_extra_params: Optional[Mapping[str, Any]] = None
     # USD per image-modality output token, for ``image_output`` models (Gemini
     # "nano banana"). These providers bill image output at a higher rate than
     # text/thinking output: image tokens at this rate, text + thinking tokens at
@@ -375,10 +390,12 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0"),
         image_generation=True,
         per_image_price_usd=Decimal("0.03"),
+        image_supports_reference=True,
     )
     # Seedance 4.5 image generation via a ModelArk deployment endpoint.
-    # Uses URL response format and seedance-specific request params
-    # (sequential_image_generation, watermark, size). Billed per image.
+    # Returns hosted URLs (fetched and inlined by the gateway) and needs
+    # seedance-specific request params (sequential_image_generation, watermark,
+    # size). Billed per image.
     SEEDANCE_4_5 = ModelConfig(
         provider="bytedance",
         api_name="ep-20260624042612-7dxcv",
@@ -386,6 +403,15 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0"),
         image_generation=True,
         per_image_price_usd=Decimal("0.05"),
+        image_response_format="url",
+        image_send_n=False,
+        image_supports_reference=True,
+        image_extra_params={
+            "sequential_image_generation": "disabled",
+            "watermark": False,
+            "size": "2K",
+            "stream": False,
+        },
     )
 
     # ── Nous Research (Nous Portal, OpenAI-compatible) ──────────────────
@@ -418,6 +444,8 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.0000044"),
     )
     # GLM-Image uses Z.ai's image endpoint and is billed per generated image.
+    # Z.ai returns hosted URLs only (fetched and inlined by the gateway) and
+    # documents neither ``n`` nor ``response_format``, so both are omitted.
     GLM_IMAGE = ModelConfig(
         provider="zai",
         api_name="glm-image",
@@ -425,6 +453,9 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0"),
         image_generation=True,
         per_image_price_usd=Decimal("0.015"),
+        image_response_format=None,
+        image_send_n=False,
+        image_extra_params={"size": "1280x1280"},
     )
 
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──

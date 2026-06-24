@@ -6,19 +6,19 @@ models are served via a dedicated OpenAI-compatible ``/images/generations``
 endpoint and billed a flat price per generated image. These tests pin:
 
   1. The request/response handling in ``generate_images`` (b64_json -> data URI,
-     n clamping, url fallback, provider-specific payloads).
+     n clamping, hosted-URL fetch -> data URI, provider-specific payloads).
   2. The flat per-image billing in ``compute_session_cost``.
 
-No network or API key required — the provider HTTP client is mocked and a stub
-price feed is injected.
+No network or API key required — the provider HTTP client is mocked, the URL
+fetch is patched, and a stub price feed is injected.
 """
 
 import unittest
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-from tee_gateway import llm_backend
-from tee_gateway.llm_backend import generate_images
+from tee_gateway import image_generation, llm_backend
+from tee_gateway.image_generation import generate_images
 from tee_gateway.model_registry import get_model_config
 from tee_gateway.price_feed import get_price_feed, set_price_feed
 from tee_gateway.pricing import compute_session_cost
@@ -64,23 +64,40 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(payload["n"], 2)
         self.assertEqual(payload["response_format"], "b64_json")
 
-    def test_url_fallback_when_no_b64(self):
+    def test_hosted_url_is_fetched_and_inlined(self):
+        # Providers that return a hosted URL instead of inline bytes are fetched
+        # into the enclave so the client always receives a data: URI.
         client = MagicMock()
         client.post.return_value = _mock_response([{"url": "https://img/1.jpg"}])
-        with patch.object(llm_backend, "bytedance_http_client", client):
+        with (
+            patch.object(llm_backend, "bytedance_http_client", client),
+            patch.object(
+                image_generation,
+                "_fetch_url_as_data_uri",
+                return_value="data:image/jpeg;base64,RkVUQ0hFRA==",
+            ) as fetch,
+        ):
             images, count = generate_images(SEEDREAM, "a blue sphere", n=1)
 
         self.assertEqual(count, 1)
-        self.assertEqual(images, ["https://img/1.jpg"])
+        self.assertEqual(images, ["data:image/jpeg;base64,RkVUQ0hFRA=="])
+        fetch.assert_called_once_with("https://img/1.jpg")
 
-    def test_zai_glm_image_uses_documented_payload_and_url_response(self):
+    def test_zai_glm_image_uses_documented_payload_and_fetches_url(self):
         client = MagicMock()
         client.post.return_value = _mock_response([{"url": "https://z.ai/img.png"}])
-        with patch.object(llm_backend, "zai_http_client", client):
+        with (
+            patch.object(llm_backend, "zai_http_client", client),
+            patch.object(
+                image_generation,
+                "_fetch_url_as_data_uri",
+                return_value="data:image/png;base64,RkVUQ0hFRA==",
+            ),
+        ):
             images, count = generate_images(GLM_IMAGE, "a poster", n=3)
 
         self.assertEqual(count, 1)
-        self.assertEqual(images, ["https://z.ai/img.png"])
+        self.assertEqual(images, ["data:image/png;base64,RkVUQ0hFRA=="])
 
         _, kwargs = client.post.call_args
         payload = kwargs["json"]
@@ -93,11 +110,18 @@ class TestGenerateImages(unittest.TestCase):
     def test_seedance_uses_url_format_and_extra_params(self):
         client = MagicMock()
         client.post.return_value = _mock_response([{"url": "https://cdn/img.jpg"}])
-        with patch.object(llm_backend, "bytedance_http_client", client):
+        with (
+            patch.object(llm_backend, "bytedance_http_client", client),
+            patch.object(
+                image_generation,
+                "_fetch_url_as_data_uri",
+                return_value="data:image/jpeg;base64,RkVUQ0hFRA==",
+            ),
+        ):
             images, count = generate_images(SEEDANCE, "a black hole", n=1)
 
         self.assertEqual(count, 1)
-        self.assertEqual(images, ["https://cdn/img.jpg"])
+        self.assertEqual(images, ["data:image/jpeg;base64,RkVUQ0hFRA=="])
 
         _, kwargs = client.post.call_args
         payload = kwargs["json"]
@@ -113,7 +137,14 @@ class TestGenerateImages(unittest.TestCase):
     def test_seedance_forwards_single_reference_image(self):
         client = MagicMock()
         client.post.return_value = _mock_response([{"url": "https://cdn/edited.jpg"}])
-        with patch.object(llm_backend, "bytedance_http_client", client):
+        with (
+            patch.object(llm_backend, "bytedance_http_client", client),
+            patch.object(
+                image_generation,
+                "_fetch_url_as_data_uri",
+                return_value="data:image/jpeg;base64,RkVUQ0hFRA==",
+            ),
+        ):
             generate_images(
                 SEEDANCE,
                 "add a hat",
@@ -172,6 +203,38 @@ class TestGenerateImages(unittest.TestCase):
         with patch.object(llm_backend, "xai_http_client", None):
             with self.assertRaises(RuntimeError):
                 generate_images(GROK_IMAGE, "p", n=1)
+
+
+class TestFetchUrlAsDataUri(unittest.TestCase):
+    """The hosted-URL fetch that inlines provider images into the enclave."""
+
+    def test_encodes_bytes_with_content_type(self):
+        fetch_client = MagicMock()
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.headers = {"content-type": "image/png; charset=binary"}
+        resp.content = b"hello"
+        fetch_client.get.return_value = resp
+
+        with patch.object(image_generation, "_image_fetch_client", fetch_client):
+            uri = image_generation._fetch_url_as_data_uri("https://cdn/x.png")
+
+        # base64("hello") == "aGVsbG8=", mime taken from content-type (params dropped)
+        self.assertEqual(uri, "data:image/png;base64,aGVsbG8=")
+        fetch_client.get.assert_called_once_with("https://cdn/x.png")
+
+    def test_defaults_mime_when_header_missing(self):
+        fetch_client = MagicMock()
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.headers = {}
+        resp.content = b"hello"
+        fetch_client.get.return_value = resp
+
+        with patch.object(image_generation, "_image_fetch_client", fetch_client):
+            uri = image_generation._fetch_url_as_data_uri("https://cdn/x")
+
+        self.assertEqual(uri, "data:image/jpeg;base64,aGVsbG8=")
 
 
 class TestPerImageBilling(unittest.TestCase):

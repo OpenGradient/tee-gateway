@@ -376,6 +376,15 @@ class SupportedModel(Enum):
         image_generation=True,
         per_image_price_usd=Decimal("0.03"),
     )
+    # Seedream 5.0 Lite image generation via a ModelArk deployment endpoint.
+    SEEDREAM_5_0_LITE = ModelConfig(
+        provider="bytedance",
+        api_name="ep-20260624213657-7zc5n",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.035"),
+    )
     # Seedance 4.5 image generation via a ModelArk deployment endpoint.
     # Uses URL response format and seedance-specific request params
     # (sequential_image_generation, watermark, size). Billed per image.
@@ -508,6 +517,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "seedream-4-0-250828": SupportedModel.SEEDREAM_4_0,
     "seedream-4.0": SupportedModel.SEEDREAM_4_0,
     "seedream-4-0": SupportedModel.SEEDREAM_4_0,
+    "seedream-5.0-lite": SupportedModel.SEEDREAM_5_0_LITE,
+    "seedream-5-0-lite": SupportedModel.SEEDREAM_5_0_LITE,
     "ep-20260624042612-7dxcv": SupportedModel.SEEDANCE_4_5,
     "seedance-4.5": SupportedModel.SEEDANCE_4_5,
     "seedance-4-5": SupportedModel.SEEDANCE_4_5,

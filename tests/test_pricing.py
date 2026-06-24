@@ -362,6 +362,19 @@ class TestModelRegistry(unittest.TestCase):
             get_model_config("deepseek-v4-pro"),
         )
 
+    def test_seedream_5_0_lite_resolves(self):
+        cfg = get_model_config("seedream-5.0-lite")
+        self.assertEqual(cfg.provider, "bytedance")
+        self.assertEqual(cfg.api_name, "ep-20260624213657-7zc5n")
+        self.assertTrue(cfg.image_generation)
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.035"))
+
+    def test_seedream_5_0_lite_aliases_resolve(self):
+        self.assertEqual(
+            get_model_config("seedream-5-0-lite"),
+            get_model_config("seedream-5.0-lite"),
+        )
+
     # ── Nous Research (Nous Portal) ─────────────────────────────────────────
 
     def test_hermes_4_405b_resolves(self):

@@ -353,6 +353,14 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000004"),
         output_price_usd=Decimal("0.0000016"),
     )
+    # Dola Seed 2.0 Mini uncensored deployment. The 128K context endpoint uses
+    # the lower billing tier: $0.0001/K input and $0.0004/K output.
+    DOLA_SEED_2_0_MINI = ModelConfig(
+        provider="bytedance",
+        api_name="ep-20260624214211-j4vhk",
+        input_price_usd=Decimal("0.0000001"),
+        output_price_usd=Decimal("0.0000004"),
+    )
     DEEPSEEK_V4_FLASH = ModelConfig(
         provider="bytedance",
         api_name="deepseek-v4-flash-260425",
@@ -510,6 +518,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "seed-1.8": SupportedModel.SEED_1_8,
     "seed-2-0-lite-260228": SupportedModel.SEED_2_0_LITE,
     "seed-2.0-lite": SupportedModel.SEED_2_0_LITE,
+    "dola-seed-2.0-mini": SupportedModel.DOLA_SEED_2_0_MINI,
+    "dola-seed-2-0-mini": SupportedModel.DOLA_SEED_2_0_MINI,
     "deepseek-v4-flash-260425": SupportedModel.DEEPSEEK_V4_FLASH,
     "deepseek-v4-flash": SupportedModel.DEEPSEEK_V4_FLASH,
     "deepseek-v4-pro-260425": SupportedModel.DEEPSEEK_V4_PRO,

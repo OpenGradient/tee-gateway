@@ -126,6 +126,55 @@ class TestGenerateImages(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 generate_images(GROK_IMAGE, "p", n=1)
 
+    def test_quality_maps_to_seedream_size_preset(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "x"}])
+        for quality, expected in (("low", "1K"), ("medium", "2K"), ("high", "4K")):
+            with self.subTest(quality=quality):
+                with patch.object(llm_backend, "bytedance_http_client", client):
+                    generate_images(SEEDREAM, "p", n=1, quality=quality)
+                self.assertEqual(client.post.call_args.kwargs["json"]["size"], expected)
+
+    def test_quality_maps_to_zai_pixel_dimensions(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"url": "https://z.ai/i.png"}])
+        with patch.object(llm_backend, "zai_http_client", client):
+            generate_images(GLM_IMAGE, "p", n=1, quality="high")
+        self.assertEqual(client.post.call_args.kwargs["json"]["size"], "2048x2048")
+
+    def test_quality_overrides_seedance_default_size(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"url": "https://cdn/i.jpg"}])
+        with patch.object(llm_backend, "bytedance_http_client", client):
+            generate_images(SEEDANCE, "p", n=1, quality="high")
+        self.assertEqual(client.post.call_args.kwargs["json"]["size"], "4K")
+
+    def test_no_quality_keeps_provider_defaults(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "x"}])
+        # Seedream omits size entirely when no quality is requested.
+        with patch.object(llm_backend, "bytedance_http_client", client):
+            generate_images(SEEDREAM, "p", n=1)
+        self.assertNotIn("size", client.post.call_args.kwargs["json"])
+        # Z.ai falls back to its documented default.
+        with patch.object(llm_backend, "zai_http_client", client):
+            generate_images(GLM_IMAGE, "p", n=1)
+        self.assertEqual(client.post.call_args.kwargs["json"]["size"], "1280x1280")
+
+    def test_quality_ignored_for_grok_without_resolution_control(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "x"}])
+        with patch.object(llm_backend, "xai_http_client", client):
+            generate_images(GROK_IMAGE, "p", n=1, quality="high")
+        self.assertNotIn("size", client.post.call_args.kwargs["json"])
+
+    def test_invalid_quality_raises(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "x"}])
+        with patch.object(llm_backend, "bytedance_http_client", client):
+            with self.assertRaises(ValueError):
+                generate_images(SEEDREAM, "p", n=1, quality="ultra")
+
 
 class TestPerImageBilling(unittest.TestCase):
     """Flat per-image pricing, independent of token usage."""

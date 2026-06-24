@@ -26,7 +26,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_xai import ChatXAI
 
 from tee_gateway.config import ProviderConfig
-from tee_gateway.model_registry import get_model_config
+from tee_gateway.model_registry import get_model_config, resolve_image_size
 
 logger = logging.getLogger(__name__)
 
@@ -150,17 +150,26 @@ def get_provider_from_model(model: str) -> str:
 
 @lru_cache(maxsize=64)
 def get_chat_model_cached(
-    model: str, temperature: float, max_tokens: int, web_search: bool = False
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    web_search: bool = False,
+    image_quality: Optional[str] = None,
 ):
     """Get cached chat model instance using the injected ProviderConfig.
 
-    Models are cached by (model, temperature, max_tokens, web_search) tuple.
-    Cache is cleared by set_provider_config() after key injection.
+    Models are cached by (model, temperature, max_tokens, web_search,
+    image_quality) tuple. Cache is cleared by set_provider_config() after key
+    injection.
 
     When ``web_search`` is True, provider-specific native web search is enabled.
     Some providers (OpenAI, xAI) require search configuration at construction
     time; others (Anthropic, Google) enable it by binding a tool — see
     ``get_web_search_tool``. Providers without native web search ignore the flag.
+
+    ``image_quality`` ("low" | "medium" | "high") selects the output resolution
+    for inline image-output models (Gemini "nano banana"); it is ignored by
+    text models and by image models without resolution control.
     """
     config = _provider_config
     if config is None:
@@ -183,12 +192,18 @@ def get_chat_model_cached(
         # thinking budget; ask for both TEXT and IMAGE modalities so the model
         # may caption alongside the generated image.
         if cfg.image_output:
+            # Map the requested quality tier to the model's resolution. Models
+            # without resolution control (e.g. Gemini 2.5 Flash Image) return
+            # None and use the provider default.
+            image_size = resolve_image_size(model, image_quality)
+            image_config = {"image_size": image_size} if image_size else None
             return ChatGoogleGenerativeAI(
                 model=api_name,
                 google_api_key=config.google_api_key,
                 temperature=effective_temp,
                 max_output_tokens=max_tokens,
                 response_modalities=[Modality.TEXT, Modality.IMAGE],
+                image_config=image_config,
             )
 
         return ChatGoogleGenerativeAI(
@@ -333,7 +348,9 @@ def get_chat_model_cached(
 _IMAGE_GENERATION_PATH = "/images/generations"
 
 
-def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int]:
+def generate_images(
+    model: str, prompt: str, n: int = 1, quality: Optional[str] = None
+) -> tuple[list[str], int]:
     """Generate images via a provider's OpenAI-compatible images endpoint.
 
     Unlike Gemini's inline-image chat models, xAI (Aurora), ByteDance
@@ -342,12 +359,21 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
     bytes ride inline inside the OHTTP/TEE envelope for providers that support
     it. Z.ai returns temporary image URLs only.
 
+    ``quality`` ("low" | "medium" | "high") selects the output resolution where
+    the model supports it (Seedream/Seedance: 1K/2K/4K, Z.ai: pixel dimensions).
+    xAI Grok exposes no resolution control and ignores the option.
+
     Returns ``(data_uris, image_count)`` where each entry is a ``data:`` URI. The
     count is used for per-image billing. Falls back to provider-returned URLs if
     a provider ignores ``b64_json``.
     """
     cfg = get_model_config(model)
     provider = cfg.provider
+
+    # Map the requested quality tier to a provider-specific size string. None
+    # means "no quality requested" or "model has no resolution control"; in both
+    # cases the provider default below is left in place.
+    size_override = resolve_image_size(model, quality)
 
     if provider == "x-ai":
         client = xai_http_client
@@ -372,17 +398,21 @@ def generate_images(model: str, prompt: str, n: int = 1) -> tuple[list[str], int
         "prompt": prompt,
     }
     if provider == "zai":
-        payload["size"] = "1280x1280"
+        payload["size"] = size_override or "1280x1280"
     elif provider == "bytedance" and cfg.api_name.startswith("ep-"):
         # Seedance deployment endpoints use URL format and require extra params.
         payload["response_format"] = "url"
         payload["sequential_image_generation"] = "disabled"
         payload["watermark"] = False
-        payload["size"] = "2K"
+        payload["size"] = size_override or "2K"
         payload["stream"] = False
     else:
         payload["n"] = count
         payload["response_format"] = "b64_json"
+        # Seedream accepts a size preset; xAI Grok has no resolution control, so
+        # size_override is None there and the provider default is used.
+        if size_override:
+            payload["size"] = size_override
 
     logger.info(
         "Generating %d image(s) - Provider: %s, Model: %s",

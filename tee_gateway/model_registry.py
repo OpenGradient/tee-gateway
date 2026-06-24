@@ -47,6 +47,15 @@ class ModelConfig:
     # means "use the provider default" (see WEB_SEARCH_PRICE_USD_BY_PROVIDER);
     # set an explicit value here to override a single model's web-search price.
     web_search_price_usd: Optional[Decimal] = None
+    # For image models (``image_generation`` endpoint or ``image_output`` inline),
+    # maps the simple quality tier — ``"low"`` | ``"medium"`` | ``"high"`` — to the
+    # provider-specific size value sent to the API (e.g. "1K"/"2K"/"4K" for
+    # ByteDance/Gemini, "1024x1024" pixel dims for Z.ai). ``None`` means the model
+    # exposes no resolution control and the ``quality`` request option is ignored
+    # (e.g. xAI Grok and Gemini 2.5 Flash Image, which only emit one resolution).
+    # The ``"medium"`` tier mirrors each model's previous default size, so omitting
+    # ``quality`` and passing ``"medium"`` produce the same request.
+    image_quality_sizes: Optional[dict[str, str]] = None
 
 
 # Default per-search USD price charged when a model uses native web search.
@@ -266,6 +275,8 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.000003"),
         image_output=True,
         image_output_price_usd=Decimal("0.00006"),
+        # Nano Banana 2 supports 1K/2K/4K via image_config.image_size (default 1K).
+        image_quality_sizes={"low": "1K", "medium": "2K", "high": "4K"},
     )
     GEMINI_3_5_FLASH = ModelConfig(
         provider="google",
@@ -383,6 +394,9 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0"),
         image_generation=True,
         per_image_price_usd=Decimal("0.03"),
+        # ModelArk accepts 1K/2K/4K size presets (one dimension fixed to
+        # 1024/2048/4096); pixels stay within the documented 1280x720..4096x4096.
+        image_quality_sizes={"low": "1K", "medium": "2K", "high": "4K"},
     )
     # Seedream 5.0 Lite image generation via a ModelArk deployment endpoint.
     SEEDREAM_5_0_LITE = ModelConfig(
@@ -403,6 +417,9 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0"),
         image_generation=True,
         per_image_price_usd=Decimal("0.05"),
+        # Seedance accepts the same 1K/2K/4K size presets as Seedream; medium (2K)
+        # matches the endpoint's previous hardcoded default.
+        image_quality_sizes={"low": "1K", "medium": "2K", "high": "4K"},
     )
 
     # ── Nous Research (Nous Portal, OpenAI-compatible) ──────────────────
@@ -442,6 +459,13 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0"),
         image_generation=True,
         per_image_price_usd=Decimal("0.015"),
+        # Z.ai takes explicit pixel dimensions (each 512..2048, multiple of 32);
+        # medium (1280x1280) matches the endpoint's previous hardcoded default.
+        image_quality_sizes={
+            "low": "1024x1024",
+            "medium": "1280x1280",
+            "high": "2048x2048",
+        },
     )
 
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──
@@ -589,3 +613,29 @@ def get_web_search_price_usd(model: str) -> Decimal:
 def provider_supports_web_search(provider: str) -> bool:
     """Whether the given provider has native web search the gateway can enable."""
     return provider in WEB_SEARCH_PRICE_USD_BY_PROVIDER
+
+
+# The simple quality tiers a caller may request for image generation. Each model
+# maps these to its own provider-specific resolution (see `image_quality_sizes`).
+VALID_IMAGE_QUALITIES = ("low", "medium", "high")
+
+
+def resolve_image_size(model: str, quality: Optional[str]) -> Optional[str]:
+    """Map a requested ``quality`` tier to a model's provider-specific size string.
+
+    Returns ``None`` when no quality is requested or the model exposes no
+    resolution control, in which case the provider default is left in place.
+    Raises ValueError on an unknown model or an invalid quality value.
+    """
+    if quality is None:
+        return None
+    normalized = quality.strip().lower()
+    if normalized not in VALID_IMAGE_QUALITIES:
+        raise ValueError(
+            f"Unsupported quality: {quality!r}. "
+            f"Must be one of {', '.join(VALID_IMAGE_QUALITIES)}."
+        )
+    cfg = get_model_config(model)
+    if not cfg.image_quality_sizes:
+        return None
+    return cfg.image_quality_sizes.get(normalized)

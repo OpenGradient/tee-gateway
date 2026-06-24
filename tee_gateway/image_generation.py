@@ -19,11 +19,13 @@ editing, extra params) live in the model registry, keeping this code flat.
 """
 
 import base64
+import ipaddress
 import json
 import logging
 import time
 import uuid
 from typing import Any, List, Optional
+from urllib.parse import urlparse
 
 import httpx
 from flask import Response
@@ -52,27 +54,85 @@ _IMAGE_CLIENT_ATTRS = {
     "zai": "zai_http_client",
 }
 
+# Bounds on the URL fetch (egress hardening). Provider images are well under the
+# size cap; the redirect cap stops a redirect chain from being chased off-host.
+_MAX_IMAGE_BYTES = 25 * 1024 * 1024  # 25 MiB
+_MAX_REDIRECTS = 3
+_ALLOWED_FETCH_SCHEMES = {"http", "https"}
+
 # Shared keyless client for fetching provider-hosted image URLs into the enclave.
 _image_fetch_client: Optional[httpx.Client] = None
 
 
-def _fetch_url_as_data_uri(url: str) -> str:
-    """Fetch a hosted image URL and return it as a ``data:`` URI.
+def _validate_fetch_url(url: str) -> None:
+    """Guard the image fetch against SSRF / egress abuse.
 
-    Lets URL-returning image providers be surfaced identically to inline-byte
-    ones: the bytes are pulled into the enclave and ride out inside the OHTTP/TEE
-    envelope, so the client never sees a raw provider URL.
+    Only http(s) URLs are allowed, and IP-literal hosts in private, loopback,
+    link-local, or otherwise non-global ranges are rejected. Hostnames are not
+    resolved here — this helper is only ever called with a URL from a provider's
+    own ``/images/generations`` response (never client input, which is forwarded
+    to the provider rather than dereferenced) — so the scheme/IP checks plus the
+    size and redirect caps in ``_fetch_url_as_data_uri`` bound the blast radius if
+    that trust is ever misplaced.
     """
+    parsed = urlparse(url)
+    if parsed.scheme not in _ALLOWED_FETCH_SCHEMES:
+        raise ValueError(f"Refusing to fetch image from non-http(s) URL: {url!r}")
+    host = parsed.hostname
+    if not host:
+        raise ValueError(f"Refusing to fetch image from URL without a host: {url!r}")
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return  # hostname, not an IP literal — left to the provider's CDN
+    if not ip.is_global:
+        raise ValueError(f"Refusing to fetch image from non-public address: {host}")
+
+
+def _fetch_url_as_data_uri(url: str) -> str:
+    """Fetch a provider-hosted image URL and return it as a ``data:`` URI.
+
+    Only ever called with URLs from a provider's ``/images/generations`` response
+    — never with client-supplied input, which is forwarded to the provider rather
+    than dereferenced inside the enclave. Lets URL-returning providers be surfaced
+    identically to inline-byte ones: the bytes are pulled into the enclave and
+    ride out inside the OHTTP/TEE envelope, so the client never sees a raw URL.
+
+    Hardened against egress abuse: http(s) only, non-public IP hosts rejected,
+    redirects capped, and the body capped at ``_MAX_IMAGE_BYTES`` (streamed so an
+    oversized response is aborted instead of buffered whole).
+    """
+    _validate_fetch_url(url)
+
     global _image_fetch_client
     if _image_fetch_client is None:
         _image_fetch_client = httpx.Client(
             timeout=httpx.Timeout(timeout=120.0, connect=15.0),
             follow_redirects=True,
+            max_redirects=_MAX_REDIRECTS,
         )
-    resp = _image_fetch_client.get(url)
-    resp.raise_for_status()
-    mime = (resp.headers.get("content-type") or "image/jpeg").split(";", 1)[0].strip()
-    b64 = base64.b64encode(resp.content).decode("ascii")
+
+    with _image_fetch_client.stream("GET", url) as resp:
+        resp.raise_for_status()
+        declared = resp.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > _MAX_IMAGE_BYTES:
+            raise ValueError(
+                f"Refusing to fetch image larger than {_MAX_IMAGE_BYTES} bytes"
+            )
+        mime = (
+            (resp.headers.get("content-type") or "image/jpeg").split(";", 1)[0].strip()
+        )
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in resp.iter_bytes():
+            total += len(chunk)
+            if total > _MAX_IMAGE_BYTES:
+                raise ValueError(
+                    f"Refusing to fetch image larger than {_MAX_IMAGE_BYTES} bytes"
+                )
+            chunks.append(chunk)
+
+    b64 = base64.b64encode(b"".join(chunks)).decode("ascii")
     return f"data:{mime or 'image/jpeg'};base64,{b64}"
 
 
@@ -117,10 +177,12 @@ def generate_images(
     # Image-to-image editing: forward reference images via the ``image`` field (a
     # single string, or an array for multi-reference edits, up to 10). Without
     # this a follow-up edit like "add a hat" would ignore the prior image and
-    # generate a fresh one from the prompt text alone.
+    # generate a fresh one from the prompt text alone. Filter to non-empty strings
+    # so a malformed entry can't break JSON serialization of the request payload.
     if reference_images and cfg.image_supports_reference:
-        refs = reference_images[:10]
-        payload["image"] = refs[0] if len(refs) == 1 else refs
+        refs = [r for r in reference_images if isinstance(r, str) and r][:10]
+        if refs:
+            payload["image"] = refs[0] if len(refs) == 1 else refs
 
     logger.info(
         "Generating %d image(s) - Provider: %s, Model: %s",
@@ -152,50 +214,67 @@ def _extract_image_inputs(langchain_messages: list) -> tuple[str, list[str]]:
     transcript, so we join the text of all human messages (system/assistant/tool
     turns are ignored). A user turn doing an image-to-image edit carries the prior
     image as an ``image_url``/``image`` content part alongside its text; we collect
-    those reference images separately so they can be forwarded to the provider —
-    without them a follow-up like "add a hat" would ignore the previous image and
-    generate from the prompt text alone.
+    those reference images so they can be forwarded to the provider — without them
+    a follow-up like "add a hat" would ignore the previous image and generate from
+    the prompt text alone.
+
+    Only the *latest* user turn's references are returned: each user turn replaces
+    the running set (and a text-only turn clears it). Carrying references forward
+    from earlier edits would forward stale images and burn through the provider's
+    10-image cap. Values are coerced/filtered to strings so malformed input can't
+    break downstream JSON serialization.
 
     Returns ``(prompt, reference_images)``.
     """
     from langchain_core.messages import HumanMessage
 
     text_parts: list[str] = []
-    images: list[str] = []
+    reference_images: list[str] = []
     for m in langchain_messages:
         if not isinstance(m, HumanMessage):
             continue
         content = m.content
+        # References reset per user turn so the latest turn is authoritative.
+        turn_images: list[str] = []
         if isinstance(content, str):
             if content:
                 text_parts.append(content)
-            continue
-        if not isinstance(content, list):
-            continue
-        for part in content:
-            if isinstance(part, str):
-                if part:
-                    text_parts.append(part)
-                continue
-            if not isinstance(part, dict):
-                continue
-            ptype = part.get("type")
-            if ptype == "text":
-                if part.get("text"):
-                    text_parts.append(part["text"])
-            elif ptype == "image_url":
-                image_url = part.get("image_url")
-                url = image_url.get("url") if isinstance(image_url, dict) else image_url
-                if url:
-                    images.append(url)
-            elif ptype == "image":
-                # Standard LangChain image block: inline base64 + mime, or a url.
-                if part.get("base64"):
-                    mime = part.get("mime_type") or "image/png"
-                    images.append(f"data:{mime};base64,{part['base64']}")
-                elif part.get("url"):
-                    images.append(part["url"])
-    return "\n".join(text_parts), images
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, str):
+                    if part:
+                        text_parts.append(part)
+                    continue
+                if not isinstance(part, dict):
+                    continue
+                ptype = part.get("type")
+                if ptype == "text":
+                    text = part.get("text")
+                    if text:
+                        text_parts.append(str(text))
+                elif ptype == "image_url":
+                    image_url = part.get("image_url")
+                    url = (
+                        image_url.get("url")
+                        if isinstance(image_url, dict)
+                        else image_url
+                    )
+                    if isinstance(url, str) and url:
+                        turn_images.append(url)
+                elif ptype == "image":
+                    # Standard LangChain image block: inline base64 + mime, or url.
+                    b64 = part.get("base64")
+                    url = part.get("url")
+                    if isinstance(b64, str) and b64:
+                        mime = part.get("mime_type")
+                        mime = mime if isinstance(mime, str) and mime else "image/png"
+                        turn_images.append(f"data:{mime};base64,{b64}")
+                    elif isinstance(url, str) and url:
+                        turn_images.append(url)
+        else:
+            continue  # unrecognized content shape: no text, leave references as-is
+        reference_images = turn_images
+    return "\n".join(text_parts), reference_images
 
 
 def _run_image_generation(

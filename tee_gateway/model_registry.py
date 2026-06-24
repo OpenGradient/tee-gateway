@@ -79,6 +79,17 @@ WEB_SEARCH_PRICE_USD_BY_PROVIDER: dict[str, Decimal] = {
     "google": Decimal("0.035"),
 }
 
+# ByteDance ModelArk image *deployment* endpoints (api_name "ep-…", e.g. Seedance
+# 4.5, Seedream 5.0 Lite) return the URL response format and require these extra
+# params. The gateway fetches the returned URL and inlines the bytes, so the
+# client still receives inline bytes. Shared so the two ep- models stay in sync.
+_BYTEDANCE_EP_IMAGE_PARAMS: dict[str, Any] = {
+    "sequential_image_generation": "disabled",
+    "watermark": False,
+    "size": "2K",
+    "stream": False,
+}
+
 
 @unique
 class SupportedModel(Enum):
@@ -401,6 +412,9 @@ class SupportedModel(Enum):
         image_supports_reference=True,
     )
     # Seedream 5.0 Lite image generation via a ModelArk deployment endpoint.
+    # Seedream 5.0 Lite image generation via a ModelArk deployment endpoint
+    # (api_name "ep-…"). Like Seedance it returns hosted URLs (fetched and inlined
+    # by the gateway) and takes the shared ep- deployment params. Billed per image.
     SEEDREAM_5_0_LITE = ModelConfig(
         provider="bytedance",
         api_name="ep-20260624213657-7zc5n",
@@ -408,11 +422,14 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0"),
         image_generation=True,
         per_image_price_usd=Decimal("0.035"),
+        image_response_format="url",
+        image_send_n=False,
+        image_supports_reference=True,
+        image_extra_params=_BYTEDANCE_EP_IMAGE_PARAMS,
     )
     # Seedance 4.5 image generation via a ModelArk deployment endpoint.
-    # Returns hosted URLs (fetched and inlined by the gateway) and needs
-    # seedance-specific request params (sequential_image_generation, watermark,
-    # size). Billed per image.
+    # Returns hosted URLs (fetched and inlined by the gateway) and takes the
+    # shared ep- deployment params. Billed per image.
     SEEDANCE_4_5 = ModelConfig(
         provider="bytedance",
         api_name="ep-20260624042612-7dxcv",
@@ -423,12 +440,7 @@ class SupportedModel(Enum):
         image_response_format="url",
         image_send_n=False,
         image_supports_reference=True,
-        image_extra_params={
-            "sequential_image_generation": "disabled",
-            "watermark": False,
-            "size": "2K",
-            "stream": False,
-        },
+        image_extra_params=_BYTEDANCE_EP_IMAGE_PARAMS,
     )
 
     # ── Nous Research (Nous Portal, OpenAI-compatible) ──────────────────

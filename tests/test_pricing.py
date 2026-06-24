@@ -338,6 +338,19 @@ class TestModelRegistry(unittest.TestCase):
         cfg = get_model_config("seed-2-0-lite-260228")
         self.assertEqual(cfg, get_model_config("seed-2.0-lite"))
 
+    def test_dola_seed_2_0_mini_resolves(self):
+        cfg = get_model_config("dola-seed-2.0-mini")
+        self.assertEqual(cfg.provider, "bytedance")
+        self.assertEqual(cfg.api_name, "ep-20260624214211-j4vhk")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000001"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000004"))
+
+    def test_dola_seed_2_0_mini_aliases_resolve(self):
+        self.assertEqual(
+            get_model_config("dola-seed-2-0-mini"),
+            get_model_config("dola-seed-2.0-mini"),
+        )
+
     def test_deepseek_v4_flash_resolves(self):
         cfg = get_model_config("deepseek-v4-flash")
         self.assertEqual(cfg.provider, "bytedance")
@@ -360,6 +373,19 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(
             get_model_config("deepseek-v4-pro-260425"),
             get_model_config("deepseek-v4-pro"),
+        )
+
+    def test_seedream_5_0_lite_resolves(self):
+        cfg = get_model_config("seedream-5.0-lite")
+        self.assertEqual(cfg.provider, "bytedance")
+        self.assertEqual(cfg.api_name, "ep-20260624213657-7zc5n")
+        self.assertTrue(cfg.image_generation)
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.035"))
+
+    def test_seedream_5_0_lite_aliases_resolve(self):
+        self.assertEqual(
+            get_model_config("seedream-5-0-lite"),
+            get_model_config("seedream-5.0-lite"),
         )
 
     # ── Nous Research (Nous Portal) ─────────────────────────────────────────

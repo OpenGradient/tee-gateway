@@ -118,22 +118,17 @@ Model name prefixes determine routing:
 - **Anthropic**: claude-sonnet-4-0/4-5/4-6, claude-haiku-4-5, claude-opus-4-5/4-6/4-7/4-8, claude-fable-5, claude-3-7-sonnet, claude-3-5-haiku
 - **Google**: gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview, gemini-3.1-pro-preview, gemini-3.1-flash-lite-preview, gemini-3.5-flash; image generation: gemini-2.5-flash-image, gemini-3.1-flash-image
 - **xAI**: grok-2, grok-3, grok-3-mini, grok-4, grok-4-fast, grok-4-1-fast; image generation: grok-2-image
-- **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro; image generation: seedream-4.0, seedance-4.5
+- **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro; image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5
 - **Nous Research** (Nous Portal, OpenAI-compatible): hermes-4-405b, hermes-4-70b
 - **Z.ai** (Model API, OpenAI-compatible): glm-5.2; image generation: glm-image
 
-Image generation via xAI (grok-2-image), ByteDance (seedream-4.0, seedance-4.5), and Z.ai
-(glm-image) is served through a provider `/images/generations` endpoint rather
-than the chat path (see `image_generation.py`), but is surfaced on
-`/v1/chat/completions` exactly like Gemini's inline-image models (images returned
-out-of-band under the message `images` key). The client always receives inline
-bytes: providers that hand back a hosted URL (Z.ai, Seedance) are fetched inside
-the enclave and inlined as `data:` URIs. Image-to-image editing sends the prior
-image back inline (a `data:` URI / `image_url` content part on the user turn),
-forwarded to providers that support it via the endpoint's `image` field.
-Per-provider request quirks (response format, `n`, size/watermark, reference
-support) live in `model_registry.py`. These models are billed a flat per-image
-price (see `per_image_price_usd`), not per token.
+Image generation via xAI (grok-2-image), ByteDance (seedream-4.0,
+seedream-5.0-lite, seedance-4.5), and Z.ai (glm-image) is served through a
+provider `/images/generations` endpoint rather than the chat path, but is
+surfaced on `/v1/chat/completions` exactly like Gemini's inline-image models
+(images returned out-of-band under the message `images` key). These models are
+billed a flat per-image price (see `per_image_price_usd` in
+`model_registry.py`), not per token.
 
 ## Verification Examples
 

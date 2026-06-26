@@ -671,6 +671,44 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                                     "model": chat_request.model,
                                 }
                                 yield f"data: {json.dumps(data)}\n\n"
+                            else:
+                                # Buffered providers (OpenAI/Anthropic) hold the
+                                # full tool call until the stream ends so the
+                                # signature can cover the complete arguments.
+                                # Emitting nothing until then leaves the client
+                                # with no "tool starting" signal — a large
+                                # write_file looks frozen for minutes — and lets
+                                # the connection idle out. Emit a lightweight
+                                # progress frame carrying just the tool
+                                # name/index (never the accumulating arguments),
+                                # so the UI can show the tool immediately and
+                                # bytes keep flowing. The authoritative tool call
+                                # (with arguments) is still flushed once after the
+                                # loop, ahead of the signed final frame.
+                                progress_tool_call = {
+                                    "index": tc_index,
+                                    "type": "function",
+                                }
+                                if tc_chunk.get("id"):
+                                    progress_tool_call["id"] = tc_chunk["id"]
+                                if tc_chunk.get("name"):
+                                    progress_tool_call["function"] = {
+                                        "name": tc_chunk["name"]
+                                    }
+                                data = {
+                                    "choices": [
+                                        {
+                                            "delta": {
+                                                "role": "assistant",
+                                                "tool_calls": [progress_tool_call],
+                                            },
+                                            "index": 0,
+                                            "finish_reason": None,
+                                        }
+                                    ],
+                                    "model": chat_request.model,
+                                }
+                                yield f"data: {json.dumps(data)}\n\n"
 
                     # --- Usage metadata ---
                     # Accumulate deltas rather than replacing: Gemini returns cumulative

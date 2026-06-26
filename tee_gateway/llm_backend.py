@@ -31,12 +31,12 @@ from tee_gateway.model_registry import get_model_config
 logger = logging.getLogger(__name__)
 
 # HTTP Client Configuration
-ANTHROPIC_TIMEOUT = 120.0
+READ_TIMEOUT = 180.0
 
 _TIMEOUT = httpx.Timeout(
     timeout=120.0,
     connect=15.0,
-    read=60.0,
+    read=READ_TIMEOUT,
     write=60.0,
     pool=10.0,
 )
@@ -242,7 +242,7 @@ def get_chat_model_cached(
             api_key=SecretStr(config.anthropic_api_key),
             temperature=anthropic_temperature,
             max_tokens=max_tokens,
-            timeout=ANTHROPIC_TIMEOUT,
+            timeout=READ_TIMEOUT,
             streaming=True,
             stream_usage=True,
         )  # type: ignore [call-arg]

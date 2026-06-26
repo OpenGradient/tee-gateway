@@ -31,13 +31,28 @@ from tee_gateway.model_registry import get_model_config
 logger = logging.getLogger(__name__)
 
 # HTTP Client Configuration
-ANTHROPIC_TIMEOUT = 120.0
+#
+# `read`/`write` bound the wait for a single chunk of data. On the streaming
+# chat path that is per-token (reset on every chunk), so even a long answer is
+# fine as long as tokens keep flowing. But the non-streaming paths —
+# `model.invoke()` for the plain completion endpoint, and Anthropic
+# `json_schema` structured output via `with_structured_output()` (which invokes
+# synchronously and returns one chunk; partial JSON isn't meaningful to stream)
+# — produce no bytes until the whole generation completes, so the read timeout
+# effectively bounds the entire generation. With max_tokens now up to 12k, a
+# 60s/120s ceiling is reachable (≈12k tokens at a slow ~50 tok/s ≈ 240s), so a
+# long structured/non-streaming response would otherwise fail with a read
+# timeout. 300s gives that headroom; it only raises the per-chunk ceiling on the
+# streaming path, which has no downside. (Total duration may still be bounded by
+# upstream infra — the OHTTP relay, gvproxy, nitriding — which this does not
+# control.)
+ANTHROPIC_TIMEOUT = 300.0
 
 _TIMEOUT = httpx.Timeout(
-    timeout=120.0,
+    timeout=300.0,
     connect=15.0,
-    read=60.0,
-    write=60.0,
+    read=300.0,
+    write=300.0,
     pool=10.0,
 )
 

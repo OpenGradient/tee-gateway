@@ -38,7 +38,7 @@ _TIMEOUT = httpx.Timeout(
     connect=15.0,
     read=READ_TIMEOUT,
     write=60.0,
-    pool=10.0,
+    pool=30.0,
 )
 
 _LIMITS = httpx.Limits(

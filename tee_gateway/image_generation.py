@@ -1,9 +1,9 @@
 """Endpoint-based image generation.
 
-xAI (Aurora), ByteDance (Seedream/Seedance) and Z.ai (GLM-Image) expose image
-generation through a dedicated OpenAI-compatible ``POST /images/generations``
-endpoint rather than the chat path. This module owns everything specific to that
-flow:
+OpenAI (gpt-image), xAI (Aurora), ByteDance (Seedream/Seedance) and Z.ai
+(GLM-Image) expose image generation through a dedicated OpenAI-compatible
+``POST /images/generations`` endpoint rather than the chat path. This module
+owns everything specific to that flow:
 
   * ``generate_images`` — shape and send the provider request, always returning
     inline ``data:`` URIs (a provider-hosted URL is fetched into the enclave so
@@ -49,6 +49,7 @@ _IMAGE_GENERATION_PATH = "/images/generations"
 # Provider -> the shared HTTP client attribute on ``llm_backend`` (built after
 # key injection). Looked up by attribute so a patched/rebuilt client is picked up.
 _IMAGE_CLIENT_ATTRS = {
+    "openai": "openai_http_client",
     "x-ai": "xai_http_client",
     "bytedance": "bytedance_http_client",
     "zai": "zai_http_client",

@@ -168,6 +168,23 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.000005"),
         output_price_usd=Decimal("0.00003"),
     )
+    # Image generation via OpenAI's /images/generations endpoint (gpt-image).
+    # Unlike DALL·E, gpt-image models always return base64 (``b64_json``) and
+    # reject the ``response_format`` field, so it's omitted. Image-to-image
+    # editing is a separate ``/images/edits`` endpoint OpenAI-side, so reference
+    # images aren't forwarded here (text-to-image only). Size/quality are pinned
+    # so the flat per-image price stays predictable. Billed at a flat $0.05 per
+    # generated image; token prices unused.
+    GPT_IMAGE_2 = ModelConfig(
+        provider="openai",
+        api_name="gpt-image-2",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.05"),
+        image_response_format=None,
+        image_extra_params={"size": "1024x1024", "quality": "medium"},
+    )
 
     # ── Anthropic ───────────────────────────────────────────────────────
     CLAUDE_SONNET_4_5 = ModelConfig(
@@ -522,6 +539,7 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gpt-5.4-mini": SupportedModel.GPT_5_4_MINI,
     "gpt-5.4-nano": SupportedModel.GPT_5_4_NANO,
     "gpt-5.5": SupportedModel.GPT_5_5,
+    "gpt-image-2": SupportedModel.GPT_IMAGE_2,
     # Anthropic
     "claude-sonnet-4-5": SupportedModel.CLAUDE_SONNET_4_5,
     "claude-sonnet-4-6": SupportedModel.CLAUDE_SONNET_4_6,

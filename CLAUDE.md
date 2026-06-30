@@ -114,7 +114,7 @@ Server configuration:
 ### Supported Providers
 
 Model name prefixes determine routing:
-- **OpenAI**: gpt-4.1, gpt-5, gpt-5-mini, gpt-5.2, o4-mini
+- **OpenAI**: gpt-4.1, gpt-5, gpt-5-mini, gpt-5.2, o4-mini; image generation: gpt-image-2
 - **Anthropic**: claude-sonnet-4-0/4-5/4-6, claude-haiku-4-5, claude-opus-4-5/4-6/4-7/4-8, claude-fable-5, claude-3-7-sonnet, claude-3-5-haiku
 - **Google**: gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview, gemini-3.1-pro-preview, gemini-3.1-flash-lite-preview, gemini-3.5-flash; image generation: gemini-2.5-flash-image, gemini-3.1-flash-image
 - **xAI**: grok-2, grok-3, grok-3-mini, grok-4, grok-4-fast, grok-4-1-fast; image generation: grok-2-image
@@ -122,9 +122,9 @@ Model name prefixes determine routing:
 - **Nous Research** (Nous Portal, OpenAI-compatible): hermes-4-405b, hermes-4-70b
 - **Z.ai** (Model API, OpenAI-compatible): glm-5.2; image generation: glm-image
 
-Image generation via xAI (grok-2-image), ByteDance (seedream-4.0,
-seedream-5.0-lite, seedance-4.5), and Z.ai (glm-image) is served through a
-provider `/images/generations` endpoint rather than the chat path (see
+Image generation via OpenAI (gpt-image-2), xAI (grok-2-image), ByteDance
+(seedream-4.0, seedream-5.0-lite, seedance-4.5), and Z.ai (glm-image) is served
+through a provider `/images/generations` endpoint rather than the chat path (see
 `image_generation.py`), but is surfaced on `/v1/chat/completions` exactly like
 Gemini's inline-image models (images returned out-of-band under the message
 `images` key). The client always receives inline bytes: providers that hand back

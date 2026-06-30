@@ -1,5 +1,5 @@
-"""Tests for endpoint-based image generation (xAI Grok, ByteDance Seedream,
-ByteDance Seedance, Z.ai GLM-Image).
+"""Tests for endpoint-based image generation (OpenAI gpt-image, xAI Grok,
+ByteDance Seedream, ByteDance Seedance, Z.ai GLM-Image).
 
 Unlike Gemini's inline-image chat models (see test_image_billing.py), these
 models are served via a dedicated OpenAI-compatible ``/images/generations``
@@ -28,6 +28,7 @@ SEEDREAM = "seedream-4.0"
 SEEDREAM_5_LITE = "seedream-5.0-lite"
 SEEDANCE = "seedance-4.5"
 GLM_IMAGE = "glm-image"
+GPT_IMAGE = "gpt-image-2"
 
 
 def _mock_response(data: list[dict]) -> MagicMock:
@@ -106,6 +107,27 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(payload["prompt"], "a poster")
         self.assertEqual(payload["size"], "1280x1280")
         self.assertNotIn("n", payload)
+        self.assertNotIn("response_format", payload)
+
+    def test_openai_gpt_image_omits_response_format_and_pins_size_quality(self):
+        # gpt-image models always return base64 and reject `response_format`, so
+        # the field must be omitted; size/quality are pinned for predictable
+        # billing. The shared openai_http_client is reused (base_url ends in /v1,
+        # so the request lands on OpenAI's /v1/images/generations).
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "aGVsbG8="}])
+        with patch.object(llm_backend, "openai_http_client", client):
+            images, count = generate_images(GPT_IMAGE, "a red cube", n=1)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(images, ["data:image/jpeg;base64,aGVsbG8="])
+
+        payload = client.post.call_args.kwargs["json"]
+        self.assertEqual(payload["model"], get_model_config(GPT_IMAGE).api_name)
+        self.assertEqual(payload["prompt"], "a red cube")
+        self.assertEqual(payload["n"], 1)
+        self.assertEqual(payload["size"], "1024x1024")
+        self.assertEqual(payload["quality"], "medium")
         self.assertNotIn("response_format", payload)
 
     def test_seedance_uses_url_format_and_extra_params(self):
@@ -426,7 +448,7 @@ class TestPerImageBilling(unittest.TestCase):
         return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     def test_single_image_charged_flat_price(self):
-        for model in (GROK_IMAGE, SEEDREAM, SEEDANCE, GLM_IMAGE):
+        for model in (GROK_IMAGE, SEEDREAM, SEEDANCE, GLM_IMAGE, GPT_IMAGE):
             with self.subTest(model=model):
                 cfg = get_model_config(model)
                 cost = compute_session_cost(model, self._zero_usage(), image_count=1)

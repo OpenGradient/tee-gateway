@@ -368,7 +368,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
     except Exception as e:
         logger.error(f"Chat completion error: {str(e)}", exc_info=True)
         return {
-            "error": "Request processing failed",
+            "error": str(e) or "Request processing failed",
             "exception_type": type(e).__name__,
         }, 500
 
@@ -797,7 +797,21 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
 
             except Exception as e:
                 logger.error(f"Streaming error: {str(e)}", exc_info=True)
-                yield f"data: {json.dumps({'error': 'Stream processing failed', 'exception_type': type(e).__name__})}\n\n"
+                # Surface the real failure detail, not a generic string. The
+                # HTTP status is already locked to 200 (headers flushed before
+                # the first chunk), so this in-band error event is the ONLY way
+                # the client learns why the stream died — a generic message
+                # would swallow the root cause. Safe to include: on the OHTTP
+                # path this travels inside the sealed stream (client-only), and
+                # on the direct path the caller is the authorized relay.
+                error_payload = {
+                    "error": str(e) or "Stream processing failed",
+                    "exception_type": type(e).__name__,
+                }
+                yield f"data: {json.dumps(error_payload)}\n\n"
+                # Terminal marker so the client can distinguish a clean finish
+                # from an errored stream even if it doesn't inspect `error`.
+                yield "data: [DONE]\n\n"
 
         return Response(
             generate(),
@@ -811,7 +825,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
     except Exception as e:
         logger.error(f"Stream setup error: {str(e)}", exc_info=True)
         return {
-            "error": "Stream setup failed",
+            "error": str(e) or "Stream setup failed",
             "exception_type": type(e).__name__,
         }, 500
 

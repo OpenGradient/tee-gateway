@@ -797,13 +797,9 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
 
             except Exception as e:
                 logger.error(f"Streaming error: {str(e)}", exc_info=True)
-                # Surface the real failure detail, not a generic string. The
-                # HTTP status is already locked to 200 (headers flushed before
-                # the first chunk), so this in-band error event is the ONLY way
-                # the client learns why the stream died — a generic message
-                # would swallow the root cause. Safe to include: on the OHTTP
-                # path this travels inside the sealed stream (client-only), and
-                # on the direct path the caller is the authorized relay.
+                # The HTTP status is already locked to 200 (headers flushed before
+                # the first chunk), so this in-band error event that is returned
+                # to the client
                 error_payload = {
                     "error": str(e) or "Stream processing failed",
                     "exception_type": type(e).__name__,

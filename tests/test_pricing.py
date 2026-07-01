@@ -90,6 +90,15 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.000003"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000015"))
 
+    def test_claude_sonnet_5_resolves(self):
+        cfg = get_model_config("claude-sonnet-5")
+        self.assertEqual(cfg.provider, "anthropic")
+        self.assertEqual(cfg.api_name, "claude-sonnet-5")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000003"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000015"))
+        # Adaptive-thinking-only; rejects the `temperature` field (HTTP 400)
+        self.assertFalse(cfg.supports_temperature)
+
     # ── Anthropic Haiku ─────────────────────────────────────────────────────
 
     def test_claude_haiku_4_5_resolves(self):

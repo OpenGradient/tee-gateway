@@ -227,6 +227,72 @@ class TestGenerateImages(unittest.TestCase):
         payload = client.post.call_args.kwargs["json"]
         self.assertEqual(len(payload["image"]), 10)
 
+    def test_gpt_image_edits_uploads_references_as_multipart(self):
+        # gpt-image reference edits go to /images/edits as multipart image[]
+        # file uploads (not the JSON generations path), with n/size/quality as
+        # form fields and no response_format (gpt-image rejects it).
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "aGVsbG8="}])
+        refs = [
+            "data:image/png;base64,QUJD",  # "ABC"
+            "data:image/jpeg;base64,REVG",  # "DEF"
+        ]
+        with patch.object(llm_backend, "openai_http_client", client):
+            images, count = generate_images(
+                GPT_IMAGE, "add the logo to the photo", n=1, reference_images=refs
+            )
+
+        self.assertEqual(count, 1)
+        self.assertEqual(images, ["data:image/jpeg;base64,aGVsbG8="])
+
+        args, kwargs = client.post.call_args
+        self.assertEqual(args[0], "/images/edits")
+        # No JSON body on the multipart path.
+        self.assertNotIn("json", kwargs)
+        form = kwargs["data"]
+        self.assertEqual(form["model"], get_model_config(GPT_IMAGE).api_name)
+        self.assertEqual(form["prompt"], "add the logo to the photo")
+        self.assertEqual(form["n"], "1")
+        self.assertEqual(form["size"], "1024x1024")
+        self.assertEqual(form["quality"], "medium")
+        self.assertNotIn("response_format", form)
+        # Both references are uploaded under the repeated image[] field, decoded
+        # back to their raw bytes with a mime-appropriate filename.
+        uploads = kwargs["files"]
+        self.assertEqual([field for field, _ in uploads], ["image[]", "image[]"])
+        self.assertEqual(uploads[0][1][0], "image_0.png")
+        self.assertEqual(uploads[0][1][1], b"ABC")
+        self.assertEqual(uploads[0][1][2], "image/png")
+        self.assertEqual(uploads[1][1][0], "image_1.jpg")
+        self.assertEqual(uploads[1][1][1], b"DEF")
+
+    def test_gpt_image_without_references_uses_generations(self):
+        # No references -> plain text-to-image on the JSON generations endpoint.
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "aGVsbG8="}])
+        with patch.object(llm_backend, "openai_http_client", client):
+            generate_images(GPT_IMAGE, "a red cube", n=1)
+
+        args, kwargs = client.post.call_args
+        self.assertEqual(args[0], "/images/generations")
+        self.assertIn("json", kwargs)
+        self.assertNotIn("files", kwargs)
+        self.assertNotIn("image", kwargs["json"])
+
+    def test_gpt_image_non_inline_references_fall_back_to_generation(self):
+        # A plain URL reference can't be uploaded (we won't dereference client
+        # URLs in the enclave); with nothing uploadable, fall back to a plain
+        # generation rather than sending an empty edit request.
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "aGVsbG8="}])
+        with patch.object(llm_backend, "openai_http_client", client):
+            generate_images(GPT_IMAGE, "p", n=1, reference_images=["https://cdn/x.jpg"])
+
+        args, kwargs = client.post.call_args
+        self.assertEqual(args[0], "/images/generations")
+        self.assertNotIn("files", kwargs)
+        self.assertNotIn("image", kwargs["json"])
+
     def test_reference_images_ignored_for_non_bytedance(self):
         # xAI/Z.ai text-to-image endpoints don't support image edit; the `image`
         # field must not leak into their payloads.

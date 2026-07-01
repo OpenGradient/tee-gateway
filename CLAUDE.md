@@ -131,11 +131,17 @@ Gemini's inline-image models (images returned out-of-band under the message
 a hosted URL (Z.ai, Seedance, Seedream 5.0 Lite) are fetched inside the enclave
 and inlined as `data:` URIs (the fetch is guarded: http(s) only, non-public IP
 hosts rejected, redirects + size capped, and only ever called on provider-
-response URLs, never client input). Image-to-image editing sends the prior image
-back inline (a `data:` URI / `image_url` content part on the latest user turn),
-forwarded to providers that support it via the endpoint's `image` field.
-Per-provider request quirks (response format, `n`, size/watermark, reference
-support) live in `model_registry.py`. These models are billed a flat per-image
+response URLs, never client input). Image-to-image editing and multi-image
+compositing ("add this logo to this photo") send the input images inline
+(`data:` URIs / `image_url` content parts on the latest user turn, up to 10),
+forwarded to providers that support it. Delivery is one of two per-model paths:
+ByteDance carries the references inline in the JSON `image` field of
+`/images/generations`; OpenAI gpt-image is routed to its separate
+`/images/edits` endpoint, where the references ride as multipart `image[]` file
+uploads (only inline `data:` references are uploaded — a plain-URL reference is
+skipped rather than dereferenced in the enclave). Per-provider request quirks
+(response format, `n`, size/watermark, reference support, edit endpoint) live in
+`model_registry.py`. These models are billed a flat per-image
 price (see `per_image_price_usd`), not per token.
 
 ## Verification Examples

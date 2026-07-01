@@ -8,7 +8,7 @@ called from the Flask/connexion controllers.
 
 import json
 import logging
-from typing import List, Dict, Optional, Any, Generator
+from typing import List, Dict, Literal, Optional, Any, Generator, cast
 from functools import lru_cache
 
 import httpx
@@ -32,6 +32,24 @@ logger = logging.getLogger(__name__)
 
 # HTTP Client Configuration
 READ_TIMEOUT = 180.0
+
+# Accepted values for the per-request reasoning-effort control. Anything else
+# (including None or an unknown string) is treated as "no explicit effort" and
+# the provider falls back to its own default.
+VALID_REASONING_EFFORTS = frozenset({"low", "medium", "high"})
+
+
+def _effective_reasoning_effort(cfg, reasoning_effort: Optional[str]) -> Optional[str]:
+    """Return the effort to apply, or ``None`` to leave it to the provider.
+
+    Only models that declare ``supports_reasoning_effort`` honor the control;
+    for every other model a client-supplied effort is silently ignored so we
+    never send an unsupported field to a provider that would reject it (400).
+    """
+    if cfg.supports_reasoning_effort and reasoning_effort in VALID_REASONING_EFFORTS:
+        return reasoning_effort
+    return None
+
 
 _TIMEOUT = httpx.Timeout(
     timeout=120.0,
@@ -150,17 +168,28 @@ def get_provider_from_model(model: str) -> str:
 
 @lru_cache(maxsize=64)
 def get_chat_model_cached(
-    model: str, temperature: float, max_tokens: int, web_search: bool = False
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    web_search: bool = False,
+    reasoning_effort: Optional[str] = None,
 ):
     """Get cached chat model instance using the injected ProviderConfig.
 
-    Models are cached by (model, temperature, max_tokens, web_search) tuple.
+    Models are cached by
+    (model, temperature, max_tokens, web_search, reasoning_effort) tuple.
     Cache is cleared by set_provider_config() after key injection.
 
     When ``web_search`` is True, provider-specific native web search is enabled.
     Some providers (OpenAI, xAI) require search configuration at construction
     time; others (Anthropic, Google) enable it by binding a tool — see
     ``get_web_search_tool``. Providers without native web search ignore the flag.
+
+    ``reasoning_effort`` ("low"|"medium"|"high") threads a reasoning-depth hint
+    to each provider's native effort knob, but only for models that declare
+    ``supports_reasoning_effort`` (see ``_effective_reasoning_effort``): it maps
+    to ``reasoning_effort`` (OpenAI / xAI), ``effort`` (Anthropic, i.e.
+    output_config.effort) and ``thinking_level`` (Gemini 3).
     """
     config = _provider_config
     if config is None:
@@ -172,6 +201,7 @@ def get_chat_model_cached(
     effective_temp = (
         cfg.force_temperature if cfg.force_temperature is not None else temperature
     )
+    effort = _effective_reasoning_effort(cfg, reasoning_effort)
 
     logger.info(f"Creating cached chat model - Provider: {provider}, Model: {api_name}")
 
@@ -191,13 +221,25 @@ def get_chat_model_cached(
                 response_modalities=[Modality.TEXT, Modality.IMAGE],
             )
 
+        # ``thinking_level`` and ``thinking_budget`` are mutually exclusive on
+        # the Gemini API. When an effort is requested it drives thinking_level
+        # (Gemini 3) and supersedes the static per-model thinking_budget;
+        # otherwise fall back to the model's configured budget.
+        thinking_kwargs: dict[str, Any]
+        if effort is not None:
+            thinking_kwargs = {"thinking_level": effort, "include_thoughts": False}
+        else:
+            thinking_kwargs = {
+                "thinking_budget": cfg.thinking_budget,
+                "include_thoughts": False if cfg.thinking_budget is not None else None,
+            }
+
         return ChatGoogleGenerativeAI(
             model=api_name,
             google_api_key=config.google_api_key,
             temperature=effective_temp,
             max_output_tokens=max_tokens,
-            thinking_budget=cfg.thinking_budget,
-            include_thoughts=False if cfg.thinking_budget is not None else None,
+            **thinking_kwargs,
         )
 
     elif provider == "openai":
@@ -215,6 +257,8 @@ def get_chat_model_cached(
         if web_search:
             openai_kwargs["use_responses_api"] = True
             openai_kwargs["output_version"] = "responses/v1"
+        if effort is not None:
+            openai_kwargs["reasoning_effort"] = effort
 
         return ChatOpenAI(
             model=api_name,
@@ -237,6 +281,8 @@ def get_chat_model_cached(
             effective_temp if cfg.supports_temperature else None
         )
 
+        # ``effort`` maps to output_config.effort (GA, no beta header). Passing
+        # ``None`` leaves it unset so the model uses its own default depth.
         return ChatAnthropic(
             model=api_name,
             api_key=SecretStr(config.anthropic_api_key),
@@ -245,6 +291,7 @@ def get_chat_model_cached(
             timeout=READ_TIMEOUT,
             streaming=True,
             stream_usage=True,
+            effort=cast(Optional[Literal["low", "medium", "high"]], effort),
         )  # type: ignore [call-arg]
 
     elif provider == "x-ai":
@@ -259,6 +306,8 @@ def get_chat_model_cached(
         xai_kwargs: dict[str, Any] = {}
         if web_search:
             xai_kwargs["use_responses_api"] = True
+        if effort is not None:
+            xai_kwargs["reasoning_effort"] = effort
 
         return ChatXAI(
             model=api_name,

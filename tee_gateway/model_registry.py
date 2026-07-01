@@ -20,6 +20,13 @@ class ModelConfig:
     output_price_usd: Decimal  # USD per token
     force_temperature: Optional[float] = None
     thinking_budget: Optional[int] = None
+    # Whether the model exposes a low/medium/high reasoning-effort control that
+    # the gateway threads through from ``reasoning_effort`` on the request. Only
+    # set True for models with a verified native effort knob: it maps to
+    # ``reasoning_effort`` (OpenAI/xAI OpenAI-compatible), ``effort`` (Anthropic,
+    # i.e. output_config.effort with adaptive thinking) and ``thinking_level``
+    # (Gemini 3). Models without it silently ignore any client-supplied effort.
+    supports_reasoning_effort: bool = False
     # Anthropic deprecated `temperature` for Opus 4.7 — the API returns 400 if
     # the field is present at all. Set False on models that reject it.
     supports_temperature: bool = True
@@ -128,6 +135,7 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.00001"),
         output_price_usd=Decimal("0.00004"),
         force_temperature=1.0,
+        supports_reasoning_effort=True,
     )
     O4_MINI = ModelConfig(
         provider="openai",
@@ -135,48 +143,56 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000011"),
         output_price_usd=Decimal("0.0000044"),
         force_temperature=1.0,
+        supports_reasoning_effort=True,
     )
     GPT_5 = ModelConfig(
         provider="openai",
         api_name="gpt-5",
         input_price_usd=Decimal("0.00000125"),
         output_price_usd=Decimal("0.00001"),
+        supports_reasoning_effort=True,
     )
     GPT_5_MINI = ModelConfig(
         provider="openai",
         api_name="gpt-5-mini",
         input_price_usd=Decimal("0.00000025"),
         output_price_usd=Decimal("0.000002"),
+        supports_reasoning_effort=True,
     )
     GPT_5_2 = ModelConfig(
         provider="openai",
         api_name="gpt-5.2",
         input_price_usd=Decimal("0.00000175"),
         output_price_usd=Decimal("0.000014"),
+        supports_reasoning_effort=True,
     )
     GPT_5_4 = ModelConfig(
         provider="openai",
         api_name="gpt-5.4",
         input_price_usd=Decimal("0.0000025"),
         output_price_usd=Decimal("0.000015"),
+        supports_reasoning_effort=True,
     )
     GPT_5_4_MINI = ModelConfig(
         provider="openai",
         api_name="gpt-5.4-mini",
         input_price_usd=Decimal("0.00000075"),
         output_price_usd=Decimal("0.0000045"),
+        supports_reasoning_effort=True,
     )
     GPT_5_4_NANO = ModelConfig(
         provider="openai",
         api_name="gpt-5.4-nano",
         input_price_usd=Decimal("0.0000002"),
         output_price_usd=Decimal("0.00000125"),
+        supports_reasoning_effort=True,
     )
     GPT_5_5 = ModelConfig(
         provider="openai",
         api_name="gpt-5.5",
         input_price_usd=Decimal("0.000005"),
         output_price_usd=Decimal("0.00003"),
+        supports_reasoning_effort=True,
     )
     # Image generation via OpenAI's /images/generations endpoint (gpt-image).
     # Unlike DALL·E, gpt-image models always return base64 (``b64_json``) and
@@ -213,6 +229,7 @@ class SupportedModel(Enum):
         api_name="claude-sonnet-4-6",
         input_price_usd=Decimal("0.000003"),
         output_price_usd=Decimal("0.000015"),
+        supports_reasoning_effort=True,
     )
     # Claude Sonnet 5 — near-Opus quality on coding/agentic work at Sonnet cost.
     # Adaptive-thinking-only; like Opus 4.7+ it rejects the `temperature` field
@@ -224,6 +241,7 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.000003"),
         output_price_usd=Decimal("0.000015"),
         supports_temperature=False,
+        supports_reasoning_effort=True,
     )
     CLAUDE_HAIKU_4_5 = ModelConfig(
         provider="anthropic",
@@ -236,12 +254,14 @@ class SupportedModel(Enum):
         api_name="claude-opus-4-5-20251101",
         input_price_usd=Decimal("0.000005"),
         output_price_usd=Decimal("0.000025"),
+        supports_reasoning_effort=True,
     )
     CLAUDE_OPUS_4_6 = ModelConfig(
         provider="anthropic",
         api_name="claude-opus-4-6",
         input_price_usd=Decimal("0.000005"),
         output_price_usd=Decimal("0.000025"),
+        supports_reasoning_effort=True,
     )
     CLAUDE_OPUS_4_7 = ModelConfig(
         provider="anthropic",
@@ -249,6 +269,7 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.000005"),
         output_price_usd=Decimal("0.000025"),
         supports_temperature=False,
+        supports_reasoning_effort=True,
     )
     CLAUDE_OPUS_4_8 = ModelConfig(
         provider="anthropic",
@@ -256,6 +277,7 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.000005"),
         output_price_usd=Decimal("0.000025"),
         supports_temperature=False,
+        supports_reasoning_effort=True,
     )
     # Claude Fable 5 — Anthropic's most capable widely released model (GA on the
     # first-party API from 2026-06-09). Adaptive-thinking-only; like Opus 4.7+ it
@@ -266,6 +288,7 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.00001"),
         output_price_usd=Decimal("0.00005"),
         supports_temperature=False,
+        supports_reasoning_effort=True,
     )
 
     # ── Google Gemini ───────────────────────────────────────────────────
@@ -298,6 +321,7 @@ class SupportedModel(Enum):
         api_name="gemini-3-flash-preview",
         input_price_usd=Decimal("0.0000005"),
         output_price_usd=Decimal("0.000003"),
+        supports_reasoning_effort=True,
     )
     GEMINI_3_1_PRO_PREVIEW = ModelConfig(
         provider="google",
@@ -305,6 +329,7 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.000002"),
         output_price_usd=Decimal("0.000012"),
         thinking_budget=128,
+        supports_reasoning_effort=True,
     )
     GEMINI_3_1_FLASH_LITE_PREVIEW = ModelConfig(
         provider="google",
@@ -341,6 +366,7 @@ class SupportedModel(Enum):
         api_name="gemini-3.5-flash",
         input_price_usd=Decimal("0.0000015"),
         output_price_usd=Decimal("0.000009"),
+        supports_reasoning_effort=True,
     )
 
     # ── xAI Grok ────────────────────────────────────────────────────────

@@ -2905,11 +2905,12 @@ components:
           type: boolean
         reasoning_effort:
           default: medium
-          description: "**o1 models only** \n\nConstrains effort on reasoning for\
-            \ \n[reasoning models](https://platform.openai.com/docs/guides/reasoning).\n\
-            Currently supported values are `low`, `medium`, and `high`. Reducing\n\
-            reasoning effort can result in faster responses and fewer tokens used\n\
-            on reasoning in a response.\n"
+          description: "Constrains the reasoning effort the model spends before\n\
+            answering. Applied only to reasoning-capable models (e.g. OpenAI GPT-5\
+            \ /\no-series, Anthropic Opus 4.5+/Sonnet 4.6+/Fable, Gemini 3); other\n\
+            models ignore it. Supported values are `low`, `medium`, and `high`.\n\
+            Lower effort yields faster responses and fewer reasoning tokens; higher\n\
+            effort yields more thorough reasoning.\n"
           enum:
           - low
           - medium

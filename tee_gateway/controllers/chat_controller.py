@@ -242,6 +242,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
             else 0.0,
             max_tokens=chat_request.max_tokens or 4096,
             web_search=bool(chat_request.web_search),
+            reasoning_effort=chat_request.reasoning_effort,
         )
 
         # Bind user tools and/or the native web search tool if requested.
@@ -401,6 +402,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
             else 0.0,
             max_tokens=chat_request.max_tokens or 4096,
             web_search=bool(chat_request.web_search),
+            reasoning_effort=chat_request.reasoning_effort,
         )
 
         # Bind user tools and/or the native web search tool if requested.
@@ -883,6 +885,8 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
         d["response_format"] = _normalize_response_format(chat_request.response_format)
     if chat_request.web_search:
         d["web_search"] = True
+    if chat_request.reasoning_effort:
+        d["reasoning_effort"] = chat_request.reasoning_effort
     return d
 
 
@@ -906,6 +910,7 @@ def _parse_chat_request(chat_request_dict: dict) -> CreateChatCompletionRequest:
         tool_choice=chat_request_dict.get("tool_choice"),
         user=chat_request_dict.get("user"),
         web_search=chat_request_dict.get("web_search", False),
+        reasoning_effort=chat_request_dict.get("reasoning_effort"),
     )
 
 

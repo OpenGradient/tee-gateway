@@ -214,6 +214,17 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.000003"),
         output_price_usd=Decimal("0.000015"),
     )
+    # Claude Sonnet 5 — near-Opus quality on coding/agentic work at Sonnet cost.
+    # Adaptive-thinking-only; like Opus 4.7+ it rejects the `temperature` field
+    # (HTTP 400), so supports_temperature=False. Priced at the standard Sonnet
+    # sticker ($3/$15 per MTok; an intro rate applied through 2026-08-31).
+    CLAUDE_SONNET_5 = ModelConfig(
+        provider="anthropic",
+        api_name="claude-sonnet-5",
+        input_price_usd=Decimal("0.000003"),
+        output_price_usd=Decimal("0.000015"),
+        supports_temperature=False,
+    )
     CLAUDE_HAIKU_4_5 = ModelConfig(
         provider="anthropic",
         api_name="claude-haiku-4-5-20251001",
@@ -558,6 +569,7 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     # Anthropic
     "claude-sonnet-4-5": SupportedModel.CLAUDE_SONNET_4_5,
     "claude-sonnet-4-6": SupportedModel.CLAUDE_SONNET_4_6,
+    "claude-sonnet-5": SupportedModel.CLAUDE_SONNET_5,
     "claude-haiku-4-5": SupportedModel.CLAUDE_HAIKU_4_5,
     "claude-opus-4-5": SupportedModel.CLAUDE_OPUS_4_5,
     "claude-opus-4-6": SupportedModel.CLAUDE_OPUS_4_6,

@@ -7,7 +7,10 @@ owns everything specific to that flow:
 
   * ``generate_images`` — shape and send the provider request, always returning
     inline ``data:`` URIs (a provider-hosted URL is fetched into the enclave so
-    the client never sees a raw URL).
+    the client never sees a raw URL). Reference images for image-to-image edits
+    are delivered one of two ways depending on the provider: inline in the JSON
+    ``image`` field (ByteDance), or as multipart ``image[]`` file uploads to a
+    dedicated edits endpoint (OpenAI gpt-image; see ``image_edit_endpoint``).
   * ``create_image_generation_response`` /
     ``create_image_generation_streaming_response`` — surface the result on
     ``/v1/chat/completions`` exactly like Gemini's inline-image models (images
@@ -19,6 +22,7 @@ editing, extra params) live in the model registry, keeping this code flat.
 """
 
 import base64
+import binascii
 import ipaddress
 import json
 import logging
@@ -137,6 +141,87 @@ def _fetch_url_as_data_uri(url: str) -> str:
     return f"data:{mime or 'image/jpeg'};base64,{b64}"
 
 
+# MIME -> filename extension for multipart reference uploads. The edits endpoint
+# keys off the upload's filename/content-type; anything unmapped falls back to
+# png (gpt-image accepts png/jpeg/webp).
+_IMAGE_MIME_EXT = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+}
+
+
+def _decode_data_uri(uri: str) -> Optional[tuple[bytes, str]]:
+    """Decode a base64 ``data:`` URI into ``(raw_bytes, mime)``.
+
+    Returns ``None`` for anything that isn't a base64 ``data:`` URI (e.g. a plain
+    http(s) URL) or that fails to decode. Callers skip those rather than fetch
+    client-supplied URLs to upload — dereferencing client input inside the
+    enclave would be an SSRF vector (see ``_validate_fetch_url``).
+    """
+    if not uri.startswith("data:"):
+        return None
+    header, sep, b64 = uri.partition(",")
+    if not sep or not b64:
+        return None
+    meta = header[len("data:") :]
+    params = meta.split(";")
+    if "base64" not in params[1:]:
+        return None  # only base64 payloads are supported
+    mime = params[0].strip() or "image/png"
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except (ValueError, binascii.Error):
+        return None
+    if not raw:
+        return None
+    return raw, mime
+
+
+def _build_reference_uploads(
+    reference_images: List[str],
+) -> list[tuple[str, tuple[str, bytes, str]]]:
+    """Decode base64 ``data:`` references into httpx multipart ``files`` tuples.
+
+    Each entry is ``("image[]", (filename, bytes, mime))`` — the repeated
+    ``image[]`` field OpenAI's edits endpoint expects for multi-image edits.
+    Non-``data:`` references (plain URLs) are skipped rather than dereferenced.
+    """
+    uploads: list[tuple[str, tuple[str, bytes, str]]] = []
+    for i, ref in enumerate(reference_images):
+        decoded = _decode_data_uri(ref)
+        if decoded is None:
+            logger.warning("Skipping non-inline reference image for edit upload")
+            continue
+        raw, mime = decoded
+        ext = _IMAGE_MIME_EXT.get(mime, "png")
+        uploads.append(("image[]", (f"image_{i}.{ext}", raw, mime)))
+    return uploads
+
+
+def _build_generations_payload(
+    cfg: Any, prompt: str, count: int, refs: Optional[List[str]]
+) -> dict[str, Any]:
+    """Build the JSON body for a ``/images/generations`` request.
+
+    ``refs`` (only set for providers that carry references inline) go in the
+    ``image`` field — a bare string for a single reference, an array for several
+    (Seedream/Seedance accept either).
+    """
+    payload: dict[str, Any] = {"model": cfg.api_name, "prompt": prompt}
+    if cfg.image_response_format is not None:
+        payload["response_format"] = cfg.image_response_format
+    if cfg.image_send_n:
+        payload["n"] = count
+    if cfg.image_extra_params:
+        payload.update(cfg.image_extra_params)
+    if refs:
+        payload["image"] = refs[0] if len(refs) == 1 else refs
+    return payload
+
+
 def generate_images(
     model: str,
     prompt: str,
@@ -145,10 +230,21 @@ def generate_images(
 ) -> tuple[list[str], int]:
     """Generate images via a provider's OpenAI-compatible images endpoint.
 
-    ``reference_images`` carries input images for image-to-image editing (e.g. a
-    follow-up "add a hat" that builds on the previously generated image), sent on
-    the same endpoint via the ``image`` field (a URL or base64 ``data:`` URI, or
-    an array of up to 10). Models whose endpoint doesn't support it ignore them.
+    ``reference_images`` carries input images for image-to-image editing and
+    multi-image compositing (e.g. "add this logo to this photo", or a follow-up
+    "add a hat" that builds on the previous result). Up to 10 are forwarded to
+    providers that support them (``image_supports_reference``); others ignore
+    them. Delivery differs by provider and is a single choice per model:
+
+      * ``image_edit_endpoint`` unset — inline in the JSON ``image`` field of
+        ``/images/generations`` (a string for one, an array for several).
+        Used by ByteDance Seedream/Seedance.
+      * ``image_edit_endpoint`` set — multipart ``image[]`` file uploads to that
+        endpoint (OpenAI gpt-image's ``/images/edits``). Only inline ``data:``
+        references can be uploaded; a reference that is a plain URL is skipped
+        (we don't dereference client-supplied URLs inside the enclave), and if
+        that leaves nothing to upload we fall back to a plain text-to-image
+        generation rather than failing.
 
     Returns ``(data_uris, image_count)``. Every entry is a ``data:`` URI — when a
     provider returns a hosted URL instead of inline bytes, the gateway fetches it
@@ -168,22 +264,11 @@ def generate_images(
 
     # n is clamped to the OpenAI-compatible providers' documented 1..10 range.
     count = max(1, min(int(n), 10))
-    payload: dict[str, Any] = {"model": cfg.api_name, "prompt": prompt}
-    if cfg.image_response_format is not None:
-        payload["response_format"] = cfg.image_response_format
-    if cfg.image_send_n:
-        payload["n"] = count
-    if cfg.image_extra_params:
-        payload.update(cfg.image_extra_params)
-    # Image-to-image editing: forward reference images via the ``image`` field (a
-    # single string, or an array for multi-reference edits, up to 10). Without
-    # this a follow-up edit like "add a hat" would ignore the prior image and
-    # generate a fresh one from the prompt text alone. Filter to non-empty strings
-    # so a malformed entry can't break JSON serialization of the request payload.
+    # Filter references to non-empty strings and cap at the providers' 10-image
+    # limit; only kept for models that accept reference images.
+    refs: Optional[list[str]] = None
     if reference_images and cfg.image_supports_reference:
-        refs = [r for r in reference_images if isinstance(r, str) and r][:10]
-        if refs:
-            payload["image"] = refs[0] if len(refs) == 1 else refs
+        refs = [r for r in reference_images if isinstance(r, str) and r][:10] or None
 
     logger.info(
         "Generating %d image(s) - Provider: %s, Model: %s",
@@ -191,7 +276,34 @@ def generate_images(
         provider,
         cfg.api_name,
     )
-    resp = client.post(_IMAGE_GENERATION_PATH, json=payload)
+
+    # Two delivery paths, picked by the model's config: multipart file uploads to
+    # a dedicated edits endpoint, or the JSON generations endpoint (with inline
+    # references in the ``image`` field when the provider carries them there).
+    uploads = (
+        _build_reference_uploads(refs) if (refs and cfg.image_edit_endpoint) else []
+    )
+    if uploads:
+        # ``uploads`` is only non-empty when image_edit_endpoint is set.
+        edit_endpoint = cfg.image_edit_endpoint
+        assert edit_endpoint is not None
+        form: dict[str, str] = {"model": cfg.api_name, "prompt": prompt}
+        if cfg.image_send_n:
+            form["n"] = str(count)
+        if cfg.image_response_format is not None:
+            form["response_format"] = cfg.image_response_format
+        if cfg.image_extra_params:
+            form.update({k: str(v) for k, v in cfg.image_extra_params.items()})
+        resp = client.post(edit_endpoint, data=form, files=uploads)
+    else:
+        # No edit endpoint (or nothing uploadable): JSON generations. Inline
+        # references only ride along for providers that carry them there and
+        # aren't routed to an edits endpoint.
+        json_refs = refs if not cfg.image_edit_endpoint else None
+        resp = client.post(
+            _IMAGE_GENERATION_PATH,
+            json=_build_generations_payload(cfg, prompt, count, json_refs),
+        )
     resp.raise_for_status()
     data = resp.json().get("data", []) or []
 

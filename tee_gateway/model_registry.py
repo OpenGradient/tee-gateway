@@ -44,9 +44,19 @@ class ModelConfig:
     # Whether to send the OpenAI-style ``n`` count. Some endpoints (Z.ai
     # GLM-Image, ByteDance Seedance) don't document it and reject/ignore it.
     image_send_n: bool = True
-    # Whether the endpoint accepts reference images for image-to-image editing,
-    # sent via the ``image`` field. Text-to-image-only endpoints reject it.
+    # Whether the endpoint accepts reference images for image-to-image editing.
+    # Text-to-image-only endpoints reject it. HOW the references are delivered
+    # depends on ``image_edit_endpoint`` below.
     image_supports_reference: bool = False
+    # Where/how reference images are sent (image_supports_reference models only):
+    #   * ``None`` — inline them in the ``image`` field of the JSON
+    #     ``/images/generations`` request (a string, or an array for multi-ref
+    #     edits). Used by ByteDance Seedream/Seedance.
+    #   * a path (e.g. ``"/images/edits"``) — POST multipart/form-data to that
+    #     endpoint with each reference uploaded as a repeated ``image[]`` file.
+    #     Used by OpenAI gpt-image, whose editing/compositing lives on a separate
+    #     endpoint from text-to-image generation.
+    image_edit_endpoint: Optional[str] = None
     # Static extra params merged verbatim into the request payload (e.g. size,
     # watermark). Keyed by field name; values must be JSON-serializable.
     image_extra_params: Optional[Mapping[str, Any]] = None
@@ -171,10 +181,13 @@ class SupportedModel(Enum):
     # Image generation via OpenAI's /images/generations endpoint (gpt-image).
     # Unlike DALL·E, gpt-image models always return base64 (``b64_json``) and
     # reject the ``response_format`` field, so it's omitted. Image-to-image
-    # editing is a separate ``/images/edits`` endpoint OpenAI-side, so reference
-    # images aren't forwarded here (text-to-image only). Size/quality are pinned
-    # so the flat per-image price stays predictable. Billed at a flat $0.05 per
-    # generated image; token prices unused.
+    # editing and multi-image compositing (e.g. "add this logo to this photo")
+    # live on OpenAI's separate ``/images/edits`` endpoint, which takes the
+    # reference images as multipart file uploads rather than a JSON ``image``
+    # field — so reference turns are routed there via ``image_edit_endpoint``
+    # (up to 10 references per request). Size/quality are pinned so the flat
+    # per-image price stays predictable. Billed at a flat $0.05 per generated
+    # image; token prices unused.
     GPT_IMAGE_2 = ModelConfig(
         provider="openai",
         api_name="gpt-image-2",
@@ -183,6 +196,8 @@ class SupportedModel(Enum):
         image_generation=True,
         per_image_price_usd=Decimal("0.05"),
         image_response_format=None,
+        image_supports_reference=True,
+        image_edit_endpoint="/images/edits",
         image_extra_params={"size": "1024x1024", "quality": "medium"},
     )
 

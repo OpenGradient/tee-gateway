@@ -368,7 +368,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
     except Exception as e:
         logger.error(f"Chat completion error: {str(e)}", exc_info=True)
         return {
-            "error": "Request processing failed",
+            "error": str(e) or "Request processing failed",
             "exception_type": type(e).__name__,
         }, 500
 
@@ -797,7 +797,19 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
 
             except Exception as e:
                 logger.error(f"Streaming error: {str(e)}", exc_info=True)
-                yield f"data: {json.dumps({'error': 'Stream processing failed', 'exception_type': type(e).__name__})}\n\n"
+                # The HTTP status is already locked to 200 (headers flushed
+                # before the first chunk), so this in-band error event is the
+                # only channel left to tell the client why the stream died.
+                # `exception_type` is a content-free class name the client can
+                # bucket on; `error` carries the human-readable detail. This
+                # event IS the terminal marker for the error path — we do NOT
+                # emit a trailing `[DONE]`, which conventionally signals a
+                # clean completion and would mis-signal an errored stream.
+                error_payload = {
+                    "error": str(e) or "Stream processing failed",
+                    "exception_type": type(e).__name__,
+                }
+                yield f"data: {json.dumps(error_payload)}\n\n"
 
         return Response(
             generate(),
@@ -811,7 +823,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
     except Exception as e:
         logger.error(f"Stream setup error: {str(e)}", exc_info=True)
         return {
-            "error": "Stream setup failed",
+            "error": str(e) or "Stream setup failed",
             "exception_type": type(e).__name__,
         }, 500
 

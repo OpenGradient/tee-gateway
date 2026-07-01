@@ -335,7 +335,13 @@ def _extract_cost_headers(body_bytes: bytes) -> dict[str, str]:
         return {}
     try:
         cost = SessionCost.model_validate(body.get("opengradient"))
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "OHTTP cost header extraction failed — no billing headers on this "
+            "response: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
         return {}
     wire = cost.model_dump(mode="json")
     return {
@@ -356,7 +362,13 @@ def _build_billing_frame(response_json: dict[str, Any] | None) -> bytes:
         return b""
     try:
         cost = SessionCost.model_validate(response_json.get("opengradient"))
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "OHTTP billing frame skipped — cost block missing/invalid on "
+            "streamed response: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
         return b""
     payload = json.dumps(
         cost.model_dump(mode="json"),

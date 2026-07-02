@@ -44,7 +44,7 @@ _TIMEOUT = httpx.Timeout(
 _LIMITS = httpx.Limits(
     max_keepalive_connections=10,
     max_connections=50,
-    keepalive_expiry=60 * 20,  # 20 minutes
+    keepalive_expiry=45.0,
 )
 
 # BytePlus ModelArk OpenAI-compatible endpoint (ap-southeast)

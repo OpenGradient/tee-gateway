@@ -44,7 +44,11 @@ _TIMEOUT = httpx.Timeout(
 _LIMITS = httpx.Limits(
     max_keepalive_connections=10,
     max_connections=50,
-    keepalive_expiry=60 * 20,  # 20 minutes
+    # Keep pooled connections well under provider LB idle timeouts (~60s) and
+    # gvproxy's NAT flow expiry — the enclave's egress path drops idle flows
+    # silently (no FIN), so a longer expiry makes httpx reuse dead connections
+    # and fail with RemoteProtocolError on the first request after a quiet gap.
+    keepalive_expiry=45.0,
 )
 
 # BytePlus ModelArk OpenAI-compatible endpoint (ap-southeast)

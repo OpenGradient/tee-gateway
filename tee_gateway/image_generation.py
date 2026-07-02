@@ -495,7 +495,14 @@ def create_image_generation_streaming_response(
             yield "data: [DONE]\n\n"
         except Exception as e:
             logger.error(f"Image generation streaming error: {str(e)}", exc_info=True)
-            yield f"data: {json.dumps({'error': 'Stream processing failed', 'exception_type': type(e).__name__})}\n\n"
+            # Surface the real exception detail to the client (matching the chat
+            # streaming path) so browser-side logs show the actual cause instead
+            # of an opaque generic string.
+            error_payload = {
+                "error": str(e) or "Stream processing failed",
+                "exception_type": type(e).__name__,
+            }
+            yield f"data: {json.dumps(error_payload)}\n\n"
 
     return Response(
         generate(),

@@ -98,12 +98,19 @@ def set_provider_config(config: ProviderConfig) -> None:
         http2=True,
         follow_redirects=False,
     )
+    # HTTP/1.1 only for BytePlus: its ap-southeast edge terminates idle/aged
+    # HTTP/2 connections aggressively, and httpcore treats a single EOF on an
+    # h2 connection as fatal for *all* streams multiplexed on it ("Server
+    # disconnected" RemoteProtocolError), so one drop kills every in-flight
+    # ByteDance request at once. HTTP/1.1 confines a dead connection to a
+    # single request and its pool detects half-closed sockets before reuse.
+    # Other providers stay on h2 — this failure mode is only observed here.
     bytedance_http_client = httpx.Client(
         base_url=BYTEDANCE_BASE_URL,
         headers={"Authorization": f"Bearer {config.bytedance_api_key or ''}"},
         timeout=_TIMEOUT,
         limits=_LIMITS,
-        http2=True,
+        http2=False,
         follow_redirects=False,
     )
     nous_http_client = httpx.Client(

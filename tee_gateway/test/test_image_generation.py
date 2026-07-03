@@ -13,6 +13,8 @@ No network or API key required — the provider HTTP client is mocked, the URL
 fetch is patched, and a stub price feed is injected.
 """
 
+import json
+import time
 import unittest
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -490,6 +492,110 @@ class TestExtractImageInputs(unittest.TestCase):
         prompt, refs = image_generation._extract_image_inputs(msgs)
         self.assertEqual(prompt, "p")
         self.assertEqual(refs, [])
+
+
+class TestSseKeepalive(unittest.TestCase):
+    """SSE keepalives emitted while the blocking provider call runs.
+
+    Image generation can block for 60-120s with no bytes on the wire, which
+    intermediaries (OHTTP relay, load balancers, the browser's HTTP/2 session)
+    kill as idle at ~60s. These tests pin that keepalive comments flow while
+    the call runs and that results/errors still surface exactly as before.
+    """
+
+    @staticmethod
+    def _drive(gen):
+        """Exhaust a generator, returning (yielded_chunks, return_value)."""
+        out = []
+        while True:
+            try:
+                out.append(next(gen))
+            except StopIteration as stop:
+                return out, stop.value
+
+    def test_yields_keepalives_until_result(self):
+        def slow():
+            time.sleep(0.05)
+            return "done"
+
+        with patch.object(image_generation, "_KEEPALIVE_INTERVAL_SECONDS", 0.01):
+            chunks, value = self._drive(image_generation.run_with_sse_keepalive(slow))
+
+        self.assertEqual(value, "done")
+        self.assertGreaterEqual(len(chunks), 1)
+        # Every yielded chunk is an SSE comment — ignored by SSE parsers by spec.
+        self.assertTrue(all(c == ": keepalive\n\n" for c in chunks))
+
+    def test_fast_result_yields_no_keepalives(self):
+        chunks, value = self._drive(image_generation.run_with_sse_keepalive(lambda: 42))
+        self.assertEqual(value, 42)
+        self.assertEqual(chunks, [])
+
+    def test_propagates_exceptions(self):
+        def boom():
+            raise RuntimeError("provider failed")
+
+        with self.assertRaises(RuntimeError):
+            self._drive(image_generation.run_with_sse_keepalive(boom))
+
+    def test_streaming_response_emits_keepalives_before_final_frame(self):
+        result = {
+            "images": ["data:image/png;base64,QUJD"],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "opengradient": None,
+            "tee_signature": "sig",
+            "tee_request_hash": "req-hash",
+            "tee_output_hash": "out-hash",
+            "tee_timestamp": 1700000000,
+            "tee_id": "0xabc",
+        }
+
+        def slow_run(chat_request, request_bytes):
+            time.sleep(0.05)
+            return result
+
+        chat_request = MagicMock()
+        chat_request.model = GPT_IMAGE
+        with (
+            patch.object(image_generation, "_KEEPALIVE_INTERVAL_SECONDS", 0.01),
+            patch.object(
+                image_generation, "_run_image_generation", side_effect=slow_run
+            ),
+        ):
+            resp = image_generation.create_image_generation_streaming_response(
+                chat_request, b"request-bytes"
+            )
+            chunks = list(resp.response)
+
+        # Keepalive comment(s) flow first, while generation is still running.
+        self.assertIn(": keepalive\n\n", chunks)
+        data_frames = [c for c in chunks if c.startswith("data: ")]
+        self.assertLess(chunks.index(": keepalive\n\n"), chunks.index(data_frames[0]))
+        # The final frame and [DONE] marker are unchanged by the keepalives.
+        self.assertEqual(data_frames[-1], "data: [DONE]\n\n")
+        final = json.loads(data_frames[-2][len("data: ") :])
+        self.assertEqual(final["images"], ["data:image/png;base64,QUJD"])
+        self.assertEqual(final["tee_signature"], "sig")
+
+    def test_streaming_response_surfaces_error_frame(self):
+        chat_request = MagicMock()
+        chat_request.model = GPT_IMAGE
+        with (
+            patch.object(image_generation, "_KEEPALIVE_INTERVAL_SECONDS", 0.01),
+            patch.object(
+                image_generation,
+                "_run_image_generation",
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            resp = image_generation.create_image_generation_streaming_response(
+                chat_request, b"request-bytes"
+            )
+            chunks = list(resp.response)
+
+        payload = json.loads(chunks[-1][len("data: ") :])
+        self.assertEqual(payload["error"], "boom")
+        self.assertEqual(payload["exception_type"], "RuntimeError")
 
 
 class TestPerImageBilling(unittest.TestCase):

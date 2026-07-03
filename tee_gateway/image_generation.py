@@ -23,12 +23,13 @@ editing, extra params) live in the model registry, keeping this code flat.
 
 import base64
 import binascii
+import concurrent.futures
 import ipaddress
 import json
 import logging
 import time
 import uuid
-from typing import Any, List, Optional
+from typing import Any, Callable, Generator, List, Optional, TypeVar
 from urllib.parse import urlparse
 
 import httpx
@@ -67,6 +68,47 @@ _ALLOWED_FETCH_SCHEMES = {"http", "https"}
 
 # Shared keyless client for fetching provider-hosted image URLs into the enclave.
 _image_fetch_client: Optional[httpx.Client] = None
+
+# Image generation is a single blocking provider call that can run well past a
+# minute (gpt-image routinely takes 60-120s), during which the SSE response
+# would otherwise carry zero bytes. Intermediaries between the browser and the
+# enclave (the OHTTP relay, its load balancer, the browser's HTTP/2 session)
+# kill connections idle that long — surfacing client-side as
+# ERR_HTTP2_PROTOCOL_ERROR at ~60s — so while the provider call runs we emit
+# SSE comment lines, which every hop forwards (the OHTTP controller seals each
+# yielded chunk as it arrives) and SSE parsers ignore by spec. 10s keeps the
+# wire busy even for hops with the shortest common (30s) idle windows, allowing
+# for the OHTTP controller's one-chunk look-ahead delaying each chunk by one
+# interval.
+_KEEPALIVE_INTERVAL_SECONDS = 10.0
+_SSE_KEEPALIVE = ": keepalive\n\n"
+
+_T = TypeVar("_T")
+
+
+def run_with_sse_keepalive(
+    fn: Callable[..., _T], *args: Any, **kwargs: Any
+) -> Generator[str, None, _T]:
+    """Run ``fn`` in a worker thread, yielding SSE keepalive comments while it runs.
+
+    For use inside an SSE generator as ``result = yield from
+    run_with_sse_keepalive(fn, ...)``: the caller streams out each keepalive as
+    it is yielded and receives ``fn``'s return value once it completes. An
+    exception raised by ``fn`` propagates to the caller (surfacing through the
+    generator's normal error frame). If the client disconnects mid-generation
+    the generator is closed at a yield; the worker thread is not joined, so the
+    in-flight provider call simply runs to completion in the background.
+    """
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        future = executor.submit(fn, *args, **kwargs)
+        while True:
+            try:
+                return future.result(timeout=_KEEPALIVE_INTERVAL_SECONDS)
+            except concurrent.futures.TimeoutError:
+                yield _SSE_KEEPALIVE
+    finally:
+        executor.shutdown(wait=False)
 
 
 def _validate_fetch_url(url: str) -> None:
@@ -469,11 +511,16 @@ def create_image_generation_streaming_response(
     chat_request: CreateChatCompletionRequest, request_bytes: bytes
 ):
     """Streaming image generation: image gen is not a token stream, so we invoke
-    once and emit the result on the final SSE frame (mirrors the Gemini path)."""
+    once and emit the result on the final SSE frame (mirrors the Gemini path).
+    Keepalive comments are streamed while the provider call runs so no hop on
+    the way to the browser idle-times-out the connection (see
+    ``run_with_sse_keepalive``)."""
 
     def generate():
         try:
-            result = _run_image_generation(chat_request, request_bytes)
+            result = yield from run_with_sse_keepalive(
+                _run_image_generation, chat_request, request_bytes
+            )
 
             final_data: dict[str, Any] = {
                 "choices": [{"delta": {}, "index": 0, "finish_reason": "stop"}],

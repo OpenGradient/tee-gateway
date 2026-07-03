@@ -26,9 +26,10 @@ import binascii
 import ipaddress
 import json
 import logging
+import threading
 import time
 import uuid
-from typing import Any, List, Optional
+from typing import Any, Callable, Generator, List, Optional, TypeVar
 from urllib.parse import urlparse
 
 import httpx
@@ -58,6 +59,55 @@ _IMAGE_CLIENT_ATTRS = {
     "bytedance": "bytedance_http_client",
     "zai": "zai_http_client",
 }
+
+# Image generation is far slower than chat (gpt-image regularly takes 1-2
+# minutes), so the provider call gets its own generous read timeout instead of
+# the shared chat client's default.
+_IMAGE_GENERATION_TIMEOUT = httpx.Timeout(timeout=300.0, connect=15.0)
+
+# SSE comment frame emitted while the provider call runs. Comment lines are
+# ignored by SSE parsers (the app's stream parser only reads ``data:`` lines)
+# but keep bytes flowing on the wire: without them the connection is silent for
+# the entire generation, and idle-timeout proxies between the enclave and the
+# browser reset the stream at ~60s (surfacing client-side as
+# ERR_HTTP2_PROTOCOL_ERROR).
+_SSE_KEEPALIVE_FRAME = ": keepalive\n\n"
+_KEEPALIVE_INTERVAL_SECONDS = 10.0
+
+_T = TypeVar("_T")
+
+
+def run_with_sse_keepalives(fn: Callable[[], _T]) -> Generator[str, None, _T]:
+    """Run ``fn`` on a worker thread, yielding SSE keepalive comments while it runs.
+
+    Use with ``yield from`` inside a streaming response generator: the caller
+    receives ``fn``'s return value, and any exception ``fn`` raised is re-raised
+    at the call site. The OHTTP encrypter downstream holds each chunk until the
+    next arrives (one-chunk look-ahead for the final marker), so the wire sees
+    bytes at most every 2x the interval — still far under the ~60s idle
+    timeouts this defends against. If the client disconnects mid-generation the
+    generator is closed and the daemon worker is left to finish on its own (the
+    provider call is not cancellable).
+    """
+    outcome: dict[str, Any] = {}
+
+    def _work() -> None:
+        try:
+            outcome["result"] = fn()
+        except BaseException as exc:  # re-raised on the streaming thread below
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=_work, name="sse-keepalive-call", daemon=True)
+    worker.start()
+    while True:
+        worker.join(timeout=_KEEPALIVE_INTERVAL_SECONDS)
+        if not worker.is_alive():
+            break
+        yield _SSE_KEEPALIVE_FRAME
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["result"]  # type: ignore[no-any-return]
+
 
 # Bounds on the URL fetch (egress hardening). Provider images are well under the
 # size cap; the redirect cap stops a redirect chain from being chased off-host.
@@ -294,7 +344,12 @@ def generate_images(
             form["response_format"] = cfg.image_response_format
         if cfg.image_extra_params:
             form.update({k: str(v) for k, v in cfg.image_extra_params.items()})
-        resp = client.post(edit_endpoint, data=form, files=uploads)
+        resp = client.post(
+            edit_endpoint,
+            data=form,
+            files=uploads,
+            timeout=_IMAGE_GENERATION_TIMEOUT,
+        )
     else:
         # No edit endpoint (or nothing uploadable): JSON generations. Inline
         # references only ride along for providers that carry them there and
@@ -303,6 +358,7 @@ def generate_images(
         resp = client.post(
             _IMAGE_GENERATION_PATH,
             json=_build_generations_payload(cfg, prompt, count, json_refs),
+            timeout=_IMAGE_GENERATION_TIMEOUT,
         )
     resp.raise_for_status()
     data = resp.json().get("data", []) or []
@@ -469,11 +525,18 @@ def create_image_generation_streaming_response(
     chat_request: CreateChatCompletionRequest, request_bytes: bytes
 ):
     """Streaming image generation: image gen is not a token stream, so we invoke
-    once and emit the result on the final SSE frame (mirrors the Gemini path)."""
+    once and emit the result on the final SSE frame (mirrors the Gemini path).
+
+    The provider call runs on a worker thread with SSE keepalive comments
+    yielded while it executes — image generation is silent for 60-120s, and
+    without bytes on the wire idle-timeout proxies between the enclave and the
+    browser reset the stream at ~60s."""
 
     def generate():
         try:
-            result = _run_image_generation(chat_request, request_bytes)
+            result = yield from run_with_sse_keepalives(
+                lambda: _run_image_generation(chat_request, request_bytes)
+            )
 
             final_data: dict[str, Any] = {
                 "choices": [{"delta": {}, "index": 0, "finish_reason": "stop"}],

@@ -38,6 +38,7 @@ from tee_gateway.llm_backend import (
 from tee_gateway.image_generation import (
     create_image_generation_response,
     create_image_generation_streaming_response,
+    run_with_sse_keepalives,
 )
 from tee_gateway.model_registry import get_model_config
 from tee_gateway.pricing import compute_session_cost
@@ -484,8 +485,13 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                 if image_output_model:
                     # Image generation isn't a token stream: invoke once, emit
                     # any caption text as a content delta, and carry the image
-                    # out-of-band on the final frame (it is not signed).
-                    response = model.invoke(langchain_messages)
+                    # out-of-band on the final frame (it is not signed). The
+                    # invoke runs on a worker thread with SSE keepalives so the
+                    # long silent provider call doesn't trip idle-timeout
+                    # proxies between the enclave and the browser.
+                    response = yield from run_with_sse_keepalives(
+                        lambda: model.invoke(langchain_messages)
+                    )
                     text_content, generated_images = _split_text_and_images(
                         response.content
                     )

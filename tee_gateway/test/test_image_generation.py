@@ -13,6 +13,7 @@ No network or API key required — the provider HTTP client is mocked, the URL
 fetch is patched, and a stub price feed is injected.
 """
 
+import time
 import unittest
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -534,6 +535,104 @@ class TestPerImageBilling(unittest.TestCase):
         cost = compute_session_cost(GROK_IMAGE, self._zero_usage(), image_count=0)
         self.assertIsNotNone(cost)
         self.assertEqual(cost.cost_opg, 0)
+
+
+class TestStreamingKeepalives(unittest.TestCase):
+    """SSE keepalives during the (long, silent) provider image call.
+
+    Image generation takes 60-120s with no bytes on the wire; idle-timeout
+    proxies between the enclave and the browser reset the stream at ~60s
+    unless keepalive comment frames keep it warm. These tests pin that the
+    streaming responder emits keepalives while the generation runs and that
+    the final signed frame / error frame semantics are unchanged.
+    """
+
+    _RESULT = {
+        "images": ["data:image/png;base64,aGVsbG8="],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "opengradient": None,
+        "tee_signature": "sig",
+        "tee_request_hash": "req",
+        "tee_output_hash": "out",
+        "tee_timestamp": 1,
+        "tee_id": "0xabc",
+    }
+
+    @staticmethod
+    def _chat_request() -> MagicMock:
+        request = MagicMock()
+        request.model = GPT_IMAGE
+        return request
+
+    def _collect_frames(self, run_side_effect) -> list[str]:
+        with (
+            patch.object(image_generation, "_KEEPALIVE_INTERVAL_SECONDS", 0.01),
+            patch.object(
+                image_generation,
+                "_run_image_generation",
+                side_effect=run_side_effect,
+            ),
+        ):
+            response = image_generation.create_image_generation_streaming_response(
+                self._chat_request(), b"{}"
+            )
+            return [
+                chunk.decode() if isinstance(chunk, bytes) else chunk
+                for chunk in response.response
+            ]
+
+    def test_keepalives_flow_while_generation_runs(self):
+        def slow_generation(*_args, **_kwargs):
+            time.sleep(0.05)
+            return dict(self._RESULT)
+
+        frames = self._collect_frames(slow_generation)
+
+        keepalives = [f for f in frames if f == ": keepalive\n\n"]
+        self.assertGreater(len(keepalives), 0)
+        # Keepalives come strictly before the final data frames.
+        first_data = next(i for i, f in enumerate(frames) if f.startswith("data:"))
+        self.assertTrue(
+            all(f == ": keepalive\n\n" for f in frames[:first_data]),
+        )
+        # Final signed frame and [DONE] are intact.
+        self.assertIn("tee_signature", frames[first_data])
+        self.assertIn("data:image/png;base64,aGVsbG8=", frames[first_data])
+        self.assertEqual(frames[-1], "data: [DONE]\n\n")
+
+    def test_generation_error_still_yields_error_frame(self):
+        def failing_generation(*_args, **_kwargs):
+            time.sleep(0.05)
+            raise RuntimeError("provider exploded")
+
+        frames = self._collect_frames(failing_generation)
+
+        self.assertGreater(len([f for f in frames if f == ": keepalive\n\n"]), 0)
+        self.assertIn("provider exploded", frames[-1])
+        self.assertIn("RuntimeError", frames[-1])
+
+    def test_fast_generation_emits_no_keepalives(self):
+        frames = self._collect_frames(lambda *_a, **_k: dict(self._RESULT))
+        self.assertNotIn(": keepalive\n\n", frames)
+
+    def test_run_with_sse_keepalives_returns_value_and_raises(self):
+        def drive(gen):
+            frames = []
+            try:
+                while True:
+                    frames.append(next(gen))
+            except StopIteration as stop:
+                return frames, stop.value
+
+        with patch.object(image_generation, "_KEEPALIVE_INTERVAL_SECONDS", 0.01):
+            _, value = drive(image_generation.run_with_sse_keepalives(lambda: 42))
+            self.assertEqual(value, 42)
+
+            def boom():
+                raise ValueError("bad")
+
+            with self.assertRaises(ValueError):
+                drive(image_generation.run_with_sse_keepalives(boom))
 
 
 if __name__ == "__main__":

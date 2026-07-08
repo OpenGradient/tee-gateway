@@ -38,8 +38,12 @@ from x402.extensions.erc20_approval_gas_sponsoring import (
 )
 from x402.schemas import AssetAmount
 from x402.server import x402ResourceServerSync
-from x402.session import SessionStore
 import x402.http.middleware.flask as x402_flask
+
+from .x402_settlement import (
+    DeadlineAwareSessionStore,
+    install_deadline_aware_settlement,
+)
 
 from .model_registry import get_model_config
 from .price_feed import OPGPriceFeed, set_price_feed
@@ -51,6 +55,7 @@ from .definitions import (
     COMPLETIONS_OPG_SESSION_MAX_SPEND,
     FACILITATOR_URL,
     OHTTP_OPG_SESSION_MAX_SPEND,
+    X402_SESSION_MAX_TIMEOUT_SECONDS,
 )
 
 # ---------------------------------------------------------------------------
@@ -269,7 +274,13 @@ def _init_payment_middleware(facilitator_url: str) -> None:
     """
     facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=facilitator_url))
     server = x402ResourceServerSync(facilitator)  # type: ignore[arg-type]
-    store = SessionStore()
+
+    # Deadline-aware settlement: settle upto sessions before their Permit2
+    # deadline, confirm the facilitator's async settlement job before closing
+    # a session, and saturate the spend cap instead of serving unbillable
+    # requests. Must be installed before the middleware handles traffic.
+    install_deadline_aware_settlement(facilitator_url)
+    store = DeadlineAwareSessionStore()
 
     server.register(BASE_MAINNET_NETWORK, ExactEvmServerScheme())
     server.register(BASE_MAINNET_NETWORK, UptoEvmServerScheme())
@@ -290,6 +301,7 @@ def _init_payment_middleware(facilitator_url: str) -> None:
                         },
                     ),
                     network=BASE_MAINNET_NETWORK,
+                    max_timeout_seconds=X402_SESSION_MAX_TIMEOUT_SECONDS,
                 ),
             ],
             extensions={
@@ -313,6 +325,7 @@ def _init_payment_middleware(facilitator_url: str) -> None:
                         },
                     ),
                     network=BASE_MAINNET_NETWORK,
+                    max_timeout_seconds=X402_SESSION_MAX_TIMEOUT_SECONDS,
                 ),
             ],
             extensions={
@@ -336,6 +349,7 @@ def _init_payment_middleware(facilitator_url: str) -> None:
                         },
                     ),
                     network=BASE_MAINNET_NETWORK,
+                    max_timeout_seconds=X402_SESSION_MAX_TIMEOUT_SECONDS,
                 ),
             ],
             extensions={

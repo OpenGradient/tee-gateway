@@ -84,3 +84,21 @@ OHTTP_OPG_SESSION_MAX_SPEND: str = "5000000000000000000"
 # the real per-request cost is settled dynamically by compute_session_cost() in pricing.py
 # based on actual token usage, so clients are never overcharged beyond what they consumed.
 COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"
+
+# ---------------------------------------------------------------------------
+# X402 upto-session permit lifetime
+# ---------------------------------------------------------------------------
+# max_timeout_seconds sets the Permit2 deadline the client signs on the first
+# request of a session (deadline = signing_time + this value). The whole
+# session must be settled on-chain before that deadline, so this bounds how
+# long a single upto session (and its signed spend cap) stays reusable.
+#
+# It MUST be comfortably larger than x402_settlement.SERVE_MARGIN_SECONDS: the
+# gateway stops serving a session SERVE_MARGIN_SECONDS before the deadline so
+# it can settle in time, so the usable serving window is roughly
+# (this value - SERVE_MARGIN_SECONDS). The old implicit default of 300s was
+# SHORTER than that margin, which is exactly why long request runs never
+# settled — the permit expired before the reaper ran.
+X402_SESSION_MAX_TIMEOUT_SECONDS: int = int(
+    os.getenv("X402_SESSION_MAX_TIMEOUT_SECONDS", "3600")
+)

@@ -213,6 +213,29 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.000005"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.00003"))
 
+    def test_gpt_5_6_sol_resolves(self):
+        cfg = get_model_config("gpt-5.6-sol")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.api_name, "gpt-5.6-sol")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000005"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00003"))
+
+    def test_gpt_5_6_alias_resolves_to_sol(self):
+        cfg = get_model_config("gpt-5.6")
+        self.assertEqual(cfg, get_model_config("gpt-5.6-sol"))
+
+    def test_gpt_5_6_terra_resolves(self):
+        cfg = get_model_config("gpt-5.6-terra")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000025"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000015"))
+
+    def test_gpt_5_6_luna_resolves(self):
+        cfg = get_model_config("gpt-5.6-luna")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000001"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000006"))
+
     # ── Google ──────────────────────────────────────────────────────────────
 
     def test_gemini_2_5_flash_resolves(self):
@@ -263,6 +286,17 @@ class TestModelRegistry(unittest.TestCase):
         self.assertTrue(cfg.image_output)
 
     # ── xAI Grok ────────────────────────────────────────────────────────────
+
+    def test_grok_4_5_resolves(self):
+        cfg = get_model_config("grok-4.5")
+        self.assertEqual(cfg.provider, "x-ai")
+        self.assertEqual(cfg.api_name, "grok-4.5")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000006"))
+
+    def test_grok_4_5_latest_resolves(self):
+        cfg = get_model_config("grok-4.5-latest")
+        self.assertEqual(cfg, get_model_config("grok-4.5"))
 
     def test_grok_4_resolves(self):
         cfg = get_model_config("grok-4")
@@ -521,6 +555,33 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         # 1000*0.000005 + 500*0.00003 = 0.005 + 0.015 = 0.02 USD = 2e16 wei
         self.assertEqual(cost, 20_000_000_000_000_000)
 
+    def test_gpt_5_6_sol_cost(self):
+        cost = self._calc("gpt-5.6-sol", 1000, 500)
+        expected = _expected_cost_opg("gpt-5.6-sol", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.000005 + 500*0.00003 = 0.005 + 0.015 = 0.02 USD = 2e16 wei
+        self.assertEqual(cost, 20_000_000_000_000_000)
+
+    def test_gpt_5_6_alias_cost(self):
+        self.assertEqual(
+            self._calc("gpt-5.6", 1000, 500),
+            self._calc("gpt-5.6-sol", 1000, 500),
+        )
+
+    def test_gpt_5_6_terra_cost(self):
+        cost = self._calc("gpt-5.6-terra", 1000, 500)
+        expected = _expected_cost_opg("gpt-5.6-terra", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.0000025 + 500*0.000015 = 0.0025 + 0.0075 = 0.01 USD = 1e16 wei
+        self.assertEqual(cost, 10_000_000_000_000_000)
+
+    def test_gpt_5_6_luna_cost(self):
+        cost = self._calc("gpt-5.6-luna", 1000, 500)
+        expected = _expected_cost_opg("gpt-5.6-luna", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.000001 + 500*0.000006 = 0.001 + 0.003 = 0.004 USD = 4e15 wei
+        self.assertEqual(cost, 4_000_000_000_000_000)
+
     # ── Anthropic Sonnet ────────────────────────────────────────────────────
 
     def test_claude_sonnet_4_5_cost(self):
@@ -604,6 +665,19 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(cost, 1_000_000_000_000_000)
 
     # ── xAI Grok ────────────────────────────────────────────────────────────
+
+    def test_grok_4_5_cost(self):
+        cost = self._calc("grok-4.5", 1000, 500)
+        expected = _expected_cost_opg("grok-4.5", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.000002 + 500*0.000006 = 0.002 + 0.003 = 0.005 USD = 5e15 wei
+        self.assertEqual(cost, 5_000_000_000_000_000)
+
+    def test_grok_4_5_latest_cost(self):
+        self.assertEqual(
+            self._calc("grok-4.5-latest", 1000, 500),
+            self._calc("grok-4.5", 1000, 500),
+        )
 
     def test_grok_4_cost(self):
         cost = self._calc("grok-4", 1000, 500)

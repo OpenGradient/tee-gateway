@@ -103,16 +103,16 @@ COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"
 
 # Validity window signed into the Permit2 authorization (deadline = creation + this).
 # Advertised to clients as ``maxTimeoutSeconds`` in the 402 requirements.
-UPTO_SESSION_MAX_TIMEOUT_SECONDS: int = 900
+UPTO_SESSION_MAX_TIMEOUT_SECONDS: int = 600
 
 # Force-settle a session (and stop accepting new draw-downs against it) this many
 # seconds before its authorization deadline, leaving room for on-chain confirmation.
-UPTO_SETTLEMENT_SAFETY_MARGIN_SECONDS: int = 180
+UPTO_SETTLEMENT_SAFETY_MARGIN_SECONDS: int = 120
 
 # Settle a session once it has been idle (no new requests) this long.
-UPTO_SESSION_IDLE_TIMEOUT_SECONDS: int = 100
+UPTO_SESSION_IDLE_TIMEOUT_SECONDS: int = 60
 
 # Deferred settlement is asynchronous on the facilitator (202 + job id). Poll the
 # job-status endpoint until the on-chain result is known instead of assuming success.
 SETTLEMENT_POLL_INTERVAL_SECONDS: float = 2.0
-SETTLEMENT_POLL_TIMEOUT_SECONDS: float = 120.0
+SETTLEMENT_POLL_TIMEOUT_SECONDS: float = 100.0

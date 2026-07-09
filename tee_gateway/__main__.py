@@ -51,6 +51,11 @@ from .definitions import (
     COMPLETIONS_OPG_SESSION_MAX_SPEND,
     FACILITATOR_URL,
     OHTTP_OPG_SESSION_MAX_SPEND,
+    SETTLEMENT_POLL_INTERVAL_SECONDS,
+    SETTLEMENT_POLL_TIMEOUT_SECONDS,
+    UPTO_SESSION_IDLE_TIMEOUT_SECONDS,
+    UPTO_SESSION_MAX_TIMEOUT_SECONDS,
+    UPTO_SETTLEMENT_SAFETY_MARGIN_SECONDS,
 )
 
 # ---------------------------------------------------------------------------
@@ -267,7 +272,17 @@ def _init_payment_middleware(facilitator_url: str) -> None:
     Called once from set_provider_keys() after the facilitator URL is known.
     Swaps application.wsgi_app so all subsequent requests flow through it.
     """
-    facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=facilitator_url))
+    # wait_for_settlement: the facilitator settles asynchronously (202 + job id).
+    # The reaper must confirm the on-chain result before marking a session settled,
+    # otherwise an expired/reverted settlement is silently dropped.
+    facilitator = HTTPFacilitatorClientSync(
+        FacilitatorConfig(
+            url=facilitator_url,
+            wait_for_settlement=True,
+            settlement_poll_interval=SETTLEMENT_POLL_INTERVAL_SECONDS,
+            settlement_poll_timeout=SETTLEMENT_POLL_TIMEOUT_SECONDS,
+        )
+    )
     server = x402ResourceServerSync(facilitator)  # type: ignore[arg-type]
     store = SessionStore()
 
@@ -290,6 +305,7 @@ def _init_payment_middleware(facilitator_url: str) -> None:
                         },
                     ),
                     network=BASE_MAINNET_NETWORK,
+                    max_timeout_seconds=UPTO_SESSION_MAX_TIMEOUT_SECONDS,
                 ),
             ],
             extensions={
@@ -313,6 +329,7 @@ def _init_payment_middleware(facilitator_url: str) -> None:
                         },
                     ),
                     network=BASE_MAINNET_NETWORK,
+                    max_timeout_seconds=UPTO_SESSION_MAX_TIMEOUT_SECONDS,
                 ),
             ],
             extensions={
@@ -336,6 +353,7 @@ def _init_payment_middleware(facilitator_url: str) -> None:
                         },
                     ),
                     network=BASE_MAINNET_NETWORK,
+                    max_timeout_seconds=UPTO_SESSION_MAX_TIMEOUT_SECONDS,
                 ),
             ],
             extensions={
@@ -358,7 +376,8 @@ def _init_payment_middleware(facilitator_url: str) -> None:
         server=server,
         session_store=store,
         cost_per_request=100000000000000,  # static precheck/fallback estimate
-        session_idle_timeout=100,
+        session_idle_timeout=UPTO_SESSION_IDLE_TIMEOUT_SECONDS,
+        settlement_safety_margin=UPTO_SETTLEMENT_SAFETY_MARGIN_SECONDS,
         session_cost_calculator=_session_cost_calculator,
     )
     logger.info(

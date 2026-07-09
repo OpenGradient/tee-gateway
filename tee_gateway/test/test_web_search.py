@@ -43,8 +43,8 @@ class TestWebSearchPricing(unittest.TestCase):
     def test_price_uses_provider_default(self):
         # gpt-4.1 -> openai default ($0.01/search)
         self.assertEqual(get_web_search_price_usd("gpt-4.1"), Decimal("0.01"))
-        # grok-4 -> xAI default ($0.025/search unit)
-        self.assertEqual(get_web_search_price_usd("grok-4"), Decimal("0.025"))
+        # grok-4.3 -> xAI default ($0.025/search unit)
+        self.assertEqual(get_web_search_price_usd("grok-4.3"), Decimal("0.025"))
         # gemini -> google default ($0.035/grounded request)
         self.assertEqual(get_web_search_price_usd("gemini-3.5-flash"), Decimal("0.035"))
 

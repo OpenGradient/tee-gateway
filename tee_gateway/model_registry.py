@@ -287,27 +287,6 @@ class SupportedModel(Enum):
     )
 
     # ── Google Gemini ───────────────────────────────────────────────────
-    GEMINI_2_5_FLASH = ModelConfig(
-        provider="google",
-        api_name="gemini-2.5-flash",
-        input_price_usd=Decimal("0.0000003"),
-        output_price_usd=Decimal("0.0000025"),
-        thinking_budget=0,
-    )
-    GEMINI_2_5_PRO = ModelConfig(
-        provider="google",
-        api_name="gemini-2.5-pro",
-        input_price_usd=Decimal("0.00000125"),
-        output_price_usd=Decimal("0.00001"),
-        thinking_budget=128,
-    )
-    GEMINI_2_5_FLASH_LITE = ModelConfig(
-        provider="google",
-        api_name="gemini-2.5-flash-lite",
-        input_price_usd=Decimal("0.0000001"),
-        output_price_usd=Decimal("0.0000004"),
-        thinking_budget=0,
-    )
     GEMINI_3_FLASH_PREVIEW = ModelConfig(
         provider="google",
         api_name="gemini-3-flash-preview",
@@ -371,33 +350,15 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.00000125"),
         output_price_usd=Decimal("0.0000025"),
     )
-    GROK_4 = ModelConfig(
-        provider="x-ai",
-        api_name="grok-4",
-        input_price_usd=Decimal("0.000003"),
-        output_price_usd=Decimal("0.000015"),
-    )
-    GROK_4_FAST = ModelConfig(
-        provider="x-ai",
-        api_name="grok-4-fast",
-        input_price_usd=Decimal("0.0000002"),
-        output_price_usd=Decimal("0.0000005"),
-    )
-    GROK_4_1_FAST = ModelConfig(
-        provider="x-ai",
-        api_name="grok-4-1-fast",
-        input_price_usd=Decimal("0.0000002"),
-        output_price_usd=Decimal("0.0000005"),
-    )
     GROK_4_20_REASONING = ModelConfig(
         provider="x-ai",
-        api_name="grok-4.20-reasoning",
+        api_name="grok-4.20-0309-reasoning",
         input_price_usd=Decimal("0.000002"),
         output_price_usd=Decimal("0.000006"),
     )
     GROK_4_20_NON_REASONING = ModelConfig(
         provider="x-ai",
-        api_name="grok-4.20-non-reasoning",
+        api_name="grok-4.20-0309-non-reasoning",
         input_price_usd=Decimal("0.000002"),
         output_price_usd=Decimal("0.000006"),
     )
@@ -405,7 +366,7 @@ class SupportedModel(Enum):
     # (Aurora). Billed at a flat $0.07 per generated image; token prices unused.
     GROK_2_IMAGE = ModelConfig(
         provider="x-ai",
-        api_name="grok-2-image-1212",
+        api_name="grok-imagine-image",
         input_price_usd=Decimal("0"),
         output_price_usd=Decimal("0"),
         image_generation=True,
@@ -576,9 +537,6 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "claude-opus-4-8": SupportedModel.CLAUDE_OPUS_4_8,
     "claude-fable-5": SupportedModel.CLAUDE_FABLE_5,
     # Google
-    "gemini-2.5-flash": SupportedModel.GEMINI_2_5_FLASH,
-    "gemini-2.5-pro": SupportedModel.GEMINI_2_5_PRO,
-    "gemini-2.5-flash-lite": SupportedModel.GEMINI_2_5_FLASH_LITE,
     "gemini-3-flash-preview": SupportedModel.GEMINI_3_FLASH_PREVIEW,
     "gemini-3.1-pro-preview": SupportedModel.GEMINI_3_1_PRO_PREVIEW,
     "gemini-3.1-flash-lite": SupportedModel.GEMINI_3_1_FLASH_LITE,
@@ -589,15 +547,10 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "grok-4.5": SupportedModel.GROK_4_5,
     "grok-4.5-latest": SupportedModel.GROK_4_5,
     "grok-4.3": SupportedModel.GROK_4_3,
-    "grok-4": SupportedModel.GROK_4,
-    "grok-4-fast": SupportedModel.GROK_4_FAST,
-    "grok-4-1-fast": SupportedModel.GROK_4_1_FAST,
-    "grok-4.1-fast": SupportedModel.GROK_4_1_FAST,
     "grok-4.20-reasoning": SupportedModel.GROK_4_20_REASONING,
     "grok-4.20-non-reasoning": SupportedModel.GROK_4_20_NON_REASONING,
+    "grok-imagine-image": SupportedModel.GROK_2_IMAGE,
     "grok-2-image": SupportedModel.GROK_2_IMAGE,
-    "grok-2-image-1212": SupportedModel.GROK_2_IMAGE,
-    "grok-2-image-latest": SupportedModel.GROK_2_IMAGE,
     # ByteDance
     "seed-1-6-250615": SupportedModel.SEED_1_6,
     "seed-1.6": SupportedModel.SEED_1_6,

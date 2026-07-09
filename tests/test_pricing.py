@@ -79,12 +79,21 @@ class TestModelRegistry(unittest.TestCase):
     def test_removed_upstream_models_are_unsupported(self):
         removed_models = [
             "gemini-3.1-flash-lite-preview",
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash-lite",
+            "grok-4",
+            "grok-4-fast",
+            "grok-4-1-fast",
+            "grok-4.1-fast",
             "grok-4-1-fast-non-reasoning",
             "grok-code-fast-1",
             "grok-3",
             "grok-3-beta",
             "grok-3-mini",
             "grok-3-mini-beta",
+            "grok-2-image-1212",
+            "grok-2-image-latest",
         ]
         for model in removed_models:
             with self.subTest(model=model):
@@ -253,19 +262,6 @@ class TestModelRegistry(unittest.TestCase):
 
     # ── Google ──────────────────────────────────────────────────────────────
 
-    def test_gemini_2_5_flash_resolves(self):
-        cfg = get_model_config("gemini-2.5-flash")
-        self.assertEqual(cfg.provider, "google")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.0000003"))
-
-    def test_gemini_2_5_pro_resolves(self):
-        cfg = get_model_config("gemini-2.5-pro")
-        self.assertEqual(cfg.provider, "google")
-
-    def test_gemini_2_5_flash_lite_resolves(self):
-        cfg = get_model_config("gemini-2.5-flash-lite")
-        self.assertEqual(cfg.provider, "google")
-
     def test_gemini_3_flash_preview_resolves(self):
         cfg = get_model_config("gemini-3-flash-preview")
         self.assertEqual(cfg.provider, "google")
@@ -313,33 +309,25 @@ class TestModelRegistry(unittest.TestCase):
         cfg = get_model_config("grok-4.5-latest")
         self.assertEqual(cfg, get_model_config("grok-4.5"))
 
-    def test_grok_4_resolves(self):
-        cfg = get_model_config("grok-4")
-        self.assertEqual(cfg.provider, "x-ai")
-
-    def test_grok_4_fast_resolves(self):
-        cfg = get_model_config("grok-4-fast")
-        self.assertEqual(cfg.provider, "x-ai")
-
-    def test_grok_4_1_fast_resolves(self):
-        cfg = get_model_config("grok-4-1-fast")
-        self.assertEqual(cfg.provider, "x-ai")
-
-    def test_grok_4_1_fast_dot_notation_resolves(self):
-        cfg = get_model_config("grok-4.1-fast")
-        self.assertEqual(cfg, get_model_config("grok-4-1-fast"))
-
     def test_grok_4_20_reasoning_resolves(self):
         cfg = get_model_config("grok-4.20-reasoning")
         self.assertEqual(cfg.provider, "x-ai")
+        self.assertEqual(cfg.api_name, "grok-4.20-0309-reasoning")
         self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000006"))
 
     def test_grok_4_20_non_reasoning_resolves(self):
         cfg = get_model_config("grok-4.20-non-reasoning")
         self.assertEqual(cfg.provider, "x-ai")
+        self.assertEqual(cfg.api_name, "grok-4.20-0309-non-reasoning")
         self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000006"))
+
+    def test_grok_imagine_image_resolves(self):
+        cfg = get_model_config("grok-imagine-image")
+        self.assertEqual(cfg.provider, "x-ai")
+        self.assertEqual(cfg.api_name, "grok-imagine-image")
+        self.assertTrue(cfg.image_generation)
 
     def test_claude_opus_4_7_resolves(self):
         cfg = get_model_config("claude-opus-4-7")
@@ -627,25 +615,6 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
 
     # ── Google Gemini ────────────────────────────────────────────────────────
 
-    def test_gemini_2_5_flash_cost(self):
-        cost = self._calc("gemini-2.5-flash", 1000, 500)
-        expected = _expected_cost_opg("gemini-2.5-flash", 1000, 500)
-        self.assertEqual(cost, expected)
-        # 1000*0.0000003 + 500*0.0000025 = 0.0003 + 0.00125 = 0.00155 USD
-        self.assertEqual(cost, 1_550_000_000_000_000)
-
-    def test_gemini_2_5_flash_lite_cost(self):
-        cost = self._calc("gemini-2.5-flash-lite", 1000, 500)
-        expected = _expected_cost_opg("gemini-2.5-flash-lite", 1000, 500)
-        self.assertEqual(cost, expected)
-        # 1000*0.0000001 + 500*0.0000004 = 0.0001 + 0.0002 = 0.0003 USD
-        self.assertEqual(cost, 300_000_000_000_000)
-
-    def test_gemini_2_5_pro_cost(self):
-        cost = self._calc("gemini-2.5-pro", 1000, 500)
-        expected = _expected_cost_opg("gemini-2.5-pro", 1000, 500)
-        self.assertEqual(cost, expected)
-
     def test_gemini_3_flash_preview_cost(self):
         cost = self._calc("gemini-3-flash-preview", 1000, 500)
         expected = _expected_cost_opg("gemini-3-flash-preview", 1000, 500)
@@ -679,24 +648,6 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
             self._calc("grok-4.5-latest", 1000, 500),
             self._calc("grok-4.5", 1000, 500),
         )
-
-    def test_grok_4_cost(self):
-        cost = self._calc("grok-4", 1000, 500)
-        expected = _expected_cost_opg("grok-4", 1000, 500)
-        self.assertEqual(cost, expected)
-        # Same pricing tier as claude-sonnet-4-5
-        self.assertEqual(cost, 10_500_000_000_000_000)
-
-    def test_grok_4_fast_cost(self):
-        cost = self._calc("grok-4-fast", 1000, 500)
-        expected = _expected_cost_opg("grok-4-fast", 1000, 500)
-        self.assertEqual(cost, expected)
-        # 1000*0.0000002 + 500*0.0000005 = 0.0002 + 0.00025 = 0.00045 USD
-        self.assertEqual(cost, 450_000_000_000_000)
-
-    def test_grok_4_1_fast_cost(self):
-        cost = self._calc("grok-4-1-fast", 1000, 500)
-        self.assertEqual(cost, self._calc("grok-4-fast", 1000, 500))
 
     def test_grok_4_20_reasoning_cost(self):
         cost = self._calc("grok-4.20-reasoning", 1000, 500)
@@ -757,14 +708,9 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertLess(haiku, sonnet)
 
     def test_gemini_flash_lite_cheaper_than_flash(self):
-        lite = self._calc("gemini-2.5-flash-lite", 1000, 1000)
-        flash = self._calc("gemini-2.5-flash", 1000, 1000)
+        lite = self._calc("gemini-3.1-flash-lite", 1000, 1000)
+        flash = self._calc("gemini-3.5-flash", 1000, 1000)
         self.assertLess(lite, flash)
-
-    def test_grok_4_fast_cheaper_than_grok_4(self):
-        fast = self._calc("grok-4-fast", 1000, 1000)
-        full = self._calc("grok-4", 1000, 1000)
-        self.assertLess(fast, full)
 
 
 class TestCalculateSessionCostEdgeCases(unittest.TestCase):
@@ -782,8 +728,8 @@ class TestCalculateSessionCostEdgeCases(unittest.TestCase):
         """Fractional token costs are always rounded UP."""
         # 1 output token of Haiku: 0.000005 USD = 5e12 wei — exact
         self.assertEqual(_calc_opg("claude-haiku-4-5", 0, 1), 5_000_000_000_000)
-        # 1 input token of Gemini Flash Lite: 0.0000001 USD = 1e11 wei — exact
-        self.assertEqual(_calc_opg("gemini-2.5-flash-lite", 1, 0), 100_000_000_000)
+        # 1 input token of Gemini 3.1 Flash Lite: 0.00000025 USD = 2.5e11 wei — exact
+        self.assertEqual(_calc_opg("gemini-3.1-flash-lite", 1, 0), 250_000_000_000)
 
     def test_model_name_case_insensitive(self):
         self.assertEqual(

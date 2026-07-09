@@ -18,6 +18,10 @@ from tee_gateway.llm_backend import (
     extract_web_search_count,
     extract_usage,
 )
+from tee_gateway.model_errors import (
+    is_upstream_model_not_served,
+    upstream_model_not_served_payload,
+)
 from tee_gateway.pricing import compute_session_cost
 
 logger = logging.getLogger(__name__)
@@ -116,6 +120,8 @@ def create_completion(body):
 
     except Exception as e:
         logger.error(f"Completion error: {str(e)}", exc_info=True)
+        if is_upstream_model_not_served(e):
+            return upstream_model_not_served_payload(body.model, e), 404
         return {
             "error": str(e) or "Request processing failed",
             "exception_type": type(e).__name__,

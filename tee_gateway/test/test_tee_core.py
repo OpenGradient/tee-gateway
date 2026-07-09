@@ -446,7 +446,7 @@ class TestModelRegistry(unittest.TestCase):
             get_model_config("gpt-4.1").provider,
             get_model_config("claude-sonnet-4-5").provider,
             get_model_config("gemini-3.5-flash").provider,
-            get_model_config("grok-4").provider,
+            get_model_config("grok-4.3").provider,
         }
         self.assertEqual(providers, {"openai", "anthropic", "google", "x-ai"})
 
@@ -464,7 +464,7 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.provider, "google")
 
     def test_xai_model_lookup(self):
-        cfg = get_model_config("grok-4")
+        cfg = get_model_config("grok-4.3")
         self.assertEqual(cfg.provider, "x-ai")
 
     def test_unknown_model_raises_value_error(self):
@@ -810,7 +810,7 @@ class TestValidateAttachments(unittest.TestCase):
     def test_image_blocked_when_model_lacks_support(self):
         with mock.patch(self.CAPS, return_value={"image_inputs": False}):
             with self.assertRaises(AttachmentValidationError):
-                validate_attachments(self._image_msg("aGVsbG8="), "grok-4")
+                validate_attachments(self._image_msg("aGVsbG8="), "grok-4.3")
 
     def test_image_allowed_when_model_supports(self):
         with mock.patch(self.CAPS, return_value={"image_inputs": True}):
@@ -826,7 +826,7 @@ class TestValidateAttachments(unittest.TestCase):
             self.CAPS, return_value={"image_inputs": True, "pdf_inputs": False}
         ):
             with self.assertRaises(AttachmentValidationError):
-                validate_attachments(self._pdf_msg("JVBERi0="), "grok-4")
+                validate_attachments(self._pdf_msg("JVBERi0="), "grok-4.3")
 
 
 # ---------------------------------------------------------------------------

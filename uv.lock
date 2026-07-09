@@ -1253,16 +1253,16 @@ wheels = [
 
 [[package]]
 name = "og-x402"
-version = "0.0.2.dev7"
+version = "0.0.2.dev8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "nest-asyncio" },
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5e/ab/c70facfecd6cb6b525798c53102e59ead025de40d5c6165f2a8be6d12353/og_x402-0.0.2.dev7.tar.gz", hash = "sha256:949a1edf9aa892071a41d068ee635eb836ed317d2e8bef8add9a4152a3df2c36", size = 1318866, upload-time = "2026-07-08T18:58:27.753Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1a/1f/2a77d526d407fdecf9b6809f7f383cf36557240c825c1dc5dc7149ee0af0/og_x402-0.0.2.dev8.tar.gz", hash = "sha256:b8d6d7ce485c1cfd40285775585b770e9f124f0bb34fb11606dee45931109d53", size = 1319747, upload-time = "2026-07-09T08:01:09.654Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6a/11/70260ce6723d98cf8a0219b75b5dcc6221f88be04c88bf019b891ae514e0/og_x402-0.0.2.dev7-py3-none-any.whl", hash = "sha256:6241fb7f71b6594dde32646b7c0d92f533ac1802b64923c655dc340ed45971af", size = 1399100, upload-time = "2026-07-08T18:58:16.563Z" },
+    { url = "https://files.pythonhosted.org/packages/87/76/c57ffcaa56a792b3f3eac98fa29f1329c0fa17833c2e7a87ab7c924edf6e/og_x402-0.0.2.dev8-py3-none-any.whl", hash = "sha256:cc9951a11a54cf29593b251f67590527c9f7d6c361623af7a9d0cbdd942101b2", size = 1400026, upload-time = "2026-07-09T08:01:07.847Z" },
 ]
 
 [package.optional-dependencies]
@@ -1904,7 +1904,7 @@ requires-dist = [
     { name = "langchain-google-genai", specifier = ">=4.2.1" },
     { name = "langchain-openai", specifier = ">=1.1.12" },
     { name = "langchain-xai", specifier = ">=1.2.2" },
-    { name = "og-x402", extras = ["evm"], specifier = "==0.0.2.dev7" },
+    { name = "og-x402", extras = ["evm"], specifier = "==0.0.2.dev8" },
     { name = "openai", specifier = ">=2.15.0" },
     { name = "psutil", specifier = ">=7.2.1" },
     { name = "pydantic", specifier = ">=2.12.5" },

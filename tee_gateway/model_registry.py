@@ -287,9 +287,6 @@ class SupportedModel(Enum):
     )
 
     # ── Google Gemini ───────────────────────────────────────────────────
-    # Note: gemini-2.5-flash, gemini-2.5-pro, and gemini-2.5-flash-lite are scheduled
-    # for deprecation on June 17, 2026 (flash-lite: July 22, 2026). Use the Gemini 3
-    # replacements below for new integrations.
     GEMINI_2_5_FLASH = ModelConfig(
         provider="google",
         api_name="gemini-2.5-flash",
@@ -324,9 +321,9 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.000012"),
         thinking_budget=128,
     )
-    GEMINI_3_1_FLASH_LITE_PREVIEW = ModelConfig(
+    GEMINI_3_1_FLASH_LITE = ModelConfig(
         provider="google",
-        api_name="gemini-3.1-flash-lite-preview",
+        api_name="gemini-3.1-flash-lite",
         input_price_usd=Decimal("0.00000025"),
         output_price_usd=Decimal("0.0000015"),
         thinking_budget=0,
@@ -392,12 +389,6 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000002"),
         output_price_usd=Decimal("0.0000005"),
     )
-    GROK_4_1_FAST_NON_REASONING = ModelConfig(
-        provider="x-ai",
-        api_name="grok-4-1-fast-non-reasoning",
-        input_price_usd=Decimal("0.0000002"),
-        output_price_usd=Decimal("0.0000005"),
-    )
     GROK_4_20_REASONING = ModelConfig(
         provider="x-ai",
         api_name="grok-4.20-reasoning",
@@ -409,12 +400,6 @@ class SupportedModel(Enum):
         api_name="grok-4.20-non-reasoning",
         input_price_usd=Decimal("0.000002"),
         output_price_usd=Decimal("0.000006"),
-    )
-    GROK_CODE_FAST_1 = ModelConfig(
-        provider="x-ai",
-        api_name="grok-code-fast-1",
-        input_price_usd=Decimal("0.0000002"),
-        output_price_usd=Decimal("0.0000015"),
     )
     # Image generation via xAI's OpenAI-compatible /images/generations endpoint
     # (Aurora). Billed at a flat $0.07 per generated image; token prices unused.
@@ -554,20 +539,6 @@ class SupportedModel(Enum):
         image_extra_params={"size": "1280x1280"},
     )
 
-    # ── Legacy models (not in current SDK — retained for older SDK versions) ──
-    GROK_3_MINI = ModelConfig(
-        provider="x-ai",
-        api_name="grok-3-mini",
-        input_price_usd=Decimal("0.0000003"),
-        output_price_usd=Decimal("0.0000005"),
-    )
-    GROK_3 = ModelConfig(
-        provider="x-ai",
-        api_name="grok-3-latest",
-        input_price_usd=Decimal("0.000003"),
-        output_price_usd=Decimal("0.000015"),
-    )
-
 
 # Canonical lookup: user-facing model name → SupportedModel
 # The "user-facing name" is what callers pass in the `model` field of requests.
@@ -610,7 +581,7 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-2.5-flash-lite": SupportedModel.GEMINI_2_5_FLASH_LITE,
     "gemini-3-flash-preview": SupportedModel.GEMINI_3_FLASH_PREVIEW,
     "gemini-3.1-pro-preview": SupportedModel.GEMINI_3_1_PRO_PREVIEW,
-    "gemini-3.1-flash-lite-preview": SupportedModel.GEMINI_3_1_FLASH_LITE_PREVIEW,
+    "gemini-3.1-flash-lite": SupportedModel.GEMINI_3_1_FLASH_LITE,
     "gemini-2.5-flash-image": SupportedModel.GEMINI_2_5_FLASH_IMAGE,
     "gemini-3.1-flash-image": SupportedModel.GEMINI_3_1_FLASH_IMAGE,
     "gemini-3.5-flash": SupportedModel.GEMINI_3_5_FLASH,
@@ -622,10 +593,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "grok-4-fast": SupportedModel.GROK_4_FAST,
     "grok-4-1-fast": SupportedModel.GROK_4_1_FAST,
     "grok-4.1-fast": SupportedModel.GROK_4_1_FAST,
-    "grok-4-1-fast-non-reasoning": SupportedModel.GROK_4_1_FAST_NON_REASONING,
     "grok-4.20-reasoning": SupportedModel.GROK_4_20_REASONING,
     "grok-4.20-non-reasoning": SupportedModel.GROK_4_20_NON_REASONING,
-    "grok-code-fast-1": SupportedModel.GROK_CODE_FAST_1,
     "grok-2-image": SupportedModel.GROK_2_IMAGE,
     "grok-2-image-1212": SupportedModel.GROK_2_IMAGE,
     "grok-2-image-latest": SupportedModel.GROK_2_IMAGE,
@@ -656,11 +625,6 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     # Z.ai
     "glm-5.2": SupportedModel.GLM_5_2,
     "glm-image": SupportedModel.GLM_IMAGE,
-    # Legacy — not in current SDK, retained for older SDK versions
-    "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
-    "grok-3-mini": SupportedModel.GROK_3_MINI,
-    "grok-3-beta": SupportedModel.GROK_3,  # old beta alias
-    "grok-3": SupportedModel.GROK_3,
 }
 
 # Build the rate card automatically from the enum (for backward compat with util.py)

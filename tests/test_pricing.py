@@ -76,6 +76,21 @@ class TestModelRegistry(unittest.TestCase):
                     self.assertGreater(cfg.input_price_usd, 0)
                     self.assertGreater(cfg.output_price_usd, 0)
 
+    def test_removed_upstream_models_are_unsupported(self):
+        removed_models = [
+            "gemini-3.1-flash-lite-preview",
+            "grok-4-1-fast-non-reasoning",
+            "grok-code-fast-1",
+            "grok-3",
+            "grok-3-beta",
+            "grok-3-mini",
+            "grok-3-mini-beta",
+        ]
+        for model in removed_models:
+            with self.subTest(model=model):
+                with self.assertRaises(ValueError):
+                    get_model_config(model)
+
     # ── Anthropic Sonnet ────────────────────────────────────────────────────
 
     def test_claude_sonnet_4_5_resolves(self):
@@ -262,8 +277,8 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.output_price_usd, Decimal("0.000012"))
         self.assertEqual(cfg.thinking_budget, 128)
 
-    def test_gemini_3_1_flash_lite_preview_resolves(self):
-        cfg = get_model_config("gemini-3.1-flash-lite-preview")
+    def test_gemini_3_1_flash_lite_resolves(self):
+        cfg = get_model_config("gemini-3.1-flash-lite")
         self.assertEqual(cfg.provider, "google")
         self.assertEqual(cfg.input_price_usd, Decimal("0.00000025"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.0000015"))
@@ -314,14 +329,6 @@ class TestModelRegistry(unittest.TestCase):
         cfg = get_model_config("grok-4.1-fast")
         self.assertEqual(cfg, get_model_config("grok-4-1-fast"))
 
-    def test_grok_3_mini_resolves(self):
-        cfg = get_model_config("grok-3-mini")
-        self.assertEqual(cfg.provider, "x-ai")
-
-    def test_grok_3_resolves(self):
-        cfg = get_model_config("grok-3")
-        self.assertEqual(cfg.provider, "x-ai")
-
     def test_grok_4_20_reasoning_resolves(self):
         cfg = get_model_config("grok-4.20-reasoning")
         self.assertEqual(cfg.provider, "x-ai")
@@ -333,12 +340,6 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.provider, "x-ai")
         self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000006"))
-
-    def test_grok_code_fast_1_resolves(self):
-        cfg = get_model_config("grok-code-fast-1")
-        self.assertEqual(cfg.provider, "x-ai")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.0000002"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.0000015"))
 
     def test_claude_opus_4_7_resolves(self):
         cfg = get_model_config("claude-opus-4-7")
@@ -657,9 +658,9 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         # 1000*0.000002 + 500*0.000012 = 0.002 + 0.006 = 0.008 USD = 8e15 wei
         self.assertEqual(cost, 8_000_000_000_000_000)
 
-    def test_gemini_3_1_flash_lite_preview_cost(self):
-        cost = self._calc("gemini-3.1-flash-lite-preview", 1000, 500)
-        expected = _expected_cost_opg("gemini-3.1-flash-lite-preview", 1000, 500)
+    def test_gemini_3_1_flash_lite_cost(self):
+        cost = self._calc("gemini-3.1-flash-lite", 1000, 500)
+        expected = _expected_cost_opg("gemini-3.1-flash-lite", 1000, 500)
         self.assertEqual(cost, expected)
         # 1000*0.00000025 + 500*0.0000015 = 0.00025 + 0.00075 = 0.001 USD = 1e15 wei
         self.assertEqual(cost, 1_000_000_000_000_000)
@@ -707,23 +708,6 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
     def test_grok_4_20_non_reasoning_cost(self):
         cost = self._calc("grok-4.20-non-reasoning", 1000, 500)
         self.assertEqual(cost, self._calc("grok-4.20-reasoning", 1000, 500))
-
-    def test_grok_code_fast_1_cost(self):
-        cost = self._calc("grok-code-fast-1", 1000, 500)
-        expected = _expected_cost_opg("grok-code-fast-1", 1000, 500)
-        self.assertEqual(cost, expected)
-        # 1000*0.0000002 + 500*0.0000015 = 0.0002 + 0.00075 = 0.00095 USD = 9.5e14 wei
-        self.assertEqual(cost, 950_000_000_000_000)
-
-    def test_grok_3_mini_cost(self):
-        cost = self._calc("grok-3-mini", 1000, 500)
-        expected = _expected_cost_opg("grok-3-mini", 1000, 500)
-        self.assertEqual(cost, expected)
-
-    def test_grok_3_cost(self):
-        cost = self._calc("grok-3", 1000, 500)
-        expected = _expected_cost_opg("grok-3", 1000, 500)
-        self.assertEqual(cost, expected)
 
     # ── ByteDance (BytePlus ModelArk) ───────────────────────────────────────
 

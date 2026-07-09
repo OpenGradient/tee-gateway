@@ -346,7 +346,7 @@ def test_chat_completion_google(mock_get_model, mock_google_model):
     response = client.post(
         "/v1/chat/completions",
         json={
-            "model": "gemini-2.5-flash-preview",
+            "model": "gemini-3.5-flash",
             "messages": [{"role": "user", "content": "Say hello"}],
             "temperature": 0.7,
             "max_tokens": 100,
@@ -358,7 +358,7 @@ def test_chat_completion_google(mock_get_model, mock_google_model):
     assert "message" in data
     assert "Hello from Google!" in data["message"]["content"]
     assert data["finish_reason"] == "stop"
-    assert data["model"] == "gemini-2.5-flash-preview"
+    assert data["model"] == "gemini-3.5-flash"
     assert data["usage"]["total_tokens"] == 17
 
 
@@ -370,7 +370,7 @@ def test_chat_completion_xai(mock_get_model, mock_xai_model):
     response = client.post(
         "/v1/chat/completions",
         json={
-            "model": "grok-3-beta",
+            "model": "grok-4.3",
             "messages": [{"role": "user", "content": "Say hello"}],
             "temperature": 0.7,
             "max_tokens": 100,
@@ -382,7 +382,7 @@ def test_chat_completion_xai(mock_get_model, mock_xai_model):
     assert "message" in data
     assert "Hello from xAI!" in data["message"]["content"]
     assert data["finish_reason"] == "stop"
-    assert data["model"] == "grok-3-beta"
+    assert data["model"] == "grok-4.3"
     assert data["usage"]["total_tokens"] == 20
 
 
@@ -488,7 +488,7 @@ def test_chat_tool_calls_google(mock_get_model, mock_tool_call_model):
     response = client.post(
         "/v1/chat/completions",
         json={
-            "model": "gemini-2.5-flash-preview",
+            "model": "gemini-3.5-flash",
             "messages": [{"role": "user", "content": "What's the weather?"}],
             "tools": [
                 {
@@ -516,7 +516,7 @@ def test_chat_tool_calls_xai(mock_get_model, mock_tool_call_model):
     response = client.post(
         "/v1/chat/completions",
         json={
-            "model": "grok-3-beta",
+            "model": "grok-4.3",
             "messages": [{"role": "user", "content": "What's the weather?"}],
             "tools": [
                 {
@@ -628,7 +628,7 @@ def test_chat_streaming_google(mock_get_model, mock_google_model):
     response = client.post(
         "/v1/chat/completions/stream",
         json={
-            "model": "gemini-2.5-flash-preview",
+            "model": "gemini-3.5-flash",
             "messages": [{"role": "user", "content": "Say hello"}],
         },
     )
@@ -662,7 +662,7 @@ def test_chat_streaming_xai(mock_get_model, mock_xai_model):
     response = client.post(
         "/v1/chat/completions/stream",
         json={
-            "model": "grok-3-beta",
+            "model": "grok-4.3",
             "messages": [{"role": "user", "content": "Say hello"}],
         },
     )
@@ -799,7 +799,7 @@ def test_chat_streaming_tool_calls_google(mock_get_model, mock_tool_call_model):
     response = client.post(
         "/v1/chat/completions/stream",
         json={
-            "model": "gemini-2.5-flash-preview",
+            "model": "gemini-3.5-flash",
             "messages": [{"role": "user", "content": "What's the weather?"}],
             "tools": [
                 {
@@ -848,7 +848,7 @@ def test_chat_streaming_tool_calls_xai(mock_get_model, mock_tool_call_model):
     response = client.post(
         "/v1/chat/completions/stream",
         json={
-            "model": "grok-3-beta",
+            "model": "grok-4.3",
             "messages": [{"role": "user", "content": "What's the weather?"}],
             "tools": [
                 {

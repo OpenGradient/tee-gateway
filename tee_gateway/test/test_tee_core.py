@@ -445,7 +445,7 @@ class TestModelRegistry(unittest.TestCase):
         providers = {
             get_model_config("gpt-4.1").provider,
             get_model_config("claude-sonnet-4-5").provider,
-            get_model_config("gemini-2.5-flash").provider,
+            get_model_config("gemini-3.5-flash").provider,
             get_model_config("grok-4").provider,
         }
         self.assertEqual(providers, {"openai", "anthropic", "google", "x-ai"})
@@ -460,7 +460,7 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.provider, "anthropic")
 
     def test_google_model_lookup(self):
-        cfg = get_model_config("gemini-2.5-flash")
+        cfg = get_model_config("gemini-3.5-flash")
         self.assertEqual(cfg.provider, "google")
 
     def test_xai_model_lookup(self):
@@ -493,7 +493,7 @@ class TestModelRegistry(unittest.TestCase):
     def test_models_with_force_temperature_have_positive_value(self):
         """Any model that forces a temperature must set it to a positive float.
         We don't pin the exact value — just confirm the field is plausible if set."""
-        cfg = get_model_config("o4-mini")
+        cfg = get_model_config("o3")
         if cfg.force_temperature is not None:
             self.assertGreater(cfg.force_temperature, 0)
 

@@ -46,7 +46,7 @@ class TestWebSearchPricing(unittest.TestCase):
         # grok-4 -> xAI default ($0.025/search unit)
         self.assertEqual(get_web_search_price_usd("grok-4"), Decimal("0.025"))
         # gemini -> google default ($0.035/grounded request)
-        self.assertEqual(get_web_search_price_usd("gemini-2.5-flash"), Decimal("0.035"))
+        self.assertEqual(get_web_search_price_usd("gemini-3.5-flash"), Decimal("0.035"))
 
     def test_unsupported_provider_is_free(self):
         # ByteDance has no native web search -> no charge

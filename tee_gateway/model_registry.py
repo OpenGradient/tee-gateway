@@ -178,6 +178,24 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.000005"),
         output_price_usd=Decimal("0.00003"),
     )
+    GPT_5_6_SOL = ModelConfig(
+        provider="openai",
+        api_name="gpt-5.6-sol",
+        input_price_usd=Decimal("0.000005"),
+        output_price_usd=Decimal("0.00003"),
+    )
+    GPT_5_6_TERRA = ModelConfig(
+        provider="openai",
+        api_name="gpt-5.6-terra",
+        input_price_usd=Decimal("0.0000025"),
+        output_price_usd=Decimal("0.000015"),
+    )
+    GPT_5_6_LUNA = ModelConfig(
+        provider="openai",
+        api_name="gpt-5.6-luna",
+        input_price_usd=Decimal("0.000001"),
+        output_price_usd=Decimal("0.000006"),
+    )
     # Image generation via OpenAI's /images/generations endpoint (gpt-image).
     # Unlike DALL·E, gpt-image models always return base64 (``b64_json``) and
     # reject the ``response_format`` field, so it's omitted. Image-to-image
@@ -344,6 +362,12 @@ class SupportedModel(Enum):
     )
 
     # ── xAI Grok ────────────────────────────────────────────────────────
+    GROK_4_5 = ModelConfig(
+        provider="x-ai",
+        api_name="grok-4.5",
+        input_price_usd=Decimal("0.000002"),
+        output_price_usd=Decimal("0.000006"),
+    )
     GROK_4_3 = ModelConfig(
         provider="x-ai",
         api_name="grok-4.3",
@@ -565,6 +589,10 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gpt-5.4-mini": SupportedModel.GPT_5_4_MINI,
     "gpt-5.4-nano": SupportedModel.GPT_5_4_NANO,
     "gpt-5.5": SupportedModel.GPT_5_5,
+    "gpt-5.6": SupportedModel.GPT_5_6_SOL,
+    "gpt-5.6-sol": SupportedModel.GPT_5_6_SOL,
+    "gpt-5.6-terra": SupportedModel.GPT_5_6_TERRA,
+    "gpt-5.6-luna": SupportedModel.GPT_5_6_LUNA,
     "gpt-image-2": SupportedModel.GPT_IMAGE_2,
     # Anthropic
     "claude-sonnet-4-5": SupportedModel.CLAUDE_SONNET_4_5,
@@ -587,6 +615,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-3.1-flash-image": SupportedModel.GEMINI_3_1_FLASH_IMAGE,
     "gemini-3.5-flash": SupportedModel.GEMINI_3_5_FLASH,
     # xAI
+    "grok-4.5": SupportedModel.GROK_4_5,
+    "grok-4.5-latest": SupportedModel.GROK_4_5,
     "grok-4.3": SupportedModel.GROK_4_3,
     "grok-4": SupportedModel.GROK_4,
     "grok-4-fast": SupportedModel.GROK_4_FAST,

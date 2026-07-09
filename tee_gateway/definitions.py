@@ -66,24 +66,24 @@ DEFAULT_ASSET_DECIMALS: int = 18
 # by compute_session_cost() in pricing.py.
 # ---------------------------------------------------------------------------
 
-# /v1/chat/completions — maximum OPG spend per session (18 decimals: 100000000000000000 = 0.1 OPG).
+# /v1/chat/completions — maximum OPG spend per session (18 decimals: 5000000000000000000 = 5 OPG).
 # This is the upper-bound amount presented to the client during the x402 pre-check handshake.
 # The x402 "upto" scheme allows the actual charge to be any value up to this cap;
 # the real per-request cost is settled dynamically by compute_session_cost() in pricing.py
 # based on actual token usage, so clients are never overcharged beyond what they consumed.
-CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"
+CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "5000000000000000000"
 
 # /v1/ohttp — maximum OPG spend per session (18 decimals: 5000000000000000000 = 5 OPG).
 # OHTTP image-generation requests can be much more expensive than text chat,
 # so the relay-paid encrypted endpoint needs a higher per-session cap.
 OHTTP_OPG_SESSION_MAX_SPEND: str = "5000000000000000000"
 
-# /v1/completions — maximum OPG spend per session (18 decimals: 100000000000000000 = 0.1 OPG).
+# /v1/completions — maximum OPG spend per session (18 decimals: 5000000000000000000 = 5 OPG).
 # This is the upper-bound amount presented to the client during the x402 pre-check handshake.
 # The x402 "upto" scheme allows the actual charge to be any value up to this cap;
 # the real per-request cost is settled dynamically by compute_session_cost() in pricing.py
 # based on actual token usage, so clients are never overcharged beyond what they consumed.
-COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"
+COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "5000000000000000000"
 
 # ---------------------------------------------------------------------------
 # x402 "upto" session settlement timing

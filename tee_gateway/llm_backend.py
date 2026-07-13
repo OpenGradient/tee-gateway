@@ -531,13 +531,53 @@ def _iter_content_parts(messages: list) -> Generator[Dict[str, Any], None, None]
                     yield part
 
 
+# MIME types each provider accepts as inline ``file`` content parts on its
+# chat endpoint (per provider docs, July 2026). ``None`` = no gateway-side
+# restriction (OpenAI's file-inputs accept a broad set — PDFs plus Office,
+# CSV, text and code formats — so the provider validates specifics). An empty
+# set = the provider has no inline file input on the chat path at all (its
+# document features live on a separate endpoint or URL/file-id mechanism).
+# Text-based files don't normally reach this gate — clients fold them into
+# the message as plain text — but SDK callers may send them as file parts.
+_PROVIDER_FILE_INPUT_MIMES: Dict[str, Optional[frozenset]] = {
+    # Anthropic base64 document blocks accept only PDFs (text/plain documents
+    # use a different, non-base64 source shape the gateway doesn't emit).
+    "anthropic": frozenset({"application/pdf"}),
+    # Gemini inline_data: PDFs get document vision; text-family types are
+    # accepted and extracted as plain text.
+    "google": frozenset(
+        {
+            "application/pdf",
+            "text/plain",
+            "text/csv",
+            "text/markdown",
+            "text/x-markdown",
+            "text/html",
+            "text/xml",
+            "text/rtf",
+        }
+    ),
+    "openai": None,
+    "x-ai": frozenset(),
+    "bytedance": frozenset(),
+    "nous": frozenset(),
+    "zai": frozenset(),
+}
+
+
 def validate_attachments(messages: list, model: str) -> None:
     """Reject attachments the target model can't handle.
 
-    Fails *open*: a modality is only rejected when the model's profile explicitly
-    marks it unsupported, so models without profile data are never wrongly blocked
-    (the provider would still reject a truly unsupported combination). Raises
-    ``AttachmentValidationError``.
+    Two layers, both raising ``AttachmentValidationError``:
+
+    - Modality gating fails *open*: images/documents are only rejected when the
+      model's capability profile (or registry override) explicitly marks the
+      modality unsupported, so models without capability data are never wrongly
+      blocked (the provider would still reject a truly unsupported combination).
+    - File-part MIME gating per provider (``_PROVIDER_FILE_INPUT_MIMES``):
+      inline file uploads are limited to what the provider's chat endpoint
+      documents, so e.g. a docx to Anthropic or a PDF to xAI gets a clean 400
+      here instead of the provider's raw error.
     """
     # Fast path: if the request contains no multimodal parts, skip model lookup.
     for part in _iter_content_parts(messages):
@@ -550,8 +590,13 @@ def validate_attachments(messages: list, model: str) -> None:
     image_supported = caps.get("image_inputs")
     pdf_supported = caps.get("pdf_inputs")
 
-    if image_supported is not False and pdf_supported is not False:
-        return  # model accepts every modality; nothing to gate
+    allowed_file_mimes: Optional[frozenset] = None
+    try:
+        provider = get_model_config(model).provider
+    except ValueError:
+        provider = None
+    if provider is not None:
+        allowed_file_mimes = _PROVIDER_FILE_INPUT_MIMES.get(provider)
 
     for part in _iter_content_parts(messages):
         block = _convert_content_part(part)
@@ -561,10 +606,18 @@ def validate_attachments(messages: list, model: str) -> None:
             raise AttachmentValidationError(
                 f"Model {model!r} does not support image attachments."
             )
-        if block["type"] == "file" and pdf_supported is False:
-            raise AttachmentValidationError(
-                f"Model {model!r} does not support document attachments."
-            )
+        if block["type"] == "file":
+            if pdf_supported is False:
+                raise AttachmentValidationError(
+                    f"Model {model!r} does not support document attachments."
+                )
+            # Missing mime falls back to PDF, mirroring what the LangChain
+            # provider packages assume when serializing the block.
+            mime = block.get("mime_type") or "application/pdf"
+            if allowed_file_mimes is not None and mime not in allowed_file_mimes:
+                raise AttachmentValidationError(
+                    f"Model {model!r} does not support {mime} file attachments."
+                )
 
 
 def convert_messages(messages: list) -> List[Any]:

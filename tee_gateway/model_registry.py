@@ -533,26 +533,36 @@ class SupportedModel(Enum):
     # model-id matching. The bare lowercase "hermes-4-70b" is NOT an accepted
     # alias and is rejected with HTTP 400; the accepted form is the capitalized
     # "Hermes-4-70B" (the canonical id "nousresearch/hermes-4-70b" also works).
+    # Hermes 4 is text-only (Llama-3.1 text base): the Nous endpoint has no
+    # image or file input, so gate attachments at the gateway.
     HERMES_4_405B = ModelConfig(
         provider="nous",
         api_name="Hermes-4-405B",
         input_price_usd=Decimal("0.00000009"),
         output_price_usd=Decimal("0.00000037"),
+        image_inputs=False,
+        pdf_inputs=False,
     )
     HERMES_4_70B = ModelConfig(
         provider="nous",
         api_name="Hermes-4-70B",
         input_price_usd=Decimal("0.00000013"),
         output_price_usd=Decimal("0.0000004"),
+        image_inputs=False,
+        pdf_inputs=False,
     )
 
     # ── Z.ai (Model API, OpenAI-compatible) ─────────────────────────────
     # Z.ai publishes GLM-5.2 prices per 1M tokens: $1.40 input, $4.40 output.
+    # GLM-5.2 is text-only (Z.ai restricts image/video/file content parts to
+    # its V-series vision models), so gate attachments at the gateway.
     GLM_5_2 = ModelConfig(
         provider="zai",
         api_name="glm-5.2",
         input_price_usd=Decimal("0.0000014"),
         output_price_usd=Decimal("0.0000044"),
+        image_inputs=False,
+        pdf_inputs=False,
     )
     # GLM-Image uses Z.ai's image endpoint and is billed per generated image.
     # Z.ai returns hosted URLs only (fetched and inlined by the gateway) and

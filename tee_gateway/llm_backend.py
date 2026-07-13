@@ -493,17 +493,29 @@ class AttachmentValidationError(ValueError):
 
 
 def get_model_capabilities(model: str) -> Dict[str, Any]:
-    """Return the LangChain capability profile for a model (``image_inputs``,
-    ``pdf_inputs``, ...), or ``{}`` when the model has no profile data.
+    """Return the capability profile for a model (``image_inputs``,
+    ``pdf_inputs``, ...), or ``{}`` when the model has no capability data.
 
     Reads the public ``.profile`` attribute of the instantiated chat model, which
-    each ``langchain-<provider>`` package populates from maintained model data.
+    each ``langchain-<provider>`` package populates from maintained model data,
+    then applies any explicit overrides from the model registry. The overrides
+    are the only capability source for models the profile registry doesn't cover
+    (e.g. ByteDance ModelArk models routed through the generic OpenAI client).
     """
     try:
         chat = get_chat_model_cached(model, 0.0, 16)
-        return getattr(chat, "profile", None) or {}
+        caps = dict(getattr(chat, "profile", None) or {})
     except Exception:
-        return {}
+        caps = {}
+    try:
+        cfg = get_model_config(model)
+    except ValueError:
+        return caps
+    if cfg.image_inputs is not None:
+        caps["image_inputs"] = cfg.image_inputs
+    if cfg.pdf_inputs is not None:
+        caps["pdf_inputs"] = cfg.pdf_inputs
+    return caps
 
 
 def _iter_content_parts(messages: list) -> Generator[Dict[str, Any], None, None]:

@@ -72,6 +72,15 @@ class ModelConfig:
     # means "use the provider default" (see WEB_SEARCH_PRICE_USD_BY_PROVIDER);
     # set an explicit value here to override a single model's web-search price.
     web_search_price_usd: Optional[Decimal] = None
+    # ── Attachment capability overrides (chat models) ──
+    # Consulted by llm_backend.get_model_capabilities ahead of the LangChain
+    # model profile. ``None`` defers to the profile, which fails open when the
+    # model has no profile data. Set an explicit ``False`` for models the
+    # profile registry doesn't cover (e.g. OpenAI-compatible providers like
+    # ByteDance ModelArk) so unsupported attachments are rejected up front with
+    # a clean error instead of surfacing the provider's raw 400.
+    image_inputs: Optional[bool] = None
+    pdf_inputs: Optional[bool] = None
 
 
 # Default per-search USD price charged when a model uses native web search.
@@ -454,17 +463,23 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000001"),
         output_price_usd=Decimal("0.0000004"),
     )
+    # DeepSeek V4 is text-only: ModelArk rejects multimodal content parts
+    # ("Model do not support image input"), so gate attachments at the gateway.
     DEEPSEEK_V4_FLASH = ModelConfig(
         provider="bytedance",
         api_name="deepseek-v4-flash-260425",
         input_price_usd=Decimal("0.00000014"),
         output_price_usd=Decimal("0.00000028"),
+        image_inputs=False,
+        pdf_inputs=False,
     )
     DEEPSEEK_V4_PRO = ModelConfig(
         provider="bytedance",
         api_name="deepseek-v4-pro-260425",
         input_price_usd=Decimal("0.00000174"),
         output_price_usd=Decimal("0.00000348"),
+        image_inputs=False,
+        pdf_inputs=False,
     )
     # Seedream 4.0 image generation via ModelArk's OpenAI-compatible
     # /images/generations endpoint. Billed at a flat $0.03 per generated image;

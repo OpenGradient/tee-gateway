@@ -26,6 +26,7 @@ from tee_gateway.llm_backend import (
     canonical_user_content,
     convert_messages,
     extract_usage,
+    get_model_capabilities,
     validate_attachments,
 )
 from tee_gateway.model_registry import get_model_config, get_rate_card
@@ -827,6 +828,31 @@ class TestValidateAttachments(unittest.TestCase):
         ):
             with self.assertRaises(AttachmentValidationError):
                 validate_attachments(self._pdf_msg("JVBERi0="), "grok-4")
+
+    def test_registry_override_blocks_deepseek_attachments(self):
+        # DeepSeek V4 rides the generic OpenAI-compatible client and has no
+        # LangChain profile data, so the model-registry override is what
+        # rejects attachments here — without it this fell open and ModelArk
+        # returned a raw "Model do not support image input" 400.
+        for model in ("deepseek-v4-pro", "deepseek-v4-flash"):
+            for msgs in (self._pdf_msg("JVBERi0="), self._image_msg("aGVsbG8=")):
+                with self.assertRaises(AttachmentValidationError):
+                    validate_attachments(msgs, model)
+
+    def test_registry_override_wins_over_profile(self):
+        # An explicit registry False must take precedence even if a LangChain
+        # profile exists and claims support.
+        profiled = mock.Mock()
+        profiled.profile = {"image_inputs": True, "pdf_inputs": True}
+        with mock.patch(
+            "tee_gateway.llm_backend.get_chat_model_cached", return_value=profiled
+        ):
+            caps = get_model_capabilities("deepseek-v4-pro")
+        self.assertIs(caps["image_inputs"], False)
+        self.assertIs(caps["pdf_inputs"], False)
+
+    def test_text_only_request_passes_for_deepseek(self):
+        validate_attachments([{"role": "user", "content": "hi"}], "deepseek-v4-pro")
 
 
 # ---------------------------------------------------------------------------

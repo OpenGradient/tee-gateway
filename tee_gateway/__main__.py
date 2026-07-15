@@ -24,6 +24,8 @@ from tee_gateway.config import (
 from tee_gateway.llm_backend import get_provider_config, set_provider_config
 from tee_gateway.heartbeat import create_heartbeat_service
 from tee_gateway.controllers.ohttp_controller import (
+    OHTTP_BATCH_SETTLEMENT_BOUNDARY,
+    build_ohttp_batch_settlement_frame,
     create_anonymous_chat_completion,
     get_hpke_config,
 )
@@ -31,15 +33,19 @@ from tee_gateway.controllers.ohttp_controller import (
 from x402.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
 from x402.http.middleware.flask import payment_middleware
 from x402.http.types import RouteConfig
-from x402.mechanisms.evm.exact import ExactEvmServerScheme
-from x402.mechanisms.evm.upto import UptoEvmServerScheme
+from x402.mechanisms.evm.batch_settlement.server import (
+    AutoSettlementConfig,
+    BatchSettlementChannelManagerSync,
+    BatchSettlementEvmScheme,
+    BatchSettlementEvmSchemeServerConfig,
+    ChannelManagerConfigSync,
+    FileChannelStorage,
+)
 from x402.extensions.erc20_approval_gas_sponsoring import (
     declare_erc20_approval_gas_sponsoring_extension,
 )
 from x402.schemas import AssetAmount
 from x402.server import x402ResourceServerSync
-from x402.session import SessionStore
-import x402.http.middleware.flask as x402_flask
 
 from .model_registry import get_model_config
 from .price_feed import OPGPriceFeed, set_price_feed
@@ -89,6 +95,18 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _heartbeat_service = None
 
+# The gateway has to retain the latest signed voucher for every channel in
+# order to claim it later.  This directory must be mounted on persistent
+# storage in production; an in-memory store would lose claimable vouchers on
+# a gateway restart.
+_batch_settlement_storage_dir = os.path.expanduser(
+    os.getenv(
+        "X402_BATCH_SETTLEMENT_STORAGE_DIR",
+        "~/.tee-gateway/x402-batch-channels",
+    )
+)
+_batch_settlement_manager = None
+
 
 def _init_heartbeat(heartbeat_config: HeartbeatConfig | None):
     """Create and start the heartbeat service if a HeartbeatConfig is provided."""
@@ -115,6 +133,21 @@ def _shutdown_heartbeat():
 atexit.register(_shutdown_heartbeat)
 
 
+def _shutdown_batch_settlement_manager():
+    """Flush claimable vouchers before the gateway process exits."""
+    manager = _batch_settlement_manager
+    if manager is None:
+        return
+    try:
+        logger.info("Shutting down batch-settlement manager; flushing claims")
+        manager.stop(flush=True)
+    except Exception:
+        logger.exception("Failed to flush batch-settlement claims during shutdown")
+
+
+atexit.register(_shutdown_batch_settlement_manager)
+
+
 # ---------------------------------------------------------------------------
 # OPG price feed — start before x402 middleware so the first request can be
 # priced correctly.  Runs as a daemon thread; no cleanup needed on exit.
@@ -136,92 +169,7 @@ def _gateway_version() -> str:
 _active_facilitator_url: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# x402 read-body patch
-#
-# Ensures that non-payment 0-length requests can bypass the middleware without
-# errors. Applied at module load so it is in place before the middleware
-# instance is created at injection time.
-# ---------------------------------------------------------------------------
-_original_read_body_bytes = x402_flask._read_body_bytes
-
-
-def _patched_read_body_bytes(environ):
-    try:
-        content_length = int(environ.get("CONTENT_LENGTH") or 0)
-    except (ValueError, TypeError):
-        content_length = 0
-
-    if content_length <= 0:
-        return b""
-
-    return _original_read_body_bytes(environ)
-
-
-x402_flask._read_body_bytes = _patched_read_body_bytes
-
-
-def _patched_stream_session_response(
-    self,
-    environ,
-    start_response,
-    context,
-    session_id,
-    payment_payload,
-    payment_requirements,
-):
-    """Expose x402's per-request cost context to Flask route handlers.
-
-    OHTTP requests arrive as ciphertext and return ciphertext, so the x402
-    middleware cannot parse request_json/response_json from the outer HTTP
-    bodies. The OHTTP controller decrypts the inner request and plaintext
-    response inside the enclave; this patch gives it a request-local dict where
-    it can attach those inner JSON objects for dynamic settlement.
-    """
-    self._start_reaper()
-
-    request_body_bytes = x402_flask._read_body_bytes(environ)
-    request_json = x402_flask._try_parse_json(request_body_bytes)
-    parsed_request_json = (
-        request_json if isinstance(request_json, (dict, list)) else None
-    )
-
-    x402_flask.g.payment_payload = payment_payload
-    x402_flask.g.payment_requirements = payment_requirements
-    x402_flask.g.x402_session_id = session_id
-
-    cost_context = {
-        "method": context.method,
-        "path": context.path,
-        "request_body_bytes": request_body_bytes,
-        "request_json": parsed_request_json,
-        "payment_payload": payment_payload,
-        "payment_requirements": payment_requirements,
-    }
-    environ["x402.cost_context"] = cost_context
-
-    status_capture = x402_flask.StatusCapture(start_response)
-    status_capture.add_header(x402_flask.UPTO_SESSION_HEADER, session_id)
-
-    upstream_iter = self._original_wsgi(environ, status_capture)
-
-    return x402_flask.StreamingSessionResponse(
-        upstream_iter,
-        middleware=self,
-        session_id=session_id,
-        cost_context=cost_context,
-        status_ref=status_capture,
-    )
-
-
-setattr(
-    x402_flask.PaymentMiddleware,
-    "_stream_session_response",
-    _patched_stream_session_response,
-)
-
-
-def _session_cost_calculator(ctx: dict) -> int:
+def _batch_settlement_cost_calculator(ctx: dict) -> int:
     # The chat/completions controllers compute cost in-band and embed it on
     # the response as a SessionCost model BEFORE returning. We parse it back
     # here — single source of truth for cost lives in the controller, not
@@ -229,9 +177,8 @@ def _session_cost_calculator(ctx: dict) -> int:
     # (which charges them).
     #
     # If the controller couldn't compute cost (e.g. missing usage from the
-    # provider), the block is absent — SessionCost.model_validate raises and
-    # x402's close() swallows it so the client is not charged. The controller
-    # has already logged CRITICAL in that case.
+    # provider), the block is absent and settlement must fail rather than
+    # commit a voucher for an unknown amount.
     from .pricing import SessionCost
 
     if ctx.get("path") == "/v1/ohttp":
@@ -267,18 +214,61 @@ def _init_payment_middleware(facilitator_url: str) -> None:
     Called once from set_provider_keys() after the facilitator URL is known.
     Swaps application.wsgi_app so all subsequent requests flow through it.
     """
-    facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=facilitator_url))
-    server = x402ResourceServerSync(facilitator)  # type: ignore[arg-type]
-    store = SessionStore()
+    global _batch_settlement_manager
 
-    server.register(BASE_MAINNET_NETWORK, ExactEvmServerScheme())
-    server.register(BASE_MAINNET_NETWORK, UptoEvmServerScheme())
+    facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=facilitator_url))
+    scheme = BatchSettlementEvmScheme(
+        EVM_PAYMENT_ADDRESS,
+        BatchSettlementEvmSchemeServerConfig(
+            storage=FileChannelStorage(_batch_settlement_storage_dir),
+        ),
+    )
+    server = x402ResourceServerSync(facilitator)  # type: ignore[arg-type]
+    server.register(BASE_MAINNET_NETWORK, scheme)
+
+    # Claims are asynchronous with respect to inference.  Voucher requests
+    # only update the durable channel record; this background manager submits
+    # batched claim and settle transactions through the facilitator.
+    _batch_settlement_manager = BatchSettlementChannelManagerSync(
+        ChannelManagerConfigSync(
+            scheme=scheme,
+            facilitator=facilitator,
+            receiver=EVM_PAYMENT_ADDRESS,
+            token=BASE_MAINNET_OPG_ADDRESS,
+            network=BASE_MAINNET_NETWORK,
+        )
+    )
+    _batch_settlement_manager.start(
+        AutoSettlementConfig(
+            claim_interval_secs=60,
+            settle_interval_secs=120,
+            max_claims_per_batch=100,
+            on_claim=lambda result: logger.info(
+                "Claimed %s batch-settlement voucher(s): %s",
+                result.vouchers,
+                result.transaction,
+            ),
+            on_settle=lambda result: logger.info(
+                "Settled batch-settlement claims: %s",
+                result.transaction,
+            ),
+            on_error=lambda error: logger.error(
+                "Batch-settlement channel-manager error: %s", error
+            ),
+        )
+    )
+    logger.info(
+        "Batch-settlement channel manager started "
+        "(storage=%s, token=%s, claim_interval=60s, settle_interval=120s)",
+        _batch_settlement_storage_dir,
+        BASE_MAINNET_OPG_ADDRESS,
+    )
 
     routes = {
         "POST /v1/chat/completions": RouteConfig(
             accepts=[
                 PaymentOption(
-                    scheme="upto",
+                    scheme="batch-settlement",
                     pay_to=EVM_PAYMENT_ADDRESS,
                     price=AssetAmount(
                         amount=CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND,
@@ -301,7 +291,7 @@ def _init_payment_middleware(facilitator_url: str) -> None:
         "POST /v1/completions": RouteConfig(
             accepts=[
                 PaymentOption(
-                    scheme="upto",
+                    scheme="batch-settlement",
                     pay_to=EVM_PAYMENT_ADDRESS,
                     price=AssetAmount(
                         amount=COMPLETIONS_OPG_SESSION_MAX_SPEND,
@@ -324,7 +314,7 @@ def _init_payment_middleware(facilitator_url: str) -> None:
         "POST /v1/ohttp": RouteConfig(
             accepts=[
                 PaymentOption(
-                    scheme="upto",
+                    scheme="batch-settlement",
                     pay_to=EVM_PAYMENT_ADDRESS,
                     price=AssetAmount(
                         amount=OHTTP_OPG_SESSION_MAX_SPEND,
@@ -356,13 +346,14 @@ def _init_payment_middleware(facilitator_url: str) -> None:
         application,
         routes=routes,
         server=server,
-        session_store=store,
-        cost_per_request=100000000000000,  # static precheck/fallback estimate
-        session_idle_timeout=100,
-        session_cost_calculator=_session_cost_calculator,
+        streaming_cost_calculator=_batch_settlement_cost_calculator,
+        settlement_data_enabled=True,
+        streaming_settlement_boundary=OHTTP_BATCH_SETTLEMENT_BOUNDARY,
+        streaming_receipt_encoder=build_ohttp_batch_settlement_frame,
     )
     logger.info(
-        "x402 payment middleware initialized with facilitator: %s", facilitator_url
+        "x402 batch-settlement middleware initialized with facilitator: %s",
+        facilitator_url,
     )
 
 

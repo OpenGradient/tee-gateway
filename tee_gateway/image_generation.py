@@ -68,6 +68,64 @@ _ALLOWED_FETCH_SCHEMES = {"http", "https"}
 # Shared keyless client for fetching provider-hosted image URLs into the enclave.
 _image_fetch_client: Optional[httpx.Client] = None
 
+# Cap on how much of a provider error body is copied into an exception message
+# (and from there into logs and the client-facing error payload).
+_MAX_ERROR_DETAIL_CHARS = 600
+
+
+def _provider_error_detail(resp: httpx.Response) -> str:
+    """Extract a compact human-readable detail from a provider error response.
+
+    Providers put the actual rejection reason (invalid parameter, prompt too
+    long, content-policy refusal, …) in the response body, typically as
+    ``{"error": {"code": ..., "message": ...}}``. Prefer that; fall back to the
+    raw body. Always truncated so a pathological body can't flood logs or the
+    client error payload.
+    """
+    try:
+        resp.read()  # no-op when already loaded; loads the body of a streamed response
+        body = resp.text.strip()
+    except Exception:
+        return "(unreadable response body)"
+    if not body:
+        return "(empty response body)"
+    try:
+        parsed = json.loads(body)
+    except ValueError:
+        parsed = None
+    if isinstance(parsed, dict):
+        err = parsed.get("error")
+        if isinstance(err, dict):
+            parts = [str(v) for v in (err.get("code"), err.get("message")) if v]
+            if parts:
+                return ": ".join(parts)[:_MAX_ERROR_DETAIL_CHARS]
+        elif isinstance(err, str) and err:
+            return err[:_MAX_ERROR_DETAIL_CHARS]
+    return body[:_MAX_ERROR_DETAIL_CHARS]
+
+
+def _raise_for_status_with_detail(resp: httpx.Response) -> None:
+    """``raise_for_status``, but with the provider's error body in the message.
+
+    ``httpx.HTTPStatusError``'s default message is just the status code and URL
+    ("Client error '400 Bad Request' for url …"), which hides the provider's
+    stated reason and makes failures like an ARK content-filter rejection
+    undiagnosable from logs or the client error payload. Re-raise with the body
+    detail appended so the existing ``str(e)`` error plumbing surfaces it.
+    """
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        detail = _provider_error_detail(e.response)
+        # Keep only the first line of httpx's message ("Client error '400 Bad
+        # Request' for url '…'"), dropping the MDN-link footer.
+        base = str(e).splitlines()[0] if str(e) else f"HTTP {resp.status_code}"
+        raise httpx.HTTPStatusError(
+            f"{base} — provider response: {detail}",
+            request=e.request,
+            response=e.response,
+        ) from None
+
 
 def _validate_fetch_url(url: str) -> None:
     """Guard the image fetch against SSRF / egress abuse.
@@ -118,7 +176,7 @@ def _fetch_url_as_data_uri(url: str) -> str:
         )
 
     with _image_fetch_client.stream("GET", url) as resp:
-        resp.raise_for_status()
+        _raise_for_status_with_detail(resp)
         declared = resp.headers.get("content-length")
         if declared and declared.isdigit() and int(declared) > _MAX_IMAGE_BYTES:
             raise ValueError(
@@ -304,7 +362,7 @@ def generate_images(
             _IMAGE_GENERATION_PATH,
             json=_build_generations_payload(cfg, prompt, count, json_refs),
         )
-    resp.raise_for_status()
+    _raise_for_status_with_detail(resp)
     data = resp.json().get("data", []) or []
 
     images: list[str] = []

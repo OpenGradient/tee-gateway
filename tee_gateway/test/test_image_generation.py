@@ -321,6 +321,86 @@ class TestGenerateImages(unittest.TestCase):
                 generate_images(GROK_IMAGE, "p", n=1)
 
 
+class TestProviderErrorDetail(unittest.TestCase):
+    """Provider error bodies must surface in the raised error message.
+
+    httpx's default HTTPStatusError message is just the status and URL, which
+    hides the provider's stated rejection reason (invalid parameter, prompt
+    limit, content filter, …) — the only way to diagnose a 400 like ARK's
+    /images/generations rejections.
+    """
+
+    @staticmethod
+    def _response(status: int, *, content: bytes = b"", json_body=None):
+        import httpx
+
+        request = httpx.Request(
+            "POST", "https://ark.ap-southeast.bytepluses.com/api/v3/images/generations"
+        )
+        if json_body is not None:
+            return httpx.Response(status, json=json_body, request=request)
+        return httpx.Response(status, content=content, request=request)
+
+    def test_generate_images_surfaces_provider_error_body(self):
+        import httpx
+
+        body = {
+            "error": {
+                "code": "InvalidParameter",
+                "message": "The request parameter `prompt` exceeds the limit.",
+            }
+        }
+        client = MagicMock()
+        client.post.return_value = self._response(400, json_body=body)
+        with patch.object(llm_backend, "bytedance_http_client", client):
+            with self.assertRaises(httpx.HTTPStatusError) as ctx:
+                generate_images(SEEDREAM_5_LITE, "p", n=1)
+
+        msg = str(ctx.exception)
+        self.assertIn("400", msg)
+        self.assertIn("InvalidParameter", msg)
+        self.assertIn("exceeds the limit", msg)
+        # The MDN-link footer from httpx's default message is dropped.
+        self.assertNotIn("developer.mozilla.org", msg)
+
+    def test_detail_falls_back_to_raw_body_for_non_json(self):
+        detail = image_generation._provider_error_detail(
+            self._response(400, content=b"plain text failure")
+        )
+        self.assertEqual(detail, "plain text failure")
+
+    def test_detail_handles_string_error_field(self):
+        detail = image_generation._provider_error_detail(
+            self._response(400, json_body={"error": "quota exhausted"})
+        )
+        self.assertEqual(detail, "quota exhausted")
+
+    def test_detail_handles_empty_body(self):
+        detail = image_generation._provider_error_detail(self._response(400))
+        self.assertEqual(detail, "(empty response body)")
+
+    def test_detail_is_truncated(self):
+        detail = image_generation._provider_error_detail(
+            self._response(400, content=b"x" * 10_000)
+        )
+        self.assertEqual(len(detail), image_generation._MAX_ERROR_DETAIL_CHARS)
+
+    def test_url_fetch_surfaces_error_body(self):
+        import httpx
+
+        resp = self._response(403, content=b"Access denied by CDN policy")
+        ctx_mgr = MagicMock()
+        ctx_mgr.__enter__.return_value = resp
+        ctx_mgr.__exit__.return_value = False
+        client = MagicMock()
+        client.stream.return_value = ctx_mgr
+        with patch.object(image_generation, "_image_fetch_client", client):
+            with self.assertRaises(httpx.HTTPStatusError) as ctx:
+                image_generation._fetch_url_as_data_uri("https://cdn/x.png")
+
+        self.assertIn("Access denied by CDN policy", str(ctx.exception))
+
+
 def _mock_stream_client(headers: dict, chunks: list[bytes]) -> MagicMock:
     """A fake httpx client whose .stream(...) yields a response with these bytes."""
     resp = MagicMock()

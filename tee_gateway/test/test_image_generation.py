@@ -33,6 +33,7 @@ GPT_IMAGE = "gpt-image-2"
 
 def _mock_response(data: list[dict]) -> MagicMock:
     resp = MagicMock()
+    resp.is_success = True
     resp.raise_for_status.return_value = None
     resp.json.return_value = {"data": data}
     return resp
@@ -319,6 +320,29 @@ class TestGenerateImages(unittest.TestCase):
         with patch.object(llm_backend, "xai_http_client", None):
             with self.assertRaises(RuntimeError):
                 generate_images(GROK_IMAGE, "p", n=1)
+
+    def test_provider_error_body_is_surfaced(self):
+        # A non-2xx from the provider must surface the response body (where
+        # BytePlus/OpenAI/etc. explain the real cause), not just the status line.
+        import httpx
+
+        request = httpx.Request("POST", "https://ark/api/v3/images/generations")
+        resp = MagicMock()
+        resp.is_success = False
+        resp.status_code = 400
+        resp.reason_phrase = "Bad Request"
+        resp.request = request
+        resp.text = '{"error":{"message":"invalid size 2K for this model"}}'
+
+        client = MagicMock()
+        client.post.return_value = resp
+        with patch.object(llm_backend, "bytedance_http_client", client):
+            with self.assertRaises(httpx.HTTPStatusError) as ctx:
+                generate_images(SEEDREAM_5_LITE, "a ninja", n=1)
+
+        message = str(ctx.exception)
+        self.assertIn("invalid size 2K for this model", message)
+        self.assertIn("400", message)
 
 
 def _mock_stream_client(headers: dict, chunks: list[bytes]) -> MagicMock:

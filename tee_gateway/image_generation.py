@@ -201,6 +201,37 @@ def _build_reference_uploads(
     return uploads
 
 
+# Cap on how much of a provider error body we fold into the raised message, so a
+# huge/HTML error page can't blow up logs or the client-facing error frame.
+_MAX_ERROR_BODY_CHARS = 2000
+
+
+def _raise_for_image_status(resp: httpx.Response, provider: str) -> None:
+    """Raise on a non-2xx image-endpoint response, including the response body.
+
+    httpx's own ``raise_for_status`` discards the body, but providers put the
+    actual failure reason (bad/unsupported param, unknown model or size, quota)
+    in it — so a bare ``400 Bad Request`` is undiagnosable. We read the
+    (already-buffered) body and fold it into the error so the real cause reaches
+    the logs and the client-facing error frame instead of a generic status line.
+    """
+    if resp.is_success:
+        return
+    try:
+        detail = (resp.text or "").strip()
+    except Exception:  # pragma: no cover - body decode is best-effort
+        detail = "<unreadable response body>"
+    if len(detail) > _MAX_ERROR_BODY_CHARS:
+        detail = detail[:_MAX_ERROR_BODY_CHARS] + "… (truncated)"
+    raise httpx.HTTPStatusError(
+        f"{provider} image request to {resp.request.url} failed: "
+        f"{resp.status_code} {resp.reason_phrase}: "
+        f"{detail or '<empty response body>'}",
+        request=resp.request,
+        response=resp,
+    )
+
+
 def _build_generations_payload(
     cfg: Any, prompt: str, count: int, refs: Optional[List[str]]
 ) -> dict[str, Any]:
@@ -304,7 +335,7 @@ def generate_images(
             _IMAGE_GENERATION_PATH,
             json=_build_generations_payload(cfg, prompt, count, json_refs),
         )
-    resp.raise_for_status()
+    _raise_for_image_status(resp, provider)
     data = resp.json().get("data", []) or []
 
     images: list[str] = []

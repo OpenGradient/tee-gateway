@@ -41,6 +41,10 @@ from tee_gateway.models.create_chat_completion_request import (
 from tee_gateway.models.create_chat_completion_response import (
     CreateChatCompletionResponse,
 )
+from tee_gateway.model_errors import (
+    is_upstream_model_not_served,
+    upstream_model_not_served_payload,
+)
 from tee_gateway.model_registry import get_model_config
 from tee_gateway.pricing import compute_session_cost
 from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
@@ -556,10 +560,13 @@ def create_image_generation_streaming_response(
             # Surface the real exception detail to the client (matching the chat
             # streaming path) so browser-side logs show the actual cause instead
             # of an opaque generic string.
-            error_payload = {
-                "error": str(e) or "Stream processing failed",
-                "exception_type": type(e).__name__,
-            }
+            if is_upstream_model_not_served(e):
+                error_payload = upstream_model_not_served_payload(chat_request.model, e)
+            else:
+                error_payload = {
+                    "error": str(e) or "Stream processing failed",
+                    "exception_type": type(e).__name__,
+                }
             yield f"data: {json.dumps(error_payload)}\n\n"
 
     return Response(

@@ -1252,7 +1252,7 @@ class TestGeminiStreamingUsageAccumulation(unittest.TestCase):
         mock_tee_keys.return_value = mock_keys
 
         req = CreateChatCompletionRequest(
-            model="gemini-2.5-flash",
+            model="gemini-3.5-flash",
             messages=[],
             temperature=1.0,
             stream=True,
@@ -1299,7 +1299,7 @@ class TestGeminiStreamingUsageAccumulation(unittest.TestCase):
         mock_tee_keys.return_value = mock_keys
 
         req = CreateChatCompletionRequest(
-            model="gemini-2.5-flash",
+            model="gemini-3.5-flash",
             messages=[],
             temperature=1.0,
             stream=True,
@@ -1340,7 +1340,7 @@ class TestGeminiStreamingUsageAccumulation(unittest.TestCase):
         mock_tee_keys.return_value = mock_keys
 
         req = CreateChatCompletionRequest(
-            model="gemini-2.5-flash",
+            model="gemini-3.5-flash",
             messages=[],
             temperature=1.0,
             stream=True,

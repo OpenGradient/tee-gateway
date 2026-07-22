@@ -324,13 +324,6 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.000012"),
         thinking_budget=128,
     )
-    GEMINI_3_1_FLASH_LITE_PREVIEW = ModelConfig(
-        provider="google",
-        api_name="gemini-3.1-flash-lite-preview",
-        input_price_usd=Decimal("0.00000025"),
-        output_price_usd=Decimal("0.0000015"),
-        thinking_budget=0,
-    )
     # Native image generation ("nano banana"). Google bills output at two rates:
     # text/thinking at $1.50/MTok and images at $30/MTok (~1290 tokens per
     # 1024x1024 image ≈ $0.039/image); input (text/image) is $0.30/MTok.
@@ -359,6 +352,18 @@ class SupportedModel(Enum):
         api_name="gemini-3.5-flash",
         input_price_usd=Decimal("0.0000015"),
         output_price_usd=Decimal("0.000009"),
+    )
+    GEMINI_3_5_FLASH_LITE = ModelConfig(
+        provider="google",
+        api_name="gemini-3.5-flash-lite",
+        input_price_usd=Decimal("0.0000003"),
+        output_price_usd=Decimal("0.0000025"),
+    )
+    GEMINI_3_6_FLASH = ModelConfig(
+        provider="google",
+        api_name="gemini-3.6-flash",
+        input_price_usd=Decimal("0.0000015"),
+        output_price_usd=Decimal("0.0000075"),
     )
 
     # ── xAI Grok ────────────────────────────────────────────────────────
@@ -610,10 +615,11 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-2.5-flash-lite": SupportedModel.GEMINI_2_5_FLASH_LITE,
     "gemini-3-flash-preview": SupportedModel.GEMINI_3_FLASH_PREVIEW,
     "gemini-3.1-pro-preview": SupportedModel.GEMINI_3_1_PRO_PREVIEW,
-    "gemini-3.1-flash-lite-preview": SupportedModel.GEMINI_3_1_FLASH_LITE_PREVIEW,
     "gemini-2.5-flash-image": SupportedModel.GEMINI_2_5_FLASH_IMAGE,
     "gemini-3.1-flash-image": SupportedModel.GEMINI_3_1_FLASH_IMAGE,
     "gemini-3.5-flash": SupportedModel.GEMINI_3_5_FLASH,
+    "gemini-3.5-flash-lite": SupportedModel.GEMINI_3_5_FLASH_LITE,
+    "gemini-3.6-flash": SupportedModel.GEMINI_3_6_FLASH,
     # xAI
     "grok-4.5": SupportedModel.GROK_4_5,
     "grok-4.5-latest": SupportedModel.GROK_4_5,

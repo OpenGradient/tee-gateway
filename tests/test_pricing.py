@@ -262,18 +262,23 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.output_price_usd, Decimal("0.000012"))
         self.assertEqual(cfg.thinking_budget, 128)
 
-    def test_gemini_3_1_flash_lite_preview_resolves(self):
-        cfg = get_model_config("gemini-3.1-flash-lite-preview")
-        self.assertEqual(cfg.provider, "google")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.00000025"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.0000015"))
-        self.assertEqual(cfg.thinking_budget, 0)
-
     def test_gemini_3_5_flash_resolves(self):
         cfg = get_model_config("gemini-3.5-flash")
         self.assertEqual(cfg.provider, "google")
         self.assertEqual(cfg.input_price_usd, Decimal("0.0000015"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000009"))
+
+    def test_gemini_3_5_flash_lite_resolves(self):
+        cfg = get_model_config("gemini-3.5-flash-lite")
+        self.assertEqual(cfg.provider, "google")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000003"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000025"))
+
+    def test_gemini_3_6_flash_resolves(self):
+        cfg = get_model_config("gemini-3.6-flash")
+        self.assertEqual(cfg.provider, "google")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000015"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000075"))
 
     def test_gemini_3_1_flash_image_resolves(self):
         cfg = get_model_config("gemini-3.1-flash-image")
@@ -657,12 +662,15 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         # 1000*0.000002 + 500*0.000012 = 0.002 + 0.006 = 0.008 USD = 8e15 wei
         self.assertEqual(cost, 8_000_000_000_000_000)
 
-    def test_gemini_3_1_flash_lite_preview_cost(self):
-        cost = self._calc("gemini-3.1-flash-lite-preview", 1000, 500)
-        expected = _expected_cost_opg("gemini-3.1-flash-lite-preview", 1000, 500)
-        self.assertEqual(cost, expected)
-        # 1000*0.00000025 + 500*0.0000015 = 0.00025 + 0.00075 = 0.001 USD = 1e15 wei
-        self.assertEqual(cost, 1_000_000_000_000_000)
+    def test_gemini_3_5_flash_lite_cost(self):
+        cost = self._calc("gemini-3.5-flash-lite", 1000, 500)
+        self.assertEqual(cost, _expected_cost_opg("gemini-3.5-flash-lite", 1000, 500))
+        self.assertEqual(cost, 1_550_000_000_000_000)
+
+    def test_gemini_3_6_flash_cost(self):
+        cost = self._calc("gemini-3.6-flash", 1000, 500)
+        self.assertEqual(cost, _expected_cost_opg("gemini-3.6-flash", 1000, 500))
+        self.assertEqual(cost, 5_250_000_000_000_000)
 
     # ── xAI Grok ────────────────────────────────────────────────────────────
 

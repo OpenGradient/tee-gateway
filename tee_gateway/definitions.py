@@ -66,21 +66,53 @@ DEFAULT_ASSET_DECIMALS: int = 18
 # by compute_session_cost() in pricing.py.
 # ---------------------------------------------------------------------------
 
-# /v1/chat/completions — maximum OPG spend per session (18 decimals: 100000000000000000 = 0.1 OPG).
+# /v1/chat/completions — maximum OPG spend per session (18 decimals: 5000000000000000000 = 5 OPG).
 # This is the upper-bound amount presented to the client during the x402 pre-check handshake.
 # The x402 "upto" scheme allows the actual charge to be any value up to this cap;
 # the real per-request cost is settled dynamically by compute_session_cost() in pricing.py
 # based on actual token usage, so clients are never overcharged beyond what they consumed.
-CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"
+CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "5000000000000000000"
 
 # /v1/ohttp — maximum OPG spend per session (18 decimals: 5000000000000000000 = 5 OPG).
 # OHTTP image-generation requests can be much more expensive than text chat,
 # so the relay-paid encrypted endpoint needs a higher per-session cap.
 OHTTP_OPG_SESSION_MAX_SPEND: str = "5000000000000000000"
 
-# /v1/completions — maximum OPG spend per session (18 decimals: 100000000000000000 = 0.1 OPG).
+# /v1/completions — maximum OPG spend per session (18 decimals: 5000000000000000000 = 5 OPG).
 # This is the upper-bound amount presented to the client during the x402 pre-check handshake.
 # The x402 "upto" scheme allows the actual charge to be any value up to this cap;
 # the real per-request cost is settled dynamically by compute_session_cost() in pricing.py
 # based on actual token usage, so clients are never overcharged beyond what they consumed.
-COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"
+COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "5000000000000000000"
+
+# ---------------------------------------------------------------------------
+# x402 "upto" session settlement timing
+# ---------------------------------------------------------------------------
+# A draw-down ("upto") session reuses ONE signed Permit2 authorization whose
+# on-chain deadline is fixed at signing time (session creation) and never
+# refreshed. If the accumulated tab is settled after that deadline the on-chain
+# ``settle`` reverts and the whole session's payment is silently lost. These
+# knobs keep the settlement schedule safely inside the signed window.
+#
+# INVARIANT (must hold or long sessions drop payments):
+#     UPTO_SESSION_IDLE_TIMEOUT_SECONDS
+#         < UPTO_SETTLEMENT_SAFETY_MARGIN_SECONDS
+#         < UPTO_SESSION_MAX_TIMEOUT_SECONDS
+# and the safety margin must exceed SETTLEMENT_POLL_TIMEOUT_SECONDS so a
+# force-settled tab has time to confirm on-chain before the deadline.
+
+# Validity window signed into the Permit2 authorization (deadline = creation + this).
+# Advertised to clients as ``maxTimeoutSeconds`` in the 402 requirements.
+UPTO_SESSION_MAX_TIMEOUT_SECONDS: int = 600
+
+# Force-settle a session (and stop accepting new draw-downs against it) this many
+# seconds before its authorization deadline, leaving room for on-chain confirmation.
+UPTO_SETTLEMENT_SAFETY_MARGIN_SECONDS: int = 120
+
+# Settle a session once it has been idle (no new requests) this long.
+UPTO_SESSION_IDLE_TIMEOUT_SECONDS: int = 60
+
+# Deferred settlement is asynchronous on the facilitator (202 + job id). Poll the
+# job-status endpoint until the on-chain result is known instead of assuming success.
+SETTLEMENT_POLL_INTERVAL_SECONDS: float = 2.0
+SETTLEMENT_POLL_TIMEOUT_SECONDS: float = 100.0

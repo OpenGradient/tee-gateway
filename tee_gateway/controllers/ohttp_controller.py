@@ -88,10 +88,11 @@ OHTTP_BILLING_FRAME_MAGIC = b"\n--opengradient-ohttp-billing-v1--\n"
 _SSE_CONTENT_TYPE = "text/event-stream"
 
 # Cap on the encapsulated request size. The inner payload is a chat-completion
-# JSON body and may include base64 image attachments; 16 MiB covers roughly a
-# 10 MiB raw image after base64/JSON overhead while still bounding enclave
-# memory use for malicious or accidentally huge payloads.
-_MAX_ENCAPSULATED_REQUEST_BYTES = 16 * 1024 * 1024
+# JSON body and may include base64 image attachments; 20 MiB covers roughly a
+# 14 MiB raw image — or several attached reference images — after base64/JSON
+# overhead while still bounding enclave memory use for malicious or
+# accidentally huge payloads.
+_MAX_ENCAPSULATED_REQUEST_BYTES = 20 * 1024 * 1024
 
 # Fields that can re-identify a client and have no role in inference. We drop
 # them before forwarding to the inner handler — keeping them inside the

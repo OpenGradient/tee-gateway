@@ -72,6 +72,15 @@ class ModelConfig:
     # means "use the provider default" (see WEB_SEARCH_PRICE_USD_BY_PROVIDER);
     # set an explicit value here to override a single model's web-search price.
     web_search_price_usd: Optional[Decimal] = None
+    # ── Attachment capability overrides (chat models) ──
+    # Consulted by llm_backend.get_model_capabilities ahead of the LangChain
+    # model profile. ``None`` defers to the profile, which fails open when the
+    # model has no profile data. Set an explicit ``False`` for models the
+    # profile registry doesn't cover (e.g. OpenAI-compatible providers like
+    # ByteDance ModelArk) so unsupported attachments are rejected up front with
+    # a clean error instead of surfacing the provider's raw 400.
+    image_inputs: Optional[bool] = None
+    pdf_inputs: Optional[bool] = None
 
 
 # Default per-search USD price charged when a model uses native web search.
@@ -459,17 +468,23 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000001"),
         output_price_usd=Decimal("0.0000004"),
     )
+    # DeepSeek V4 is text-only: ModelArk rejects multimodal content parts
+    # ("Model do not support image input"), so gate attachments at the gateway.
     DEEPSEEK_V4_FLASH = ModelConfig(
         provider="bytedance",
         api_name="deepseek-v4-flash-260425",
         input_price_usd=Decimal("0.00000014"),
         output_price_usd=Decimal("0.00000028"),
+        image_inputs=False,
+        pdf_inputs=False,
     )
     DEEPSEEK_V4_PRO = ModelConfig(
         provider="bytedance",
         api_name="deepseek-v4-pro-260425",
         input_price_usd=Decimal("0.00000174"),
         output_price_usd=Decimal("0.00000348"),
+        image_inputs=False,
+        pdf_inputs=False,
     )
     # Seedream 4.0 image generation via ModelArk's OpenAI-compatible
     # /images/generations endpoint. Billed at a flat $0.03 per generated image;
@@ -523,26 +538,36 @@ class SupportedModel(Enum):
     # model-id matching. The bare lowercase "hermes-4-70b" is NOT an accepted
     # alias and is rejected with HTTP 400; the accepted form is the capitalized
     # "Hermes-4-70B" (the canonical id "nousresearch/hermes-4-70b" also works).
+    # Hermes 4 is text-only (Llama-3.1 text base): the Nous endpoint has no
+    # image or file input, so gate attachments at the gateway.
     HERMES_4_405B = ModelConfig(
         provider="nous",
         api_name="Hermes-4-405B",
         input_price_usd=Decimal("0.00000009"),
         output_price_usd=Decimal("0.00000037"),
+        image_inputs=False,
+        pdf_inputs=False,
     )
     HERMES_4_70B = ModelConfig(
         provider="nous",
         api_name="Hermes-4-70B",
         input_price_usd=Decimal("0.00000013"),
         output_price_usd=Decimal("0.0000004"),
+        image_inputs=False,
+        pdf_inputs=False,
     )
 
     # ── Z.ai (Model API, OpenAI-compatible) ─────────────────────────────
     # Z.ai publishes GLM-5.2 prices per 1M tokens: $1.40 input, $4.40 output.
+    # GLM-5.2 is text-only (Z.ai restricts image/video/file content parts to
+    # its V-series vision models), so gate attachments at the gateway.
     GLM_5_2 = ModelConfig(
         provider="zai",
         api_name="glm-5.2",
         input_price_usd=Decimal("0.0000014"),
         output_price_usd=Decimal("0.0000044"),
+        image_inputs=False,
+        pdf_inputs=False,
     )
     # GLM-Image uses Z.ai's image endpoint and is billed per generated image.
     # Z.ai returns hosted URLs only (fetched and inlined by the gateway) and

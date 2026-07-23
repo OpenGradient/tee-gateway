@@ -26,6 +26,7 @@ from tee_gateway.llm_backend import (
     canonical_user_content,
     convert_messages,
     extract_usage,
+    get_model_capabilities,
     validate_attachments,
 )
 from tee_gateway.model_registry import get_model_config, get_rate_card
@@ -827,6 +828,86 @@ class TestValidateAttachments(unittest.TestCase):
         ):
             with self.assertRaises(AttachmentValidationError):
                 validate_attachments(self._pdf_msg("JVBERi0="), "grok-4")
+
+    DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+    @staticmethod
+    def _file_msg(mime, filename):
+        return [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "file",
+                        "file": {
+                            "filename": filename,
+                            "file_data": f"data:{mime};base64,QUJD",
+                        },
+                    }
+                ],
+            }
+        ]
+
+    def test_provider_file_mime_allowlist(self):
+        # OpenAI file-inputs accept Office formats — no gateway restriction.
+        validate_attachments(self._file_msg(self.DOCX, "a.docx"), "gpt-5")
+        # Anthropic documents are PDF-only; Office must be converted first.
+        with self.assertRaises(AttachmentValidationError):
+            validate_attachments(self._file_msg(self.DOCX, "a.docx"), "claude-sonnet-5")
+        validate_attachments(self._pdf_msg("JVBERi0="), "claude-sonnet-5")
+        # Gemini accepts PDFs and text-family types inline, but not Office.
+        validate_attachments(self._pdf_msg("JVBERi0="), "gemini-3.5-flash")
+        validate_attachments(self._file_msg("text/csv", "a.csv"), "gemini-3.5-flash")
+        with self.assertRaises(AttachmentValidationError):
+            validate_attachments(
+                self._file_msg(self.DOCX, "a.docx"), "gemini-3.5-flash"
+            )
+
+    def test_providers_without_inline_file_input_reject_files(self):
+        # xAI's document path is a separate Responses API workflow, and
+        # ModelArk's is Responses-API-only too — neither takes an inline file
+        # part on chat completions.
+        for model in ("grok-4.5", "seed-1.8"):
+            with self.assertRaises(AttachmentValidationError):
+                validate_attachments(self._pdf_msg("JVBERi0="), model)
+
+    def test_registry_override_blocks_text_only_models(self):
+        # Hermes (Llama-3.1 text base) and GLM-5.2 are text-only per their
+        # official docs; the registry override rejects both modalities.
+        for model in ("hermes-4-405b", "glm-5.2"):
+            for msgs in (self._pdf_msg("JVBERi0="), self._image_msg("aGVsbG8=")):
+                with self.assertRaises(AttachmentValidationError):
+                    validate_attachments(msgs, model)
+
+    def test_images_fail_open_for_seed_models(self):
+        # ModelArk Seed models take images on the chat API; they have no
+        # profile data, so the image gate stays open and the request passes.
+        validate_attachments(self._image_msg("aGVsbG8="), "seed-1.8")
+
+    def test_registry_override_blocks_deepseek_attachments(self):
+        # DeepSeek V4 rides the generic OpenAI-compatible client and has no
+        # LangChain profile data, so the model-registry override is what
+        # rejects attachments here — without it this fell open and ModelArk
+        # returned a raw "Model do not support image input" 400.
+        for model in ("deepseek-v4-pro", "deepseek-v4-flash"):
+            for msgs in (self._pdf_msg("JVBERi0="), self._image_msg("aGVsbG8=")):
+                with self.assertRaises(AttachmentValidationError):
+                    validate_attachments(msgs, model)
+
+    def test_registry_override_wins_over_profile(self):
+        # An explicit registry False must take precedence even if a LangChain
+        # profile exists and claims support.
+        profiled = mock.Mock()
+        profiled.profile = {"image_inputs": True, "pdf_inputs": True}
+        with mock.patch(
+            "tee_gateway.llm_backend.get_chat_model_cached", return_value=profiled
+        ):
+            caps = get_model_capabilities("deepseek-v4-pro")
+        self.assertIs(caps["image_inputs"], False)
+        self.assertIs(caps["pdf_inputs"], False)
+
+    def test_text_only_request_passes_for_deepseek(self):
+        validate_attachments([{"role": "user", "content": "hi"}], "deepseek-v4-pro")
 
 
 # ---------------------------------------------------------------------------

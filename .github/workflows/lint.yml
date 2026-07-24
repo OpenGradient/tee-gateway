@@ -10,12 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/ruff-action@v3
-        with:
-          args: check tee_gateway
-      - uses: astral-sh/ruff-action@v3
-        with:
-          args: format --check tee_gateway
+      - uses: astral-sh/setup-uv@v5
+      # Run ruff from the locked toolchain (uv.lock) rather than ruff-action's
+      # bundled latest release, so lint is reproducible and matches what
+      # developers run locally — the same reason the mypy job uses `uv run`.
+      - run: uv run ruff check tee_gateway
+      - run: uv run ruff format --check tee_gateway
 
   mypy:
     runs-on: ubuntu-latest

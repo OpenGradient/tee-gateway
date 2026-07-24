@@ -72,6 +72,15 @@ class ModelConfig:
     # means "use the provider default" (see WEB_SEARCH_PRICE_USD_BY_PROVIDER);
     # set an explicit value here to override a single model's web-search price.
     web_search_price_usd: Optional[Decimal] = None
+    # OpenAI's newest reasoning models (the gpt-5.6 family) apply a default
+    # ``reasoning_effort`` that the Chat Completions endpoint rejects when
+    # function tools are also present ("Function tools with reasoning_effort are
+    # not supported ... use /v1/responses or set reasoning_effort to 'none'").
+    # When True and function tools are bound, the gateway routes the request
+    # through OpenAI's Responses API instead, which supports reasoning and
+    # function tools together (preserving reasoning rather than disabling it).
+    # OpenAI provider only; ignored elsewhere.
+    responses_api_for_tools: bool = False
 
 
 # Default per-search USD price charged when a model uses native web search.
@@ -183,18 +192,21 @@ class SupportedModel(Enum):
         api_name="gpt-5.6-sol",
         input_price_usd=Decimal("0.000005"),
         output_price_usd=Decimal("0.00003"),
+        responses_api_for_tools=True,
     )
     GPT_5_6_TERRA = ModelConfig(
         provider="openai",
         api_name="gpt-5.6-terra",
         input_price_usd=Decimal("0.0000025"),
         output_price_usd=Decimal("0.000015"),
+        responses_api_for_tools=True,
     )
     GPT_5_6_LUNA = ModelConfig(
         provider="openai",
         api_name="gpt-5.6-luna",
         input_price_usd=Decimal("0.000001"),
         output_price_usd=Decimal("0.000006"),
+        responses_api_for_tools=True,
     )
     # Image generation via OpenAI's /images/generations endpoint (gpt-image).
     # Unlike DALL·E, gpt-image models always return base64 (``b64_json``) and

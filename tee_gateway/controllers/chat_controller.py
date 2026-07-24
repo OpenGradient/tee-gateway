@@ -131,6 +131,21 @@ def _build_tools_list(chat_request: CreateChatCompletionRequest, provider: str) 
     return tools_list
 
 
+def _needs_responses_api_for_tools(provider: str, cfg, tools_list: list) -> bool:
+    """Whether this request must use OpenAI's Responses API because of tools.
+
+    The gpt-5.6 family (``responses_api_for_tools=True``) rejects function tools
+    combined with its default ``reasoning_effort`` on the Chat Completions
+    endpoint; the Responses API supports both together. Only relevant when
+    function tools are actually bound and the provider is OpenAI.
+    """
+    return (
+        provider == "openai"
+        and getattr(cfg, "responses_api_for_tools", False)
+        and bool(tools_list)
+    )
+
+
 def _normalize_response_format(rf) -> dict:
     """Coerce response_format to a plain dict, preserving all fields including json_schema."""
     if isinstance(rf, dict):
@@ -235,6 +250,10 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         if cfg.image_generation:
             return create_image_generation_response(chat_request, request_bytes)
 
+        # Build the tools list first: some OpenAI models (gpt-5.6 family) must be
+        # constructed against the Responses API when function tools are bound.
+        tools_list = _build_tools_list(chat_request, provider)
+
         model = get_chat_model_cached(
             model=chat_request.model,
             temperature=float(chat_request.temperature)
@@ -242,10 +261,12 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
             else 0.0,
             max_tokens=chat_request.max_tokens or 4096,
             web_search=bool(chat_request.web_search),
+            force_responses_api=_needs_responses_api_for_tools(
+                provider, cfg, tools_list
+            ),
         )
 
         # Bind user tools and/or the native web search tool if requested.
-        tools_list = _build_tools_list(chat_request, provider)
         if tools_list:
             model = model.bind_tools(tools_list)
 
@@ -377,12 +398,13 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
     """Handle streaming chat completion via direct LangChain call."""
     try:
         provider = get_provider_from_model(chat_request.model)
+        cfg = get_model_config(chat_request.model)
         # OpenAI and Anthropic stream tool calls as fragments that must be
         # buffered and flushed once complete. Gemini emits complete tool calls.
         buffer_tool_calls = provider in ["openai", "anthropic"]
         # Gemini inline-image models return a single image rather than a token
         # stream — invoke once and emit the result inside the SSE envelope.
-        image_output_model = get_model_config(chat_request.model).image_output
+        image_output_model = cfg.image_output
 
         request_dict = _chat_request_to_dict(chat_request)
         request_bytes = json.dumps(request_dict, sort_keys=True).encode("utf-8")
@@ -394,6 +416,10 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                 chat_request, request_bytes
             )
 
+        # Build the tools list first: some OpenAI models (gpt-5.6 family) must be
+        # constructed against the Responses API when function tools are bound.
+        tools_list = _build_tools_list(chat_request, provider)
+
         model = get_chat_model_cached(
             model=chat_request.model,
             temperature=float(chat_request.temperature)
@@ -401,10 +427,12 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
             else 0.0,
             max_tokens=chat_request.max_tokens or 4096,
             web_search=bool(chat_request.web_search),
+            force_responses_api=_needs_responses_api_for_tools(
+                provider, cfg, tools_list
+            ),
         )
 
         # Bind user tools and/or the native web search tool if requested.
-        tools_list = _build_tools_list(chat_request, provider)
         if tools_list:
             model = model.bind_tools(tools_list)
 

@@ -157,17 +157,28 @@ def get_provider_from_model(model: str) -> str:
 
 @lru_cache(maxsize=64)
 def get_chat_model_cached(
-    model: str, temperature: float, max_tokens: int, web_search: bool = False
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    web_search: bool = False,
+    force_responses_api: bool = False,
 ):
     """Get cached chat model instance using the injected ProviderConfig.
 
-    Models are cached by (model, temperature, max_tokens, web_search) tuple.
-    Cache is cleared by set_provider_config() after key injection.
+    Models are cached by (model, temperature, max_tokens, web_search,
+    force_responses_api) tuple. Cache is cleared by set_provider_config() after
+    key injection.
 
     When ``web_search`` is True, provider-specific native web search is enabled.
     Some providers (OpenAI, xAI) require search configuration at construction
     time; others (Anthropic, Google) enable it by binding a tool — see
     ``get_web_search_tool``. Providers without native web search ignore the flag.
+
+    When ``force_responses_api`` is True, OpenAI models are constructed against
+    the Responses API (like the web-search path). The gpt-5.6 family rejects
+    function tools combined with its default ``reasoning_effort`` on Chat
+    Completions, so the chat controller sets this flag for those models when
+    tools are bound. Ignored by non-OpenAI providers.
     """
     config = _provider_config
     if config is None:
@@ -214,12 +225,14 @@ def get_chat_model_cached(
         if openai_http_client is None:
             raise RuntimeError("OpenAI HTTP client has not been initialized")
 
-        # OpenAI's built-in web_search tool is only available through the
-        # Responses API, so switch to it when web search is requested. The
+        # Switch to the Responses API when either (a) web search is requested —
+        # OpenAI's built-in web_search tool is only available there — or (b) the
+        # caller forced it because this model rejects function tools + its
+        # default reasoning_effort on Chat Completions (gpt-5.6 family). The
         # responses/v1 output format surfaces web_search_call items in the
         # message content, which we count for billing.
         openai_kwargs: dict[str, Any] = {}
-        if web_search:
+        if web_search or force_responses_api:
             openai_kwargs["use_responses_api"] = True
             openai_kwargs["output_version"] = "responses/v1"
 

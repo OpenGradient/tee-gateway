@@ -278,6 +278,98 @@ class TestToolForwarding(unittest.TestCase):
     @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
     @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
     @patch("tee_gateway.controllers.chat_controller.connexion")
+    def test_gpt56_with_tools_forces_responses_api(
+        self, mock_connexion, mock_get_model, mock_get_tee_keys
+    ):
+        """gpt-5.6 models must be built against the Responses API when tools are
+        bound (Chat Completions rejects tools + default reasoning_effort)."""
+        mock_connexion.request.is_json = True
+        mock_connexion.request.get_json.return_value = {
+            "model": "gpt-5.6-luna",
+            "messages": [{"role": "user", "content": "What is the weather?"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "description": "Get weather for a location",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"location": {"type": "string"}},
+                        },
+                    },
+                }
+            ],
+            "stream": False,
+        }
+
+        mock_model = _make_mock_model(_MockLangChainResponse(content="Sunny."))
+        mock_get_model.return_value = mock_model
+        mock_get_tee_keys.return_value = _make_mock_tee_keys()
+
+        create_chat_completion(None)
+
+        self.assertTrue(mock_get_model.call_args.kwargs["force_responses_api"])
+        mock_model.bind_tools.assert_called_once()
+
+    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
+    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
+    @patch("tee_gateway.controllers.chat_controller.connexion")
+    def test_gpt56_without_tools_stays_on_chat_completions(
+        self, mock_connexion, mock_get_model, mock_get_tee_keys
+    ):
+        """gpt-5.6 without tools has no conflict, so the Responses API is not forced."""
+        mock_connexion.request.is_json = True
+        mock_connexion.request.get_json.return_value = {
+            "model": "gpt-5.6-luna",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "stream": False,
+        }
+
+        mock_get_model.return_value = _make_mock_model(
+            _MockLangChainResponse(content="Hi!")
+        )
+        mock_get_tee_keys.return_value = _make_mock_tee_keys()
+
+        create_chat_completion(None)
+
+        self.assertFalse(mock_get_model.call_args.kwargs["force_responses_api"])
+
+    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
+    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
+    @patch("tee_gateway.controllers.chat_controller.connexion")
+    def test_non_reasoning_model_with_tools_stays_on_chat_completions(
+        self, mock_connexion, mock_get_model, mock_get_tee_keys
+    ):
+        """A non-gpt-5.6 model (gpt-4.1) with tools must NOT force the Responses API."""
+        mock_connexion.request.is_json = True
+        mock_connexion.request.get_json.return_value = {
+            "model": "gpt-4.1",
+            "messages": [{"role": "user", "content": "What is the weather?"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ],
+            "stream": False,
+        }
+
+        mock_get_model.return_value = _make_mock_model(
+            _MockLangChainResponse(content="Sunny.")
+        )
+        mock_get_tee_keys.return_value = _make_mock_tee_keys()
+
+        create_chat_completion(None)
+
+        self.assertFalse(mock_get_model.call_args.kwargs["force_responses_api"])
+
+    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
+    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
+    @patch("tee_gateway.controllers.chat_controller.connexion")
     def test_error_handling_when_model_raises(
         self, mock_connexion, mock_get_model, mock_get_tee_keys
     ):

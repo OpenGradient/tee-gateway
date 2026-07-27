@@ -127,6 +127,15 @@ class TestModelRegistry(unittest.TestCase):
         # Opus 4.7+ rejects the `temperature` field (HTTP 400)
         self.assertFalse(cfg.supports_temperature)
 
+    def test_claude_opus_5_resolves(self):
+        cfg = get_model_config("claude-opus-5")
+        self.assertEqual(cfg.provider, "anthropic")
+        self.assertEqual(cfg.api_name, "claude-opus-5")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000005"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000025"))
+        # Adaptive-thinking-only; rejects the `temperature` field (HTTP 400)
+        self.assertFalse(cfg.supports_temperature)
+
     def test_claude_fable_5_resolves(self):
         cfg = get_model_config("claude-fable-5")
         self.assertEqual(cfg.provider, "anthropic")
@@ -627,6 +636,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         expected = _expected_cost_opg("claude-opus-4-7", 1000, 500)
         self.assertEqual(cost, expected)
         # Same price tier as opus-4-5/4-6: 1000*0.000005 + 500*0.000025 = 0.0175 USD
+        self.assertEqual(cost, 17_500_000_000_000_000)
+
+    def test_claude_opus_5_cost(self):
+        cost = self._calc("claude-opus-5", 1000, 500)
+        expected = _expected_cost_opg("claude-opus-5", 1000, 500)
+        self.assertEqual(cost, expected)
+        # Same price tier as opus-4-5/4-6/4-7/4-8: 1000*0.000005 + 500*0.000025 = 0.0175 USD
         self.assertEqual(cost, 17_500_000_000_000_000)
 
     # ── Google Gemini ────────────────────────────────────────────────────────

@@ -79,6 +79,42 @@ class TestChatNonStreamingOpengradient(unittest.TestCase):
         self.assertIn("opengradient", resp)
         self.assertEqual(resp["opengradient"]["cost_opg"], "12345")
 
+    def test_xai_non_streaming_disables_provider_streaming(self):
+        from tee_gateway.controllers import chat_controller
+
+        fake_response = MagicMock()
+        fake_response.content = "hello"
+        fake_response.tool_calls = None
+        fake_model = MagicMock()
+        fake_model.invoke.return_value = fake_response
+        request = _chat_request()
+        request.model = "grok-4.3"
+
+        with (
+            patch.object(
+                chat_controller, "get_chat_model_cached", return_value=fake_model
+            ),
+            patch.object(
+                chat_controller, "get_provider_from_model", return_value="x-ai"
+            ),
+            patch.object(chat_controller, "extract_usage", return_value=_FAKE_USAGE),
+            patch.object(
+                chat_controller, "compute_session_cost", return_value=_fake_cost()
+            ),
+            patch.object(
+                chat_controller, "get_tee_keys", return_value=_fake_tee_keys()
+            ),
+            patch.object(
+                chat_controller,
+                "compute_tee_msg_hash",
+                return_value=(b"h", "ih", "oh"),
+            ),
+        ):
+            chat_controller._create_non_streaming_response(request)
+
+        fake_model.invoke.assert_called_once()
+        self.assertFalse(fake_model.invoke.call_args.kwargs["stream"])
+
     def test_opengradient_block_absent_when_compute_returns_none(self):
         from tee_gateway.controllers import chat_controller
 
@@ -156,6 +192,92 @@ class TestChatStreamingOpengradient(unittest.TestCase):
         final = json.loads(data_events[-1][len("data: ") :].strip())
         self.assertIn("opengradient", final)
         self.assertEqual(final["opengradient"]["cost_opg"], "12345")
+
+    def test_xai_stream_explicitly_requests_usage(self):
+        from tee_gateway.controllers import chat_controller
+
+        chunk = MagicMock()
+        chunk.content = "hello"
+        chunk.tool_call_chunks = []
+        chunk.usage_metadata = {
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "total_tokens": 30,
+        }
+        fake_model = MagicMock()
+        fake_model.stream.return_value = iter([chunk])
+
+        with (
+            patch.object(
+                chat_controller, "get_chat_model_cached", return_value=fake_model
+            ),
+            patch.object(
+                chat_controller, "get_provider_from_model", return_value="x-ai"
+            ),
+            patch.object(
+                chat_controller, "compute_session_cost", return_value=_fake_cost()
+            ),
+            patch.object(
+                chat_controller, "get_tee_keys", return_value=_fake_tee_keys()
+            ),
+            patch.object(
+                chat_controller,
+                "compute_tee_msg_hash",
+                return_value=(b"h", "ih", "oh"),
+            ),
+        ):
+            request = _chat_request()
+            request.model = "grok-4.3"
+            request.stream = True
+            response = chat_controller._create_streaming_response(request)
+            list(response.response)
+
+        fake_model.stream.assert_called_once()
+        self.assertTrue(fake_model.stream.call_args.kwargs["stream_usage"])
+
+    def test_xai_responses_stream_does_not_forward_stream_usage(self):
+        from tee_gateway.controllers import chat_controller
+
+        chunk = MagicMock()
+        chunk.content = "hello"
+        chunk.tool_call_chunks = []
+        chunk.usage_metadata = {
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "total_tokens": 30,
+        }
+        fake_model = MagicMock()
+        fake_model.stream.return_value = iter([chunk])
+
+        with (
+            patch.object(
+                chat_controller, "get_chat_model_cached", return_value=fake_model
+            ),
+            patch.object(
+                chat_controller, "get_provider_from_model", return_value="x-ai"
+            ),
+            patch.object(chat_controller, "_build_tools_list", return_value=[]),
+            patch.object(
+                chat_controller, "compute_session_cost", return_value=_fake_cost()
+            ),
+            patch.object(
+                chat_controller, "get_tee_keys", return_value=_fake_tee_keys()
+            ),
+            patch.object(
+                chat_controller,
+                "compute_tee_msg_hash",
+                return_value=(b"h", "ih", "oh"),
+            ),
+        ):
+            request = _chat_request()
+            request.model = "grok-4.3"
+            request.stream = True
+            request.web_search = True
+            response = chat_controller._create_streaming_response(request)
+            list(response.response)
+
+        fake_model.stream.assert_called_once()
+        self.assertNotIn("stream_usage", fake_model.stream.call_args.kwargs)
 
 
 class TestCompletionsOpengradient(unittest.TestCase):

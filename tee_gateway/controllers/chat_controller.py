@@ -296,7 +296,11 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         if rf_dict and provider == "anthropic":
             response = _invoke_anthropic_structured(model, rf_dict, langchain_messages)
         else:
-            response = model.invoke(langchain_messages)
+            # ChatXAI is cached with streaming enabled for the streaming
+            # endpoint. Disable it here so stream=false gets one complete
+            # provider response with its authoritative usage object.
+            invoke_kwargs = {"stream": False} if provider == "x-ai" else {}
+            response = model.invoke(langchain_messages, **invoke_kwargs)
 
         # Normalize content (Gemini may return a list of content parts, and
         # image-generation models return image blocks alongside any text).
@@ -363,7 +367,6 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
             f"Response Final\n\tTEE Signature: {signature}\n\tTEE request hash: {input_hash_hex}\n\tTEE output hash: {output_hash_hex}\n\tTEE timestamp: {timestamp}\n\tTEE ID: 0x{tee_keys.get_tee_id()}"
         )
 
-        # TODO: If no usage is returned, we should compute it here.
         usage = extract_usage(response)
         if usage:
             # Surface the standard OpenAI usage triple on the response; the
@@ -381,6 +384,12 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
             )
             if cost is not None:
                 openai_response["opengradient"] = cost.model_dump(mode="json")
+        else:
+            logger.error(
+                "Provider usage missing model=%s provider=%s source=non_stream",
+                chat_request.model,
+                provider,
+            )
 
         # Validate schema (the extra tee_* fields are preserved by returning dict directly)
         CreateChatCompletionResponse.from_dict(openai_response)
@@ -577,7 +586,19 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     yield f"data: {json.dumps(data)}\n\n"
                     chunks_iter = []
                 else:
-                    chunks_iter = model.stream(langchain_messages)  # type: ignore[assignment]
+                    # xAI Chat Completions requires include_usage for the
+                    # terminal billing event. Its Responses API (used for web
+                    # search) includes terminal usage automatically and does
+                    # not accept the LangChain-only stream_usage argument.
+                    stream_kwargs = (
+                        {"stream_usage": True}
+                        if provider == "x-ai" and not chat_request.web_search
+                        else {}
+                    )
+                    chunks_iter = model.stream(  # type: ignore[assignment]
+                        langchain_messages,
+                        **stream_kwargs,
+                    )
 
                 for chunk in chunks_iter:
                     # Accumulate for post-stream web-search billing (cheap: merges
@@ -701,27 +722,26 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                                 yield f"data: {json.dumps(data)}\n\n"
 
                     # --- Usage metadata ---
-                    # Accumulate deltas rather than replacing: Gemini returns cumulative
-                    # usageMetadata on every chunk and LangChain emits deltas via
-                    # subtract_usage(), so input_tokens only appears non-zero in the
-                    # *first* chunk carrying usage. Replacing on each chunk would
-                    # overwrite that value with 0 from all subsequent chunks.
-                    if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
-                        if final_usage is None:
-                            final_usage = {}
-                        for k, v in chunk.usage_metadata.items():
-                            if isinstance(v, (int, float)):
-                                final_usage[k] = final_usage.get(k, 0) + v
-                        # Thinking tokens (billed at the cheaper text rate) are
-                        # nested in output_token_details and emitted as deltas like
-                        # the top-level counts, so accumulate them the same way.
-                        _otd = chunk.usage_metadata.get("output_token_details")
-                        if isinstance(_otd, dict) and isinstance(
-                            _otd.get("reasoning"), (int, float)
-                        ):
-                            final_usage["reasoning"] = (
-                                final_usage.get("reasoning", 0) + _otd["reasoning"]
-                            )
+                    # LangChain emits usage deltas for most providers, so those
+                    # are accumulated. xAI exposes cumulative snapshots instead,
+                    # which are handled separately below.
+                    chunk_usage = extract_usage(chunk)
+                    if chunk_usage:
+                        normalized_chunk_usage = {
+                            "input_tokens": chunk_usage["prompt_tokens"],
+                            "output_tokens": chunk_usage["completion_tokens"],
+                            "total_tokens": chunk_usage["total_tokens"],
+                            "reasoning": chunk_usage.get("reasoning_tokens", 0),
+                        }
+                        if provider == "x-ai":
+                            # xAI sends cumulative usage snapshots. Keep the
+                            # latest one instead of summing every chunk.
+                            final_usage = normalized_chunk_usage
+                        else:
+                            if final_usage is None:
+                                final_usage = {}
+                            for key, value in normalized_chunk_usage.items():
+                                final_usage[key] = final_usage.get(key, 0) + value
 
                 # Flush buffered tool calls for OpenAI/Anthropic
                 if buffer_tool_calls and buffered_tool_calls:
@@ -786,7 +806,6 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     f"Response Final\n\tTEE Signature: {tee_signature}\n\tTEE request hash: {input_hash_hex}\n\tTEE output hash: {output_hash_hex}\n\tTEE timestamp: {timestamp}\n\tTEE ID: 0x{tee_keys.get_tee_id()}"
                 )
 
-                # TODO: If no usage is returned, we should compute it here.
                 if final_usage:
                     final_data["usage"] = {
                         "prompt_tokens": final_usage.get("input_tokens", 0),
@@ -818,6 +837,12 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                         f"Stream completed — usage: {final_data['usage']}, "
                         f"finish: {finish_reason}, "
                         f"inputHash: {input_hash_hex[:16]}..., outputHash: {output_hash_hex[:16]}..."
+                    )
+                else:
+                    logger.error(
+                        "Provider usage missing model=%s provider=%s source=stream",
+                        chat_request.model,
+                        provider,
                     )
 
                 yield f"data: {json.dumps(final_data)}\n\n"

@@ -8,6 +8,7 @@ called from the Flask/connexion controllers.
 
 import json
 import logging
+from collections.abc import Mapping
 from typing import List, Dict, Optional, Any, Generator
 from functools import lru_cache
 
@@ -665,20 +666,65 @@ def convert_messages(messages: list) -> List[Any]:
 
 
 def extract_usage(response) -> Optional[Dict[str, int]]:
-    """Extract token usage from a LangChain response object."""
-    if hasattr(response, "usage_metadata") and response.usage_metadata:
-        meta = response.usage_metadata
-        # Thinking tokens, when present, are folded into output_tokens but also
-        # broken out here. Image-output models bill them at the cheaper
-        # text/thinking rate (see compute_session_cost), so surface them.
-        details = meta.get("output_token_details") or {}
-        return {
-            "prompt_tokens": meta.get("input_tokens", 0),
-            "completion_tokens": meta.get("output_tokens", 0),
-            "total_tokens": meta.get("total_tokens", 0),
-            "reasoning_tokens": details.get("reasoning", 0),
-        }
-    return None
+    """Extract normalized usage from LangChain or raw provider metadata.
+
+    LangChain normally exposes ``usage_metadata`` using input/output token
+    names. OpenAI-compatible providers such as xAI can instead leave the raw
+    ``token_usage`` object in ``response_metadata``. Supporting both shapes
+    prevents a successful inference from losing its billing data.
+    """
+
+    def as_mapping(value: Any) -> Mapping[str, Any] | None:
+        if isinstance(value, Mapping):
+            return value
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            dumped = model_dump()
+            return dumped if isinstance(dumped, Mapping) else None
+        return None
+
+    metadata = as_mapping(getattr(response, "usage_metadata", None))
+    if metadata is None:
+        response_metadata = as_mapping(getattr(response, "response_metadata", None))
+        if response_metadata is not None:
+            metadata = as_mapping(
+                response_metadata.get("token_usage") or response_metadata.get("usage")
+            )
+
+    if metadata is None:
+        return None
+
+    input_tokens = metadata.get("input_tokens", metadata.get("prompt_tokens"))
+    output_tokens = metadata.get("output_tokens", metadata.get("completion_tokens"))
+    total_tokens = metadata.get("total_tokens")
+    if input_tokens is None and output_tokens is None and total_tokens is None:
+        return None
+
+    prompt_tokens = int(input_tokens or 0)
+    completion_tokens = int(output_tokens or 0)
+    total = int(
+        total_tokens if total_tokens is not None else prompt_tokens + completion_tokens
+    )
+
+    reasoning_tokens = 0
+    for details_key in ("output_token_details", "output_tokens_details"):
+        details = as_mapping(metadata.get(details_key))
+        if details is not None:
+            reasoning_tokens = int(
+                details.get("reasoning", details.get("reasoning_tokens", 0)) or 0
+            )
+            break
+    if reasoning_tokens == 0:
+        details = as_mapping(metadata.get("completion_tokens_details"))
+        if details is not None:
+            reasoning_tokens = int(details.get("reasoning_tokens", 0) or 0)
+
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total,
+        "reasoning_tokens": reasoning_tokens,
+    }
 
 
 # Anthropic's server-side web search tool. The dated type string is the current

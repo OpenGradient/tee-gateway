@@ -901,6 +901,60 @@ class TestExtractUsage(unittest.TestCase):
         mock_resp = type("R", (), {})()
         self.assertIsNone(extract_usage(mock_resp))
 
+    def test_falls_back_to_raw_chat_completion_usage(self):
+        mock_resp = type(
+            "R",
+            (),
+            {
+                "usage_metadata": None,
+                "response_metadata": {
+                    "token_usage": {
+                        "prompt_tokens": 11,
+                        "completion_tokens": 7,
+                        "total_tokens": 18,
+                        "completion_tokens_details": {"reasoning_tokens": 3},
+                    }
+                },
+            },
+        )()
+        usage = extract_usage(mock_resp)
+        self.assertEqual(
+            usage,
+            {
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+                "total_tokens": 18,
+                "reasoning_tokens": 3,
+            },
+        )
+
+    def test_falls_back_to_raw_responses_usage(self):
+        mock_resp = type(
+            "R",
+            (),
+            {
+                "usage_metadata": None,
+                "response_metadata": {
+                    "usage": {
+                        "input_tokens": 13,
+                        "output_tokens": 5,
+                        "total_tokens": 18,
+                        "output_tokens_details": {"reasoning_tokens": 2},
+                    }
+                },
+            },
+        )()
+        usage = extract_usage(mock_resp)
+        self.assertEqual(
+            usage,
+            {
+                "prompt_tokens": 13,
+                "completion_tokens": 5,
+                "total_tokens": 18,
+                "reasoning_tokens": 2,
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

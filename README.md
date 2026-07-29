@@ -24,9 +24,10 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 - **Request integrity** - SHA256 hash of original request included in signed response
 - **Streaming support** - SSE streaming for chat completions
 - **Tool/function calling** - Full support for LLM tool use
-- **Native web search** - Opt-in `web_search` flag enables each provider's built-in
-  web search (OpenAI, Anthropic, Google, xAI); searches are billed per search on top
-  of token usage
+- **In-enclave web search** - Opt-in `web_search` flag lets the model search the
+  live web via a tool the gateway executes inside the enclave (backed by Exa).
+  Works identically on every text model regardless of provider; searches are
+  billed at one flat per-search rate on top of token usage
 
 ## Supported Models
 
@@ -90,7 +91,7 @@ curl -X POST http://127.0.0.1:8000/v1/completions \
     "prompt": "Explain quantum computing in one sentence"
   }'
 
-# Native web search (set "web_search": true on any supported model)
+# Web search (set "web_search": true on any text model, any provider)
 curl -X POST http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
@@ -100,11 +101,24 @@ curl -X POST http://127.0.0.1:8000/v1/chat/completions \
   }'
 ```
 
-> **Web search & billing.** When `web_search` is `true`, the gateway enables the
-> provider's built-in web search (OpenAI, Anthropic, Google, xAI). Each search is
-> billed per search on top of token usage — at the provider's list price — and the
-> charge is reflected in the dynamically-settled x402 amount. Providers without
-> native web search (e.g. ByteDance/ModelArk) ignore the flag and are not charged.
+> **Web search & billing.** When `web_search` is `true`, the gateway offers the
+> model a `web_search` function tool and runs it itself, inside the enclave,
+> against Exa — it does not use any provider's built-in search. So it works on
+> every text model (ByteDance, Nous and Z.ai models included), returns the same
+> results and the same `citations` whichever model you pick, and the query never
+> leaves the TEE except to the search backend.
+>
+> The loop is invisible from the outside: one request still returns one answer,
+> and any `tool_calls` you get back are only for tools you supplied yourself.
+> Streaming responses also emit progress frames carrying a top-level
+> `web_search` object you can render or ignore.
+>
+> Each search adds a flat per-search surcharge — the same on every model, so you
+> can verify it as `searches x rate` — reflected in the dynamically-settled x402
+> amount. Because every round re-sends the conversation plus the accumulated
+> results, the reported token usage covers all rounds. Failed searches are not
+> charged. Requires `EXA_API_KEY` to be injected; check `web_search_enabled` on
+> `/health`.
 
 ## Deployment to Nitro Enclave
 

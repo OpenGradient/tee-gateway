@@ -22,6 +22,7 @@ from tee_gateway.config import (
     DEFAULT_HEARTBEAT_INTERVAL,
 )
 from tee_gateway.llm_backend import get_provider_config, set_provider_config
+from tee_gateway.web_search import web_search_available
 from tee_gateway.heartbeat import create_heartbeat_service
 from tee_gateway.controllers.ohttp_controller import (
     create_anonymous_chat_completion,
@@ -395,6 +396,7 @@ def set_provider_keys():
             bytedance_api_key=body.get("bytedance_api_key") or None,
             nous_api_key=body.get("nous_api_key") or None,
             zai_api_key=body.get("zai_api_key") or None,
+            exa_api_key=body.get("exa_api_key") or None,
         )
         set_provider_config(provider_config)
 
@@ -460,6 +462,9 @@ def set_provider_keys():
         logger.info(
             "  zai_api_key                 : %s", _set(provider_config.zai_api_key)
         )
+        logger.info(
+            "  exa_api_key (web search)    : %s", _set(provider_config.exa_api_key)
+        )
         logger.info("  facilitator_url             : %s", facilitator_url)
         logger.info(
             "  heartbeat_contract_address  : %s",
@@ -503,6 +508,7 @@ def set_provider_keys():
             "status": "ok",
             "providers_initialized": providers_set,
             "heartbeat_enabled": heartbeat_config is not None,
+            "web_search_enabled": bool(provider_config.exa_api_key),
         }
     ), 200
 
@@ -517,6 +523,10 @@ def health():
         "tee_enabled": True,
         "uptime_seconds": int(time.time() - _started_at),
         "providers": providers,
+        # Whether the `web_search` request flag will actually search. Not a
+        # provider capability — the gateway searches in-enclave for every model —
+        # so it is reported separately from `providers`.
+        "web_search_enabled": web_search_available(),
         "facilitator_url": _active_facilitator_url,
         "price_feed": _price_feed.get_status(),
     }, 200

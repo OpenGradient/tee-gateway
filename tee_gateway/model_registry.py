@@ -68,9 +68,9 @@ class ModelConfig:
     # ``output_tokens`` count and only breaks out thinking (``reasoning``), so the
     # billing splits reasoning at ``output_price_usd`` and the remainder here.
     image_output_price_usd: Optional[Decimal] = None
-    # Per-search USD surcharge billed when native web search is used. ``None``
-    # means "use the provider default" (see WEB_SEARCH_PRICE_USD_BY_PROVIDER);
-    # set an explicit value here to override a single model's web-search price.
+    # Per-search USD surcharge override. Web search is one flat rate on every
+    # model (``WEB_SEARCH_PRICE_USD``) because the gateway runs the search
+    # itself; set this only to price a single model's searches differently.
     web_search_price_usd: Optional[Decimal] = None
     # OpenAI's newest reasoning models (the gpt-5.6 family) apply a default
     # ``reasoning_effort`` that the Chat Completions endpoint rejects when
@@ -83,20 +83,20 @@ class ModelConfig:
     responses_api_for_tools: bool = False
 
 
-# Default per-search USD price charged when a model uses native web search.
-# The billable "unit" differs per provider (see extract_web_search_count in
-# llm_backend.py) and these mirror each provider's public list price:
-#   - OpenAI:    per web_search tool call          (~$10 / 1k calls)
-#   - Anthropic: per web_search request            ($10 / 1k searches)
-#   - xAI:       per web_search tool call / source ($25 / 1k units)
-#   - Google:    per grounded request               ($35 / 1k requests)
-# Providers without native web search are omitted (charged nothing).
-WEB_SEARCH_PRICE_USD_BY_PROVIDER: dict[str, Decimal] = {
-    "openai": Decimal("0.01"),
-    "anthropic": Decimal("0.01"),
-    "x-ai": Decimal("0.025"),
-    "google": Decimal("0.035"),
-}
+# Flat USD price per web search, identical on every model.
+#
+# The gateway runs searches itself against Exa (see web_search.py), so there is
+# one cost to pass through instead of four provider list prices with four
+# different billable units. At our request shape — one Exa search plus page text
+# for up to `MAX_NUM_RESULTS` results — Exa charges $7/1k requests and $1/1k
+# pages per content type, i.e. ~$0.013 for a 6-result search. This rate covers
+# that with a small margin, and is below what three of the four native searches
+# used to cost (xAI $0.025/unit, Google $0.035/request).
+#
+# The billable unit is "one search the model asked for that reached Exa", so a
+# client can verify its surcharge as `searches * this rate`. Searches that
+# failed or were malformed are not counted (see WebSearchOutcome.billable).
+WEB_SEARCH_PRICE_USD: Decimal = Decimal("0.015")
 
 # ByteDance ModelArk image *deployment* endpoints (api_name "ep-…", e.g. Seedance
 # 4.5, Seedream 5.0 Lite) return the URL response format and require these extra
@@ -721,18 +721,28 @@ def get_rate_card(model: str) -> dict[str, Decimal]:
 
 
 def get_web_search_price_usd(model: str) -> Decimal:
-    """Return the per-search USD surcharge for a model's native web search.
+    """Return the per-search USD surcharge for a model.
 
-    Falls back to the provider default when the model does not override it, and
-    to ``Decimal("0")`` for providers with no native web search support. Raises
-    ValueError if the model is unknown.
+    The flat ``WEB_SEARCH_PRICE_USD`` unless the model overrides it. Image models
+    are free: they never reach the chat path that can search. Raises ValueError
+    if the model is unknown.
     """
     cfg = get_model_config(model)
     if cfg.web_search_price_usd is not None:
         return cfg.web_search_price_usd
-    return WEB_SEARCH_PRICE_USD_BY_PROVIDER.get(cfg.provider, Decimal("0"))
+    if cfg.image_generation or cfg.image_output:
+        return Decimal("0")
+    return WEB_SEARCH_PRICE_USD
 
 
-def provider_supports_web_search(provider: str) -> bool:
-    """Whether the given provider has native web search the gateway can enable."""
-    return provider in WEB_SEARCH_PRICE_USD_BY_PROVIDER
+def model_supports_web_search(model: str) -> bool:
+    """Whether ``web_search`` can be enabled for a model.
+
+    True for every text model in the registry — the gateway supplies the search
+    tool itself, so this is a question about function calling, not about which
+    provider shipped a search feature. Image models are excluded: generation
+    models are served off the chat path entirely, and image-*output* models are
+    invoked in a single non-streaming shot with no tool loop around them.
+    """
+    cfg = get_model_config(model)
+    return not (cfg.image_generation or cfg.image_output)

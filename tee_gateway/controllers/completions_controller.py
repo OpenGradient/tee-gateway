@@ -13,12 +13,12 @@ from tee_gateway.models.create_completion_request import CreateCompletionRequest
 from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
 from tee_gateway.llm_backend import (
     get_chat_model_cached,
-    get_provider_from_model,
-    get_web_search_tool,
-    extract_web_search_count,
     extract_usage,
 )
+from tee_gateway.model_registry import model_supports_web_search
 from tee_gateway.pricing import compute_session_cost
+from tee_gateway.search_loop import SearchLoopState, run_search_loop
+from tee_gateway.web_search import get_web_search_tool, web_search_available
 
 logger = logging.getLogger(__name__)
 
@@ -49,27 +49,43 @@ def create_completion(body):
 
         request_bytes = json.dumps(request_dict, sort_keys=True).encode("utf-8")
 
-        model = get_chat_model_cached(
+        base_model = get_chat_model_cached(
             model=body.model,
             temperature=float(body.temperature)
             if body.temperature is not None
             else 0.0,
             max_tokens=body.max_tokens or 4096,
-            web_search=web_search,
         )
 
-        # Enable the provider's native web search tool where binding is required
-        # (xAI configures it at construction; unsupported providers return None).
-        if web_search:
-            ws_tool = get_web_search_tool(get_provider_from_model(body.model))
-            if ws_tool is not None:
-                model = model.bind_tools([ws_tool])
+        # Web search is the gateway's own function tool, executed in-enclave for
+        # any model that can call a function — see web_search.py. Skipped when no
+        # Exa key was injected rather than advertising a tool that always fails.
+        search_enabled = (
+            web_search
+            and model_supports_web_search(body.model)
+            and web_search_available()
+        )
+        if web_search and not search_enabled:
+            logger.warning(
+                "web_search requested for %s but search is unavailable; "
+                "completing without it",
+                body.model,
+            )
 
-        messages = [HumanMessage(content=body.prompt)]
-        response = model.invoke(messages)
+        messages: list[Any] = [HumanMessage(content=body.prompt)]
+        search_state = SearchLoopState()
+        if search_enabled:
+            response = run_search_loop(
+                base_model.bind_tools([get_web_search_tool()]),
+                base_model,
+                messages,
+                search_state,
+            )
+        else:
+            response = base_model.invoke(messages)
 
-        # Web search (OpenAI Responses API / Gemini) can return content as a list
-        # of blocks; flatten to the text the caller expects.
+        # Some providers return content as a list of blocks; flatten to the text
+        # the caller expects.
         if isinstance(response.content, list):
             response_content = "".join(
                 item.get("text", "") if isinstance(item, dict) else str(item)
@@ -77,7 +93,8 @@ def create_completion(body):
             )
         else:
             response_content = response.content or ""
-        usage = extract_usage(response)
+        # With search on, usage is the sum over every round of the loop.
+        usage = search_state.usage if search_enabled else extract_usage(response)
 
         timestamp = int(time.time())
         msg_hash, input_hash_hex, output_hash_hex = compute_tee_msg_hash(
@@ -106,12 +123,13 @@ def create_completion(body):
             "tee_id": f"0x{tee_keys.get_tee_id()}",
         }
         if usage:
-            web_search_count = extract_web_search_count(response) if web_search else 0
             cost = compute_session_cost(
-                body.model, usage, web_search_count=web_search_count
+                body.model, usage, web_search_count=search_state.search_count
             )
             if cost is not None:
                 completion_response["opengradient"] = cost.model_dump(mode="json")
+            if search_state.citations:
+                completion_response["citations"] = search_state.citations
         return completion_response
 
     except Exception as e:

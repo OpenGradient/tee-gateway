@@ -12,6 +12,8 @@ The repo must provide a stable AWS Nitro PCR when the code doesn't change in ord
 │   ├── llm_backend.py       # LLM provider routing via LangChain, HTTP client management
 │   ├── image_generation.py  # Endpoint-based image gen (/images/generations): request shaping, URL→inline-bytes, signed responses
 │   ├── tee_manager.py       # TEE key generation, nitriding registration, response signing
+│   ├── web_search.py        # In-enclave web search: Exa client, `web_search` tool spec, result formatting
+│   ├── search_loop.py       # Server-side tool loop that answers web_search calls in-enclave
 │   ├── model_registry.py    # Model config and per-token pricing
 │   ├── definitions.py       # On-chain addresses, network IDs, payment amounts
 │   ├── facilitator_api.py   # x402 facilitator API client
@@ -69,6 +71,9 @@ API keys (injected at runtime via POST /v1/keys — do NOT bake into the image):
 - `ARK_API_KEY` (BytePlus / ByteDance ModelArk; injected as `bytedance_api_key`)
 - `NOUS_API_KEY` (Nous Research / Nous Portal; injected as `nous_api_key`)
 - `ZAI_API_KEY` (Z.ai Model API; injected as `zai_api_key`)
+- `EXA_API_KEY` (Exa search; injected as `exa_api_key`) — backs the in-enclave
+  `web_search` tool, not an LLM provider. Without it the `web_search` flag is a
+  no-op and `/health` reports `web_search_enabled: false`.
 
 Server configuration:
 - `API_SERVER_PORT` (default: 8000)
@@ -92,13 +97,15 @@ Server configuration:
 - **`llm_backend.py`**: LangChain model instantiation, HTTP client management, provider routing from model name
 - **`model_registry.py`**: Maps model names to providers and per-token USD pricing (used by dynamic cost calculator)
 - **`definitions.py`**: On-chain constants (addresses, network IDs, payment amounts) — configure here for your deployment
+- **`web_search.py`**: Exa HTTP client, the single provider-agnostic `web_search` function-tool spec, and result formatting/citation extraction
+- **`search_loop.py`**: the in-enclave tool loop — intercepts `web_search` calls, runs them, feeds results back, bounds the rounds, and sums usage across them
 - **`util.py`**: `dynamic_session_cost_calculator` converts actual token usage to x402 payment amounts
 
 ### API Endpoints
 
 | Endpoint | Purpose |
 |----------|---------|
-| `/health` | Health check (status, version, tee_enabled) |
+| `/health` | Health check (status, version, tee_enabled, web_search_enabled) |
 | `/signing-key` | TEE public key (PEM) and tee_id |
 | `/enclave/attestation` | Nitro attestation document (served by nitriding) |
 | `/v1/keys` | One-time API key injection (POST, loopback-only) |
@@ -143,6 +150,39 @@ skipped rather than dereferenced in the enclave). Per-provider request quirks
 (response format, `n`, size/watermark, reference support, edit endpoint) live in
 `model_registry.py`. These models are billed a flat per-image
 price (see `per_image_price_usd`), not per token.
+
+### Web Search
+
+The `web_search` request flag does NOT use any provider's native web search
+(OpenAI/Anthropic/Google/xAI all have one; those were removed). Instead the
+gateway advertises a single provider-agnostic `web_search` function tool
+(`web_search.py`) and executes it itself, inside the enclave, against Exa —
+`search_loop.py` intercepts the call, runs the search, feeds the results back as
+a `ToolMessage`, and lets the model continue. Consequences to keep in mind when
+touching this code:
+
+- **Every text model can search**, including ByteDance, Nous and Z.ai, which had
+  no native option. `model_supports_web_search` excludes only image models.
+  Anthropic's structured-output path also skips search, since
+  `with_structured_output` occupies the tool slot with a forced schema tool.
+- **The client protocol is unchanged.** Only `web_search` calls are intercepted;
+  a caller's own `tools` still come back as `tool_calls` for it to run. A turn
+  that mixes both is terminal and the caller's tools win — ours are dropped and
+  the model re-issues them next turn.
+- **Streaming buffers tool calls unconditionally** when search is on (a fragment
+  can't be forwarded until the round ends and we know whose tool it was), and the
+  rounds are wrapped in a generator so the chunk handler sees one flat stream.
+  Progress frames carry a top-level `web_search` object; `citations` ride
+  out-of-band on the final frame (unsigned, like `images`).
+- **Billing has two parts**: a flat per-search surcharge
+  (`WEB_SEARCH_PRICE_USD`, identical on every model, so a client can verify it as
+  `searches × rate`), plus the token cost of every round — each round re-sends
+  the conversation plus the accumulated results, and `SearchLoopState` sums usage
+  across all of them. Failed searches are not counted. Rounds are capped
+  (`MAX_SEARCH_ROUNDS`), with the final round run against a model that has no
+  search tool bound so it must answer.
+- Exa's self-reported `costDollars` is logged for margin reconciliation only;
+  settlement never depends on it.
 
 ## Verification Examples
 

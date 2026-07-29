@@ -5,6 +5,7 @@ import logging
 
 import connexion
 from flask import Response
+from dataclasses import dataclass, field
 from typing import Any
 
 from tee_gateway.models.create_chat_completion_request import (
@@ -27,8 +28,6 @@ from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
 from tee_gateway.llm_backend import (
     get_provider_from_model,
     get_chat_model_cached,
-    get_web_search_tool,
-    extract_web_search_count,
     convert_messages,
     extract_usage,
     validate_attachments,
@@ -39,8 +38,21 @@ from tee_gateway.image_generation import (
     create_image_generation_response,
     create_image_generation_streaming_response,
 )
-from tee_gateway.model_registry import get_model_config
+from tee_gateway.model_registry import get_model_config, model_supports_web_search
 from tee_gateway.pricing import compute_session_cost
+from tee_gateway.web_search import (
+    WEB_SEARCH_TOOL_NAME,
+    get_web_search_tool,
+    web_search_available,
+)
+from tee_gateway.search_loop import (
+    MAX_SEARCH_ROUNDS,
+    SearchLoopState,
+    execute_search_calls,
+    run_search_loop,
+    split_tool_calls,
+    strip_search_tool_calls,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +92,97 @@ def _split_text_and_images(content: Any) -> tuple[str, list[str]]:
     return ("".join(text_parts), images)
 
 
+@dataclass
+class _SearchEvent:
+    """Streaming-only marker yielded between rounds of the search loop.
+
+    The chunk handler in ``_create_streaming_response`` buffers tool-call
+    fragments without knowing whose tool they belong to; this tells it. Carried
+    in-band on the chunk iterator so that handler needs no other knowledge of the
+    loop.
+    """
+
+    # Queries to announce to the client before the (blocking) searches run.
+    queries: list[str] = field(default_factory=list)
+    # The buffered calls were all ours: forget them and keep streaming.
+    clear_buffer: bool = False
+    # Terminal turn mixing our tool with the caller's: strip ours, forward theirs.
+    drop_search_calls: bool = False
+
+
+def _search_status_frame(model: str, query: str) -> dict[str, Any]:
+    """An SSE frame telling the client which query is being searched.
+
+    Shaped as an ordinary empty-delta chunk so a client that doesn't know about
+    `web_search` ignores it harmlessly, with the status hung off a top-level key
+    (the same convention `images` and `citations` use on the final frame).
+    """
+    return {
+        "choices": [{"delta": {}, "index": 0, "finish_reason": None}],
+        "model": model,
+        "web_search": {"status": "searching", "query": query},
+    }
+
+
+def _accumulate_round(
+    chunk: Any, round_text: list[str], round_calls: dict[int, dict[str, Any]]
+) -> None:
+    """Collect one round's text and tool-call fragments inside the search loop.
+
+    Separate from the outer chunk handler's buffering because the two answer
+    different questions: this one decides whether to search again, that one
+    decides what to forward to the client.
+    """
+    content = getattr(chunk, "content", None)
+    if isinstance(content, str):
+        round_text.append(content)
+    elif isinstance(content, list):
+        round_text.extend(
+            item.get("text", "") for item in content if isinstance(item, dict)
+        )
+
+    for fragment in getattr(chunk, "tool_call_chunks", None) or []:
+        index = fragment.get("index", 0)
+        entry = round_calls.setdefault(index, {"id": "", "name": "", "args": ""})
+        if fragment.get("id"):
+            entry["id"] = fragment["id"]
+        if fragment.get("name"):
+            entry["name"] = fragment["name"]
+        args = fragment.get("args")
+        if args:
+            entry["args"] += args if isinstance(args, str) else json.dumps(args)
+
+
+def _round_tool_calls(round_calls: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Turn buffered fragments into LangChain-shaped tool calls.
+
+    Arguments arrive as a concatenated JSON string; a call whose arguments never
+    parse is still returned with empty args so it is classified (and, if it is a
+    web_search, answered with a "query is required" error the model can recover
+    from) rather than silently vanishing.
+    """
+    calls: list[dict[str, Any]] = []
+    for index in sorted(round_calls):
+        entry = round_calls[index]
+        if not entry["name"]:
+            continue
+        try:
+            args = json.loads(entry["args"]) if entry["args"].strip() else {}
+        except ValueError:
+            logger.warning(
+                "Could not parse streamed arguments for tool %r", entry["name"]
+            )
+            args = {}
+        calls.append(
+            {
+                "id": entry["id"],
+                "name": entry["name"],
+                "args": args if isinstance(args, dict) else {},
+            }
+        )
+    return calls
+
+
 def create_chat_completion(body):
     """Create a chat completion (streaming or non-streaming)."""
     if not connexion.request.is_json:
@@ -104,14 +207,8 @@ def create_chat_completion(body):
         return _create_non_streaming_response(chat_request)
 
 
-def _build_tools_list(chat_request: CreateChatCompletionRequest, provider: str) -> list:
-    """Build the combined tools list (user tools + native web search tool).
-
-    User-supplied function tools and the provider's built-in web search tool are
-    bound together in a single bind_tools() call. xAI configures search at
-    construction time (no tool), and providers without native web search return
-    no tool — in both cases only user tools are included.
-    """
+def _build_user_tools_list(chat_request: CreateChatCompletionRequest) -> list:
+    """Normalize the caller's own function tools into bind_tools() form."""
     tools_list: list = []
     if chat_request.tools:
         for tool in chat_request.tools:
@@ -122,13 +219,39 @@ def _build_tools_list(chat_request: CreateChatCompletionRequest, provider: str) 
                 )
             else:
                 tools_list.append(tool)
-
-    if getattr(chat_request, "web_search", False):
-        ws_tool = get_web_search_tool(provider)
-        if ws_tool is not None:
-            tools_list.append(ws_tool)
-
     return tools_list
+
+
+def _search_enabled(
+    chat_request: CreateChatCompletionRequest,
+    provider: str,
+    anthropic_structured: bool,
+) -> bool:
+    """Whether to bind and run the gateway's web_search tool for this request.
+
+    Off when the caller didn't ask, when no Exa key was injected (rather than
+    advertising a tool that always fails), for image models, and for Anthropic's
+    structured-output path — ``with_structured_output`` occupies the tool slot
+    with a forced schema tool, so a search tool bound beside it would never be
+    callable. Every other model gets search, regardless of provider.
+    """
+    if not getattr(chat_request, "web_search", False):
+        return False
+    if anthropic_structured and provider == "anthropic":
+        logger.info(
+            "web_search requested with Anthropic structured output; skipping "
+            "search (structured output uses a forced tool)"
+        )
+        return False
+    if not model_supports_web_search(chat_request.model):
+        return False
+    if not web_search_available():
+        logger.warning(
+            "web_search requested but no Exa API key is configured; answering "
+            "without search"
+        )
+        return False
+    return True
 
 
 def _needs_responses_api_for_tools(provider: str, cfg, tools_list: list) -> bool:
@@ -250,37 +373,51 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         if cfg.image_generation:
             return create_image_generation_response(chat_request, request_bytes)
 
-        # Build the tools list first: some OpenAI models (gpt-5.6 family) must be
-        # constructed against the Responses API when function tools are bound.
-        tools_list = _build_tools_list(chat_request, provider)
-
-        model = get_chat_model_cached(
-            model=chat_request.model,
-            temperature=float(chat_request.temperature)
-            if chat_request.temperature is not None
-            else 0.0,
-            max_tokens=chat_request.max_tokens or 4096,
-            web_search=bool(chat_request.web_search),
-            force_responses_api=_needs_responses_api_for_tools(
-                provider, cfg, tools_list
-            ),
-        )
-
-        # Bind user tools and/or the native web search tool if requested.
-        if tools_list:
-            model = model.bind_tools(tools_list)
-
-        # Bind response_format if provided (json_object or json_schema).
-        # Anthropic does not support response_format via bind(); use
-        # with_structured_output() for json_schema instead (json_object has no
-        # Anthropic native equivalent and raises a clear error).
+        # response_format is resolved before the model is built: whether Anthropic
+        # takes the structured-output path decides whether web search can run at
+        # all (see _search_enabled).
         rf_dict: dict | None = None
         if chat_request.response_format:
             rf = _normalize_response_format(chat_request.response_format)
             if rf.get("type", "text") != "text":
                 rf_dict = rf
-                if provider != "anthropic":
-                    model = model.bind(response_format=rf_dict)
+
+        # Build the tools list first: some OpenAI models (gpt-5.6 family) must be
+        # constructed against the Responses API when function tools are bound.
+        user_tools = _build_user_tools_list(chat_request)
+        search_enabled = _search_enabled(chat_request, provider, rf_dict is not None)
+        tools_list = (
+            user_tools + [get_web_search_tool()] if search_enabled else user_tools
+        )
+
+        base_model = get_chat_model_cached(
+            model=chat_request.model,
+            temperature=float(chat_request.temperature)
+            if chat_request.temperature is not None
+            else 0.0,
+            max_tokens=chat_request.max_tokens or 4096,
+            force_responses_api=_needs_responses_api_for_tools(
+                provider, cfg, tools_list
+            ),
+        )
+
+        model = base_model.bind_tools(tools_list) if tools_list else base_model
+        # The search loop's final round runs without the search tool bound, which
+        # is what turns the round cap into "answer now" instead of "hand back an
+        # unanswerable search request".
+        model_without_search = (
+            (base_model.bind_tools(user_tools) if user_tools else base_model)
+            if search_enabled
+            else model
+        )
+
+        # Bind response_format if provided (json_object or json_schema).
+        # Anthropic does not support response_format via bind(); use
+        # with_structured_output() for json_schema instead (json_object has no
+        # Anthropic native equivalent and raises a clear error).
+        if rf_dict is not None and provider != "anthropic":
+            model = model.bind(response_format=rf_dict)
+            model_without_search = model_without_search.bind(response_format=rf_dict)
 
         langchain_messages = convert_messages(chat_request.messages)
 
@@ -293,7 +430,18 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
                     SystemMessage(content="Respond in JSON format.")
                 ] + langchain_messages
 
-        if rf_dict and provider == "anthropic":
+        search_state = SearchLoopState()
+        if search_enabled:
+            # Run searches to completion inside the enclave, then answer. The
+            # caller sent one request and gets one answer; the rounds in between
+            # are invisible except in the token usage they add.
+            response = run_search_loop(
+                model,
+                model_without_search,
+                langchain_messages,
+                search_state,
+            )
+        elif rf_dict and provider == "anthropic":
             response = _invoke_anthropic_structured(model, rf_dict, langchain_messages)
         else:
             response = model.invoke(langchain_messages)
@@ -310,9 +458,22 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         # of the signed output hash (see _split_text_and_images).
         if generated_images:
             message_dict["images"] = generated_images
+        # Sources the model searched, surfaced out-of-band alongside images and
+        # on the same terms: the answer text is signed, this metadata about what
+        # informed it rides inside the OHTTP envelope unsigned.
+        if search_state.citations:
+            message_dict["citations"] = search_state.citations
 
         finish_reason = "stop"
-        if hasattr(response, "tool_calls") and response.tool_calls:
+        # Any web_search calls left on a terminal turn belong to a turn that also
+        # called one of the caller's tools; they are dropped rather than handed to
+        # a client that has no way to run them.
+        client_tool_calls = (
+            strip_search_tool_calls(response)
+            if search_enabled
+            else (getattr(response, "tool_calls", None) or [])
+        )
+        if client_tool_calls:
             finish_reason = "tool_calls"
             message_dict["tool_calls"] = [
                 {
@@ -323,7 +484,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
                         "arguments": json.dumps(tc.get("args", {})),
                     },
                 }
-                for tc in response.tool_calls
+                for tc in client_tool_calls
             ]
 
         # For tool-call responses, hash the serialized tool calls so the
@@ -364,7 +525,10 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         )
 
         # TODO: If no usage is returned, we should compute it here.
-        usage = extract_usage(response)
+        # With search on, `usage` is the sum over every round of the loop — each
+        # round re-sent the conversation plus the accumulated search results, and
+        # the caller is charged for all of those tokens, not just the last round's.
+        usage = search_state.usage if search_enabled else extract_usage(response)
         if usage:
             # Surface the standard OpenAI usage triple on the response; the
             # reasoning split rides along to the cost calculator via `usage`.
@@ -373,11 +537,10 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
                 "completion_tokens": usage["completion_tokens"],
                 "total_tokens": usage["total_tokens"],
             }
-            web_search_count = (
-                extract_web_search_count(response) if chat_request.web_search else 0
-            )
             cost = compute_session_cost(
-                chat_request.model, usage, web_search_count=web_search_count
+                chat_request.model,
+                usage,
+                web_search_count=search_state.search_count,
             )
             if cost is not None:
                 openai_response["opengradient"] = cost.model_dump(mode="json")
@@ -399,9 +562,6 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
     try:
         provider = get_provider_from_model(chat_request.model)
         cfg = get_model_config(chat_request.model)
-        # OpenAI and Anthropic stream tool calls as fragments that must be
-        # buffered and flushed once complete. Gemini emits complete tool calls.
-        buffer_tool_calls = provider in ["openai", "anthropic"]
         # Gemini inline-image models return a single image rather than a token
         # stream — invoke once and emit the result inside the SSE envelope.
         image_output_model = cfg.image_output
@@ -416,38 +576,60 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                 chat_request, request_bytes
             )
 
+        # response_format is resolved before the model is built: whether Anthropic
+        # takes the structured-output path decides whether web search can run at
+        # all (see _search_enabled).
+        rf_dict: dict | None = None
+        if chat_request.response_format:
+            rf = _normalize_response_format(chat_request.response_format)
+            if rf.get("type", "text") != "text":
+                rf_dict = rf
+        anthropic_structured_rf: dict | None = (
+            rf_dict if rf_dict is not None and provider == "anthropic" else None
+        )
+
         # Build the tools list first: some OpenAI models (gpt-5.6 family) must be
         # constructed against the Responses API when function tools are bound.
-        tools_list = _build_tools_list(chat_request, provider)
+        user_tools = _build_user_tools_list(chat_request)
+        search_enabled = _search_enabled(chat_request, provider, rf_dict is not None)
+        tools_list = (
+            user_tools + [get_web_search_tool()] if search_enabled else user_tools
+        )
 
-        model = get_chat_model_cached(
+        # OpenAI and Anthropic stream tool calls as fragments that must be
+        # buffered and flushed once complete. Gemini emits complete tool calls.
+        # With search on, ALWAYS buffer: a fragment can't be forwarded to the
+        # client until the round ends and we know whether the call was a
+        # web_search this gateway will answer itself.
+        buffer_tool_calls = provider in ["openai", "anthropic"] or search_enabled
+
+        base_model = get_chat_model_cached(
             model=chat_request.model,
             temperature=float(chat_request.temperature)
             if chat_request.temperature is not None
             else 0.0,
             max_tokens=chat_request.max_tokens or 4096,
-            web_search=bool(chat_request.web_search),
             force_responses_api=_needs_responses_api_for_tools(
                 provider, cfg, tools_list
             ),
         )
 
-        # Bind user tools and/or the native web search tool if requested.
-        if tools_list:
-            model = model.bind_tools(tools_list)
+        model = base_model.bind_tools(tools_list) if tools_list else base_model
+        # The search loop's final round runs without the search tool bound, so a
+        # model that would keep searching has to answer with what it has.
+        model_without_search = (
+            (base_model.bind_tools(user_tools) if user_tools else base_model)
+            if search_enabled
+            else model
+        )
 
         # Bind response_format if provided (json_object or json_schema).
         # Anthropic does not support response_format via bind(); use
         # with_structured_output() for json_schema instead (json_object has no
         # Anthropic native equivalent and raises a clear error).
-        anthropic_structured_rf: dict | None = None
-        if chat_request.response_format:
-            rf = _normalize_response_format(chat_request.response_format)
-            if rf.get("type", "text") != "text":
-                if provider == "anthropic":
-                    anthropic_structured_rf = rf
-                else:
-                    model = model.bind(response_format=rf)
+        if rf_dict is not None and anthropic_structured_rf is None:
+            model = model.bind(response_format=rf_dict)
+            model_without_search = model_without_search.bind(response_format=rf_dict)
 
         langchain_messages = convert_messages(chat_request.messages)
 
@@ -497,16 +679,73 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
             anthropic_structured_content = None
             anthropic_structured_usage = None
 
+        search_state = SearchLoopState()
+
+        def _streamed_search_rounds():
+            """Yield chunks across every round of the in-enclave search loop.
+
+            Written as a generator wrapping ``model.stream`` so the chunk handling
+            below is identical whether or not search is on — one round or five, it
+            sees one flat stream of chunks. Between rounds it yields a
+            ``_SearchEvent`` telling that handler what to do with the tool-call
+            fragments it just buffered, since only this generator knows whether
+            they were ``web_search`` calls it answered itself.
+            """
+            loop_messages = list(langchain_messages)
+            rounds = MAX_SEARCH_ROUNDS + 1 if search_enabled else 1
+
+            for round_index in range(rounds):
+                last_round = search_enabled and round_index == MAX_SEARCH_ROUNDS
+                active_model = model_without_search if last_round else model
+
+                round_text: list[str] = []
+                round_calls: dict[int, dict[str, Any]] = {}
+
+                for chunk in active_model.stream(loop_messages):
+                    if search_enabled:
+                        _accumulate_round(chunk, round_text, round_calls)
+                    yield chunk
+
+                if not search_enabled:
+                    return
+
+                ours, theirs = split_tool_calls(_round_tool_calls(round_calls))
+                if theirs or not ours:
+                    # Terminal turn. A turn that asked for both our search and one
+                    # of the caller's tools can't be served by either side alone,
+                    # so the caller's tools win and ours are dropped downstream.
+                    if ours:
+                        logger.info(
+                            "Dropping %d streamed web_search call(s) from a turn "
+                            "that also called %d client tool(s)",
+                            len(ours),
+                            len(theirs),
+                        )
+                        yield _SearchEvent(drop_search_calls=True)
+                    return
+
+                # Announce the queries before running them: the Exa call blocks
+                # for a second or two and the client should say why it is waiting.
+                yield _SearchEvent(
+                    queries=[
+                        q
+                        for q in ((c.get("args") or {}).get("query") for c in ours)
+                        if isinstance(q, str) and q.strip()
+                    ],
+                    clear_buffer=True,
+                )
+
+                loop_messages.append(
+                    AIMessage(content="".join(round_text), tool_calls=ours)
+                )
+                loop_messages.extend(execute_search_calls(ours, search_state))
+
         def generate():
             full_content = ""
             final_usage = None
             buffered_tool_calls = {}
             finish_reason = "stop"
             generated_images: list[str] = []
-            # Accumulate streamed chunks so native web-search activity (content
-            # blocks, citations, grounding metadata) can be counted for billing
-            # once the stream completes.
-            merged_chunk = None
 
             try:
                 if image_output_model:
@@ -577,15 +816,30 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     yield f"data: {json.dumps(data)}\n\n"
                     chunks_iter = []
                 else:
-                    chunks_iter = model.stream(langchain_messages)  # type: ignore[assignment]
+                    chunks_iter = _streamed_search_rounds()  # type: ignore[assignment]
 
                 for chunk in chunks_iter:
-                    # Accumulate for post-stream web-search billing (cheap: merges
-                    # content/metadata deltas into a single AIMessageChunk).
-                    if chat_request.web_search:
-                        merged_chunk = (
-                            chunk if merged_chunk is None else merged_chunk + chunk
-                        )
+                    # --- Search-round boundary (in-enclave web search) ---
+                    # Not a model chunk: an instruction about the tool-call
+                    # fragments buffered so far, plus the queries to tell the
+                    # client about.
+                    if isinstance(chunk, _SearchEvent):
+                        if chunk.clear_buffer:
+                            # Those calls were web_search calls this gateway is
+                            # answering itself — the client must never see them.
+                            buffered_tool_calls = {}
+                            finish_reason = "stop"
+                        if chunk.drop_search_calls:
+                            buffered_tool_calls = {
+                                index: tc
+                                for index, tc in buffered_tool_calls.items()
+                                if tc["function"]["name"] != WEB_SEARCH_TOOL_NAME
+                            }
+                            if not buffered_tool_calls:
+                                finish_reason = "stop"
+                        for query in chunk.queries:
+                            yield f"data: {json.dumps(_search_status_frame(chat_request.model, query))}\n\n"
+                        continue
 
                     # --- Text content ---
                     if chunk.content:
@@ -781,6 +1035,10 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                 # are not part of the signed output hash.
                 if generated_images:
                     final_data["images"] = generated_images
+                # Likewise the sources the model searched: the answer text is
+                # signed, this metadata about what informed it is not.
+                if search_state.citations:
+                    final_data["citations"] = search_state.citations
 
                 logger.debug(
                     f"Response Final\n\tTEE Signature: {tee_signature}\n\tTEE request hash: {input_hash_hex}\n\tTEE output hash: {output_hash_hex}\n\tTEE timestamp: {timestamp}\n\tTEE ID: 0x{tee_keys.get_tee_id()}"
@@ -793,13 +1051,11 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                         "completion_tokens": final_usage.get("output_tokens", 0),
                         "total_tokens": final_usage.get("total_tokens", 0),
                     }
-                    web_search_count = (
-                        extract_web_search_count(merged_chunk)
-                        if chat_request.web_search
-                        else 0
-                    )
                     # Pass thinking tokens to the cost calculator (for the image
                     # dual-rate split) without polluting the OpenAI usage triple.
+                    # `final_usage` already sums every round of the search loop —
+                    # each round re-sent the conversation plus the accumulated
+                    # results, and the caller pays for all of those input tokens.
                     cost_usage = dict(
                         final_data["usage"],
                         reasoning_tokens=final_usage.get("reasoning", 0),
@@ -807,7 +1063,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     cost = compute_session_cost(
                         chat_request.model,
                         cost_usage,
-                        web_search_count=web_search_count,
+                        web_search_count=search_state.search_count,
                     )
                     if cost is not None:
                         # final_data is hand-serialized to SSE via json.dumps below,
@@ -817,6 +1073,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     logger.info(
                         f"Stream completed — usage: {final_data['usage']}, "
                         f"finish: {finish_reason}, "
+                        f"searches: {search_state.search_count}, "
                         f"inputHash: {input_hash_hex[:16]}..., outputHash: {output_hash_hex[:16]}..."
                     )
 

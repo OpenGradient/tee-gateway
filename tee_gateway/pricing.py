@@ -96,7 +96,11 @@ def compute_session_cost(
                 Decimal(out_tok) * cfg.output_price_usd
             )
 
-        # Native web search is billed per search unit on top of token cost.
+        # Web search is billed per search on top of token cost, at one flat rate
+        # for every model (the gateway runs the search itself — see web_search.py).
+        # Note the token cost already reflects the search: a search round re-sends
+        # the conversation plus the results, and search_loop.SearchLoopState sums
+        # the usage of every round into `usage`.
         searches = max(0, int(web_search_count))
         web_search_usd = (
             Decimal(searches) * get_web_search_price_usd(model)

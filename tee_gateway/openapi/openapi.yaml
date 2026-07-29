@@ -2886,12 +2886,14 @@ components:
           $ref: "#/components/schemas/CreateChatCompletionRequest_model"
         web_search:
           default: false
+          deprecated: true
           description: |
-            Enable the model's native web search capability. When `true`, the
-            gateway turns on the provider's built-in web search (OpenAI, Anthropic,
-            Google, and xAI). Searches performed are billed per search on top of
-            token usage. Models whose provider has no native web search ignore
-            this flag and are not charged for it.
+            Deprecated no-op, accepted for wire compatibility. Web search is a
+            dedicated endpoint (`POST /v1/web_search`, in-enclave, Exa-backed):
+            advertise a `web_search` function tool to the model yourself, call
+            the endpoint when the model invokes it, and feed the returned
+            `content` back as the tool result. Availability is reported as
+            `web_search_enabled` on `/health`.
           nullable: true
           title: web_search
           type: boolean
@@ -3550,10 +3552,10 @@ components:
           type: boolean
         web_search:
           default: false
+          deprecated: true
           description: |
-            Enable the model's native web search capability. Searches performed
-            are billed per search on top of token usage. Models whose provider
-            has no native web search ignore this flag and are not charged for it.
+            Deprecated no-op, accepted for wire compatibility. Web search is a
+            dedicated endpoint — see `web_search` on the chat request.
           nullable: true
           title: web_search
           type: boolean

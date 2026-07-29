@@ -17,7 +17,7 @@ from tee_gateway.definitions import (
     ASSET_DECIMALS_BY_ADDRESS,
     BASE_MAINNET_OPG_ADDRESS,
 )
-from tee_gateway.model_registry import get_model_config, get_web_search_price_usd
+from tee_gateway.model_registry import WEB_SEARCH_PRICE_USD, get_model_config
 
 logger = logging.getLogger("llm_server.dynamic_pricing")
 
@@ -50,7 +50,7 @@ class SessionCost(BaseModel):
 
 
 def compute_session_cost(
-    model: str, usage: dict, web_search_count: int = 0, image_count: int = 0
+    model: str, usage: dict, image_count: int = 0
 ) -> SessionCost | None:
     """Compute the settled cost for a completed inference request.
 
@@ -96,15 +96,6 @@ def compute_session_cost(
                 Decimal(out_tok) * cfg.output_price_usd
             )
 
-        # Native web search is billed per search unit on top of token cost.
-        searches = max(0, int(web_search_count))
-        web_search_usd = (
-            Decimal(searches) * get_web_search_price_usd(model)
-            if searches
-            else Decimal(0)
-        )
-        raw_usd += web_search_usd
-
         # Image-generation models (xAI Grok, ByteDance Seedream) are billed a flat
         # price per generated image rather than per token; token prices are 0.
         images = max(0, int(image_count))
@@ -134,13 +125,11 @@ def compute_session_cost(
 
         logger.info(
             "DYNAMIC_SESSION_COST model=%s input_tokens=%d output_tokens=%d "
-            "web_searches=%d web_search_usd=%s images=%d image_usd=%s raw_usd=%s "
-            "settled_usd=%s token_price_usd=%s decimals=%d cost=%d",
+            "images=%d image_usd=%s raw_usd=%s settled_usd=%s "
+            "token_price_usd=%s decimals=%d cost=%d",
             model,
             in_tok,
             out_tok,
-            searches,
-            str(web_search_usd),
             images,
             str(image_usd),
             str(raw_usd),
@@ -158,6 +147,53 @@ def compute_session_cost(
         logger.critical(
             "Post-inference cost calculation failed (provider error) — "
             "client will NOT be charged: %s",
+            exc,
+            exc_info=True,
+        )
+        return None
+
+
+def compute_web_search_cost() -> SessionCost | None:
+    """Compute the flat cost of one /v1/web_search call.
+
+    Same OPG conversion and ceiling-rounding as :func:`compute_session_cost`,
+    with ``WEB_SEARCH_PRICE_USD`` as the raw USD amount — the endpoint has no
+    token or model dimension. Returns ``None`` when the price feed is down
+    (matching the token path: the request goes unsettled and the client is not
+    charged, logged CRITICAL for reconciliation).
+    """
+    from tee_gateway.price_feed import get_price_feed
+
+    try:
+        token_price_usd = get_price_feed().get_price()
+        if token_price_usd <= 0:
+            raise ValueError(f"Token price is non-positive: {token_price_usd}")
+
+        scale = Decimal(10) ** _OPG_DECIMALS
+        cost_smallest_units = max(
+            0,
+            int(
+                ((WEB_SEARCH_PRICE_USD / token_price_usd) * scale).to_integral_value(
+                    rounding=ROUND_CEILING
+                )
+            ),
+        )
+        settled_usd = (Decimal(cost_smallest_units) / scale) * token_price_usd
+        logger.info(
+            "WEB_SEARCH_COST raw_usd=%s settled_usd=%s token_price_usd=%s cost=%d",
+            str(WEB_SEARCH_PRICE_USD),
+            str(settled_usd),
+            str(token_price_usd),
+            cost_smallest_units,
+        )
+        return SessionCost(
+            cost_opg=cost_smallest_units,
+            cost_usd=settled_usd,
+            opg_price_usd=token_price_usd,
+        )
+    except Exception as exc:
+        logger.critical(
+            "Web search cost calculation failed — client will NOT be charged: %s",
             exc,
             exc_info=True,
         )

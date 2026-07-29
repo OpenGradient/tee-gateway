@@ -68,10 +68,6 @@ class ModelConfig:
     # ``output_tokens`` count and only breaks out thinking (``reasoning``), so the
     # billing splits reasoning at ``output_price_usd`` and the remainder here.
     image_output_price_usd: Optional[Decimal] = None
-    # Per-search USD surcharge billed when native web search is used. ``None``
-    # means "use the provider default" (see WEB_SEARCH_PRICE_USD_BY_PROVIDER);
-    # set an explicit value here to override a single model's web-search price.
-    web_search_price_usd: Optional[Decimal] = None
     # OpenAI's newest reasoning models (the gpt-5.6 family) apply a default
     # ``reasoning_effort`` that the Chat Completions endpoint rejects when
     # function tools are also present ("Function tools with reasoning_effort are
@@ -83,20 +79,20 @@ class ModelConfig:
     responses_api_for_tools: bool = False
 
 
-# Default per-search USD price charged when a model uses native web search.
-# The billable "unit" differs per provider (see extract_web_search_count in
-# llm_backend.py) and these mirror each provider's public list price:
-#   - OpenAI:    per web_search tool call          (~$10 / 1k calls)
-#   - Anthropic: per web_search request            ($10 / 1k searches)
-#   - xAI:       per web_search tool call / source ($25 / 1k units)
-#   - Google:    per grounded request               ($35 / 1k requests)
-# Providers without native web search are omitted (charged nothing).
-WEB_SEARCH_PRICE_USD_BY_PROVIDER: dict[str, Decimal] = {
-    "openai": Decimal("0.01"),
-    "anthropic": Decimal("0.01"),
-    "x-ai": Decimal("0.025"),
-    "google": Decimal("0.035"),
-}
+# Flat USD price per call to the /v1/web_search endpoint.
+#
+# The gateway runs searches against Exa (see web_search.py), so there is one
+# cost to pass through, independent of any model. At our request shape — one
+# Exa search plus page text for up to `MAX_NUM_RESULTS` results — Exa charges
+# $7/1k requests and $1/1k pages per content type, i.e. ~$0.013 for a 6-result
+# search. This rate covers that with a small margin, and is below what three of
+# the four native provider searches used to cost (xAI $0.025/unit, Google
+# $0.035/request).
+#
+# The billable unit is "one search that reached Exa": a request that fails
+# validation or errors out at Exa returns without a cost block and is not
+# settled (see WebSearchOutcome.billable).
+WEB_SEARCH_PRICE_USD: Decimal = Decimal("0.015")
 
 # ByteDance ModelArk image *deployment* endpoints (api_name "ep-…", e.g. Seedance
 # 4.5, Seedream 5.0 Lite) return the URL response format and require these extra
@@ -718,21 +714,3 @@ def get_rate_card(model: str) -> dict[str, Decimal]:
     """Return {"input": ..., "output": ...} pricing for a model. Raises on unknown."""
     cfg = get_model_config(model)
     return {"input": cfg.input_price_usd, "output": cfg.output_price_usd}
-
-
-def get_web_search_price_usd(model: str) -> Decimal:
-    """Return the per-search USD surcharge for a model's native web search.
-
-    Falls back to the provider default when the model does not override it, and
-    to ``Decimal("0")`` for providers with no native web search support. Raises
-    ValueError if the model is unknown.
-    """
-    cfg = get_model_config(model)
-    if cfg.web_search_price_usd is not None:
-        return cfg.web_search_price_usd
-    return WEB_SEARCH_PRICE_USD_BY_PROVIDER.get(cfg.provider, Decimal("0"))
-
-
-def provider_supports_web_search(provider: str) -> bool:
-    """Whether the given provider has native web search the gateway can enable."""
-    return provider in WEB_SEARCH_PRICE_USD_BY_PROVIDER

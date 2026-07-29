@@ -9,20 +9,21 @@ response reported back, and what a "search" cost ($0.01–$0.035, with xAI billi
 per *citation*). Models on providers without one (ByteDance, Nous, Z.ai) simply
 could not search at all.
 
-Instead the gateway advertises ONE ordinary function tool — see
-``get_web_search_tool`` — and executes it itself, inside the enclave, against
-Exa. Consequences worth stating plainly:
+Search is now a dedicated, model-free endpoint — ``POST /v1/web_search``, served
+by ``controllers/web_search_controller.py`` on top of this module — that the
+client's own tool loop calls when its model asks to search. The gateway runs no
+tool loop of its own. Consequences worth stating plainly:
 
-  * It works on every model that can call a function, which is every non-image
-    model in the registry. There is no per-provider capability matrix.
+  * It works with every model that can call a function, which is every non-image
+    model in the registry: the client advertises the tool, the model calls it,
+    and this endpoint answers it. There is no per-provider capability matrix.
   * Results, excerpt sizes, and citations are identical across models, so answer
     quality stops depending on whose search backend the model happened to ship.
-  * A search is one flat price on every model (``WEB_SEARCH_PRICE_USD``), so
-    clients can verify the surcharge as ``searches * price`` rather than
-    reverse-engineering a provider's billable unit.
-  * The query never leaves the TEE except to Exa. Nothing about the search is
-    visible to the LLM provider beyond the result text the model is shown, and
-    nothing is visible to the gateway operator at all.
+  * A search is one flat price (``WEB_SEARCH_PRICE_USD``) with no model or token
+    dimension, settled like any other paid endpoint.
+  * The query never leaves the TEE except to Exa: the endpoint rides the same
+    encrypted OHTTP channel as chat, so the relay sees ciphertext and the
+    gateway operator sees nothing.
 
 The Exa API key is injected at runtime via ``POST /v1/keys`` like every provider
 key; it is never baked into the image.
@@ -47,10 +48,6 @@ EXA_BASE_URL = "https://api.exa.ai"
 # The "deep*" modes cost ~2x and add seconds of latency; not worth it inside an
 # interactive chat turn.
 EXA_SEARCH_TYPE = "auto"
-
-# The tool name the model sees. Also the name the controllers match on to decide
-# a tool call is ours to execute rather than the client's.
-WEB_SEARCH_TOOL_NAME = "web_search"
 
 DEFAULT_NUM_RESULTS = 6
 MAX_NUM_RESULTS = 10
@@ -106,81 +103,18 @@ def web_search_available() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Tool specification
-# ---------------------------------------------------------------------------
-
-
-def get_web_search_tool() -> dict[str, Any]:
-    """The ``web_search`` function tool, in OpenAI function-calling format.
-
-    One spec for every provider: langchain converts this to each provider's own
-    tool format on ``bind_tools``. The schema is deliberately flat — three
-    scalar parameters, one required — because nested objects, unions, and
-    ``additionalProperties`` are exactly where the providers' function-calling
-    schema subsets diverge (Gemini's is the narrowest). Flat and boring is what
-    makes this work identically on all of them.
-    """
-    return {
-        "type": "function",
-        "function": {
-            "name": WEB_SEARCH_TOOL_NAME,
-            "description": (
-                "Search the live web and get back ranked results with an "
-                "excerpt of each page. Use this whenever the answer depends on "
-                "information you may not have: current events, anything after "
-                "your training cutoff, prices, releases, documentation, or any "
-                "specific fact you are not confident about. Prefer searching "
-                "over guessing. Write a focused natural-language query rather "
-                "than keywords, and call this again with a refined query if the "
-                "first set of results does not answer the question."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": (
-                            "What to search for, as a focused natural-language query."
-                        ),
-                    },
-                    "num_results": {
-                        "type": "integer",
-                        "description": (
-                            f"How many results to return, 1-{MAX_NUM_RESULTS}. "
-                            f"Defaults to {DEFAULT_NUM_RESULTS}. Ask for more "
-                            "only when the question needs broad coverage."
-                        ),
-                    },
-                    "recency_days": {
-                        "type": "integer",
-                        "description": (
-                            "Only return pages published within this many days. "
-                            "Omit unless the question is genuinely "
-                            "time-sensitive — it discards older pages that are "
-                            "often the best sources."
-                        ),
-                    },
-                },
-                "required": ["query"],
-            },
-        },
-    }
-
-
-# ---------------------------------------------------------------------------
 # Execution
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class WebSearchOutcome:
-    """The result of one ``web_search`` tool call.
+    """The result of one web search.
 
-    ``content`` is the text handed back to the model as the tool result.
-    ``citations`` are surfaced to the client out-of-band (like generated
-    images) so a UI can show its sources. ``billable`` is False for failures
-    and for empty/invalid calls, so a caller is never charged for a search that
-    produced nothing.
+    ``content`` is model-ready text: the client feeds it back to its model as
+    the ``web_search`` tool result. ``citations`` are structured so a UI can
+    show its sources. ``billable`` is False for failures and for empty/invalid
+    calls, so a caller is never charged for a search that produced nothing.
     """
 
     content: str
@@ -194,11 +128,12 @@ class WebSearchOutcome:
 
 
 def execute_web_search_call(args: dict[str, Any]) -> WebSearchOutcome:
-    """Run one ``web_search`` tool call from its (already-parsed) arguments.
+    """Run one web search from loosely-typed request arguments.
 
     Never raises: every failure mode comes back as an error outcome whose
-    ``content`` reads as an instruction to the model, so a flaky search degrades
-    into "the model was told the search failed" rather than a dead request.
+    ``content`` reads as an instruction to the model (the client relays it as
+    the tool result), so a flaky search degrades into "the model was told the
+    search failed" rather than a dead request.
     """
     query = args.get("query")
     if not isinstance(query, str) or not query.strip():

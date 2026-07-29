@@ -2886,27 +2886,13 @@ components:
           $ref: "#/components/schemas/CreateChatCompletionRequest_model"
         web_search:
           default: false
+          deprecated: true
           description: |
-            Let the model search the web. When `true`, the gateway offers the
-            model a `web_search` tool and executes it inside the enclave against
-            its own search backend, feeding the results back so the model can
-            answer from them. This works on every text model regardless of
-            provider, and behaves identically on all of them.
-
-            The search rounds are invisible to the caller: one request still
-            yields one answer, and the `tool_calls` you get back are only ever
-            for tools you supplied yourself. Sources used are returned
-            out-of-band on the response message as `citations`. Streaming
-            responses additionally emit progress frames carrying a top-level
-            `web_search` object (`{"status": "searching", "query": "..."}`) that
-            clients may render or ignore.
-
-            Billing: each search the model runs adds a flat per-search surcharge
-            (identical on every model) on top of token usage, and because each
-            round re-sends the conversation plus the accumulated results, the
-            reported token usage covers every round. Searches that fail are not
-            charged. Image models, and gateways with no search backend
-            configured, ignore this flag and are not charged for it — check
+            Deprecated no-op, accepted for wire compatibility. Web search is a
+            dedicated endpoint (`POST /v1/web_search`, in-enclave, Exa-backed):
+            advertise a `web_search` function tool to the model yourself, call
+            the endpoint when the model invokes it, and feed the returned
+            `content` back as the tool result. Availability is reported as
             `web_search_enabled` on `/health`.
           nullable: true
           title: web_search
@@ -3566,14 +3552,10 @@ components:
           type: boolean
         web_search:
           default: false
+          deprecated: true
           description: |
-            Let the model search the web. The gateway offers the model a
-            `web_search` tool and executes it inside the enclave, feeding the
-            results back before the completion is produced. Works on every text
-            model regardless of provider. Each search adds a flat per-search
-            surcharge on top of token usage, and the reported token usage covers
-            every round of the loop. Failed searches are not charged. Sources
-            are returned on the response as `citations`.
+            Deprecated no-op, accepted for wire compatibility. Web search is a
+            dedicated endpoint — see `web_search` on the chat request.
           nullable: true
           title: web_search
           type: boolean

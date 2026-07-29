@@ -15,10 +15,7 @@ from tee_gateway.llm_backend import (
     get_chat_model_cached,
     extract_usage,
 )
-from tee_gateway.model_registry import model_supports_web_search
 from tee_gateway.pricing import compute_session_cost
-from tee_gateway.search_loop import SearchLoopState, run_search_loop
-from tee_gateway.web_search import get_web_search_tool, web_search_available
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +28,9 @@ def create_completion(body):
         return {"error": "Request must be application/json"}, 415
 
     try:
+        # The web_search flag is a deprecated no-op: search moved to the
+        # dedicated /v1/web_search endpoint. It stays in the hashed request
+        # dict so signatures from clients that still send it verify unchanged.
         web_search = bool(getattr(body, "web_search", False))
 
         request_dict = {
@@ -49,7 +49,7 @@ def create_completion(body):
 
         request_bytes = json.dumps(request_dict, sort_keys=True).encode("utf-8")
 
-        base_model = get_chat_model_cached(
+        model = get_chat_model_cached(
             model=body.model,
             temperature=float(body.temperature)
             if body.temperature is not None
@@ -57,35 +57,11 @@ def create_completion(body):
             max_tokens=body.max_tokens or 4096,
         )
 
-        # Web search is the gateway's own function tool, executed in-enclave for
-        # any model that can call a function — see web_search.py. Skipped when no
-        # Exa key was injected rather than advertising a tool that always fails.
-        search_enabled = (
-            web_search
-            and model_supports_web_search(body.model)
-            and web_search_available()
-        )
-        if web_search and not search_enabled:
-            logger.warning(
-                "web_search requested for %s but search is unavailable; "
-                "completing without it",
-                body.model,
-            )
+        messages = [HumanMessage(content=body.prompt)]
+        response = model.invoke(messages)
 
-        messages: list[Any] = [HumanMessage(content=body.prompt)]
-        search_state = SearchLoopState()
-        if search_enabled:
-            response = run_search_loop(
-                base_model.bind_tools([get_web_search_tool()]),
-                base_model,
-                messages,
-                search_state,
-            )
-        else:
-            response = base_model.invoke(messages)
-
-        # Some providers return content as a list of blocks; flatten to the text
-        # the caller expects.
+        # Some providers can return content as a list of blocks; flatten to the
+        # text the caller expects.
         if isinstance(response.content, list):
             response_content = "".join(
                 item.get("text", "") if isinstance(item, dict) else str(item)
@@ -93,8 +69,7 @@ def create_completion(body):
             )
         else:
             response_content = response.content or ""
-        # With search on, usage is the sum over every round of the loop.
-        usage = search_state.usage if search_enabled else extract_usage(response)
+        usage = extract_usage(response)
 
         timestamp = int(time.time())
         msg_hash, input_hash_hex, output_hash_hex = compute_tee_msg_hash(
@@ -123,13 +98,9 @@ def create_completion(body):
             "tee_id": f"0x{tee_keys.get_tee_id()}",
         }
         if usage:
-            cost = compute_session_cost(
-                body.model, usage, web_search_count=search_state.search_count
-            )
+            cost = compute_session_cost(body.model, usage)
             if cost is not None:
                 completion_response["opengradient"] = cost.model_dump(mode="json")
-            if search_state.citations:
-                completion_response["citations"] = search_state.citations
         return completion_response
 
     except Exception as e:

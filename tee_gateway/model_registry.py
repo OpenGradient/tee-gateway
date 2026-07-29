@@ -68,10 +68,6 @@ class ModelConfig:
     # ``output_tokens`` count and only breaks out thinking (``reasoning``), so the
     # billing splits reasoning at ``output_price_usd`` and the remainder here.
     image_output_price_usd: Optional[Decimal] = None
-    # Per-search USD surcharge override. Web search is one flat rate on every
-    # model (``WEB_SEARCH_PRICE_USD``) because the gateway runs the search
-    # itself; set this only to price a single model's searches differently.
-    web_search_price_usd: Optional[Decimal] = None
     # OpenAI's newest reasoning models (the gpt-5.6 family) apply a default
     # ``reasoning_effort`` that the Chat Completions endpoint rejects when
     # function tools are also present ("Function tools with reasoning_effort are
@@ -83,19 +79,19 @@ class ModelConfig:
     responses_api_for_tools: bool = False
 
 
-# Flat USD price per web search, identical on every model.
+# Flat USD price per call to the /v1/web_search endpoint.
 #
-# The gateway runs searches itself against Exa (see web_search.py), so there is
-# one cost to pass through instead of four provider list prices with four
-# different billable units. At our request shape — one Exa search plus page text
-# for up to `MAX_NUM_RESULTS` results — Exa charges $7/1k requests and $1/1k
-# pages per content type, i.e. ~$0.013 for a 6-result search. This rate covers
-# that with a small margin, and is below what three of the four native searches
-# used to cost (xAI $0.025/unit, Google $0.035/request).
+# The gateway runs searches against Exa (see web_search.py), so there is one
+# cost to pass through, independent of any model. At our request shape — one
+# Exa search plus page text for up to `MAX_NUM_RESULTS` results — Exa charges
+# $7/1k requests and $1/1k pages per content type, i.e. ~$0.013 for a 6-result
+# search. This rate covers that with a small margin, and is below what three of
+# the four native provider searches used to cost (xAI $0.025/unit, Google
+# $0.035/request).
 #
-# The billable unit is "one search the model asked for that reached Exa", so a
-# client can verify its surcharge as `searches * this rate`. Searches that
-# failed or were malformed are not counted (see WebSearchOutcome.billable).
+# The billable unit is "one search that reached Exa": a request that fails
+# validation or errors out at Exa returns without a cost block and is not
+# settled (see WebSearchOutcome.billable).
 WEB_SEARCH_PRICE_USD: Decimal = Decimal("0.015")
 
 # ByteDance ModelArk image *deployment* endpoints (api_name "ep-…", e.g. Seedance
@@ -718,31 +714,3 @@ def get_rate_card(model: str) -> dict[str, Decimal]:
     """Return {"input": ..., "output": ...} pricing for a model. Raises on unknown."""
     cfg = get_model_config(model)
     return {"input": cfg.input_price_usd, "output": cfg.output_price_usd}
-
-
-def get_web_search_price_usd(model: str) -> Decimal:
-    """Return the per-search USD surcharge for a model.
-
-    The flat ``WEB_SEARCH_PRICE_USD`` unless the model overrides it. Image models
-    are free: they never reach the chat path that can search. Raises ValueError
-    if the model is unknown.
-    """
-    cfg = get_model_config(model)
-    if cfg.web_search_price_usd is not None:
-        return cfg.web_search_price_usd
-    if cfg.image_generation or cfg.image_output:
-        return Decimal("0")
-    return WEB_SEARCH_PRICE_USD
-
-
-def model_supports_web_search(model: str) -> bool:
-    """Whether ``web_search`` can be enabled for a model.
-
-    True for every text model in the registry — the gateway supplies the search
-    tool itself, so this is a question about function calling, not about which
-    provider shipped a search feature. Image models are excluded: generation
-    models are served off the chat path entirely, and image-*output* models are
-    invoked in a single non-streaming shot with no tool loop around them.
-    """
-    cfg = get_model_config(model)
-    return not (cfg.image_generation or cfg.image_output)

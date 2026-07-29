@@ -78,6 +78,12 @@ CHAT_COMPLETIONS_OPG_SESSION_MAX_SPEND: str = "100000000000000000"
 # so the relay-paid encrypted endpoint needs a higher per-session cap.
 OHTTP_OPG_SESSION_MAX_SPEND: str = "5000000000000000000"
 
+# /v1/web_search — maximum OPG spend per session (18 decimals: 1000000000000000000 = 1 OPG).
+# Each search settles at the flat WEB_SEARCH_PRICE_USD (see model_registry.py),
+# so at the fallback OPG price this cap covers several searches per session
+# with headroom for OPG price swings.
+WEB_SEARCH_OPG_SESSION_MAX_SPEND: str = "1000000000000000000"
+
 # /v1/completions — maximum OPG spend per session (18 decimals: 100000000000000000 = 0.1 OPG).
 # This is the upper-bound amount presented to the client during the x402 pre-check handshake.
 # The x402 "upto" scheme allows the actual charge to be any value up to this cap;

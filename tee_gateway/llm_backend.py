@@ -673,6 +673,6 @@ def extract_usage(response) -> Optional[Dict[str, int]]:
     return None
 
 
-# Web search is not a provider feature here — the gateway executes it itself
-# against Exa and bills one flat rate on every model. See web_search.py for the
-# tool spec and search_loop.py for the loop that runs it.
+# Web search is not a provider feature here — the gateway serves it as its own
+# Exa-backed endpoint (/v1/web_search, see web_search.py) that the client's tool
+# loop calls, billed at one flat per-search rate.

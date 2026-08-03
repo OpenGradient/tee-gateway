@@ -68,6 +68,15 @@ _ALLOWED_FETCH_SCHEMES = {"http", "https"}
 # Shared keyless client for fetching provider-hosted image URLs into the enclave.
 _image_fetch_client: Optional[httpx.Client] = None
 
+# Retry policy for the hosted-URL fetch. Some providers (notably Z.ai, whose
+# generations response points at mfile.z.ai) return the URL before the file is
+# visible on their CDN, so an immediate GET can 404 with "file not exist" even
+# though the image was generated — retrying shortly after succeeds. 404 covers
+# that visibility race; 5xx and transport errors are ordinary transient CDN
+# failures. Anything else (403, size-cap ValueError, …) fails fast.
+_FETCH_RETRY_STATUS_CODES = frozenset({404, 500, 502, 503, 504})
+_FETCH_RETRY_DELAYS_SECONDS = (1.0, 2.0, 4.0)
+
 # Cap on how much of a provider error body is copied into an exception message
 # (and from there into logs and the client-facing error payload).
 _MAX_ERROR_DETAIL_CHARS = 600
@@ -161,6 +170,10 @@ def _fetch_url_as_data_uri(url: str) -> str:
     identically to inline-byte ones: the bytes are pulled into the enclave and
     ride out inside the OHTTP/TEE envelope, so the client never sees a raw URL.
 
+    Retries 404s and transient failures per ``_FETCH_RETRY_STATUS_CODES`` — the
+    URL comes straight out of the provider's response, so a 404 means the CDN
+    hasn't caught up yet, not that the image doesn't exist.
+
     Hardened against egress abuse: http(s) only, non-public IP hosts rejected,
     redirects capped, and the body capped at ``_MAX_IMAGE_BYTES`` (streamed so an
     oversized response is aborted instead of buffered whole).
@@ -175,7 +188,23 @@ def _fetch_url_as_data_uri(url: str) -> str:
             max_redirects=_MAX_REDIRECTS,
         )
 
-    with _image_fetch_client.stream("GET", url) as resp:
+    for delay in _FETCH_RETRY_DELAYS_SECONDS:
+        try:
+            return _fetch_url_once(_image_fetch_client, url)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code not in _FETCH_RETRY_STATUS_CODES:
+                raise
+            reason: str = str(e)
+        except httpx.TransportError as e:
+            reason = str(e)
+        logger.warning("Image URL fetch failed, retrying in %.0fs: %s", delay, reason)
+        time.sleep(delay)
+    return _fetch_url_once(_image_fetch_client, url)  # last attempt: raise as-is
+
+
+def _fetch_url_once(client: httpx.Client, url: str) -> str:
+    """Single GET for ``_fetch_url_as_data_uri`` (see there for the contract)."""
+    with client.stream("GET", url) as resp:
         _raise_for_status_with_detail(resp)
         declared = resp.headers.get("content-length")
         if declared and declared.isdigit() and int(declared) > _MAX_IMAGE_BYTES:

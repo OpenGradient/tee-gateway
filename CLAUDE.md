@@ -124,12 +124,12 @@ Model name prefixes determine routing:
 - **Anthropic**: claude-sonnet-4-0/4-5/4-6, claude-sonnet-5, claude-haiku-4-5, claude-opus-4-5/4-6/4-7/4-8, claude-opus-5, claude-fable-5, claude-3-7-sonnet, claude-3-5-haiku
 - **Google**: gemini-3.6-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview, gemini-3.1-pro-preview, gemini-3.5-flash; image generation: gemini-2.5-flash-image, gemini-3.1-flash-image
 - **xAI**: grok-2, grok-3, grok-3-mini, grok-4, grok-4.3, grok-4.5, grok-4-fast, grok-4-1-fast; image generation: grok-2-image
-- **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro; image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5
+- **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro, glm-5.2 (Z.ai's model served via a ModelArk deployment endpoint); image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0
 - **Nous Research** (Nous Portal, OpenAI-compatible): hermes-4-405b, hermes-4-70b
-- **Z.ai** (Model API, OpenAI-compatible): glm-5.2; image generation: glm-image
+- **Z.ai** (Model API, OpenAI-compatible): image generation: glm-image (glm-5.2 chat is routed through BytePlus ModelArk, see ByteDance above)
 
 Image generation via OpenAI (gpt-image-2), xAI (grok-2-image), ByteDance
-(seedream-4.0, seedream-5.0-lite, seedance-4.5), and Z.ai (glm-image) is served
+(seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0), and Z.ai (glm-image) is served
 through a provider `/images/generations` endpoint rather than the chat path (see
 `image_generation.py`), but is surfaced on `/v1/chat/completions` exactly like
 Gemini's inline-image models (images returned out-of-band under the message

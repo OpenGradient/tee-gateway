@@ -445,6 +445,23 @@ class TestModelRegistry(unittest.TestCase):
             get_model_config("seedream-5.0-lite"),
         )
 
+    def test_seedance_5_0_resolves(self):
+        cfg = get_model_config("seedance-5.0")
+        self.assertEqual(cfg.provider, "bytedance")
+        self.assertEqual(cfg.api_name, "ep-20260803211347-hq9k8")
+        self.assertTrue(cfg.image_generation)
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.09"))
+
+    def test_seedance_5_0_aliases_resolve(self):
+        self.assertEqual(
+            get_model_config("seedance-5-0"),
+            get_model_config("seedance-5.0"),
+        )
+        self.assertEqual(
+            get_model_config("ep-20260803211347-hq9k8"),
+            get_model_config("seedance-5.0"),
+        )
+
     # ── Nous Research (Nous Portal) ─────────────────────────────────────────
 
     def test_hermes_4_405b_resolves(self):
@@ -464,11 +481,19 @@ class TestModelRegistry(unittest.TestCase):
     # ── Z.ai (Model API) ───────────────────────────────────────────────────
 
     def test_glm_5_2_resolves(self):
+        # GLM-5.2 is served via a BytePlus ModelArk deployment endpoint, not
+        # Z.ai's own API; pricing is unchanged.
         cfg = get_model_config("glm-5.2")
-        self.assertEqual(cfg.provider, "zai")
-        self.assertEqual(cfg.api_name, "glm-5.2")
+        self.assertEqual(cfg.provider, "bytedance")
+        self.assertEqual(cfg.api_name, "ep-20260803211658-fwpzs")
         self.assertEqual(cfg.input_price_usd, Decimal("0.0000014"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.0000044"))
+
+    def test_glm_5_2_ep_alias_resolves(self):
+        self.assertEqual(
+            get_model_config("ep-20260803211658-fwpzs"),
+            get_model_config("glm-5.2"),
+        )
 
     def test_glm_image_resolves(self):
         cfg = get_model_config("glm-image")

@@ -105,6 +105,15 @@ _BYTEDANCE_EP_IMAGE_PARAMS: dict[str, Any] = {
     "stream": False,
 }
 
+# Seedance 5.0's deployment endpoint rejects ``sequential_image_generation``
+# ("not supported by the current model" -> HTTP 400), so it takes the shared
+# params minus that field.
+_SEEDANCE_5_IMAGE_PARAMS: dict[str, Any] = {
+    "watermark": False,
+    "size": "2K",
+    "stream": False,
+}
+
 
 @unique
 class SupportedModel(Enum):
@@ -533,10 +542,11 @@ class SupportedModel(Enum):
         image_extra_params=_BYTEDANCE_EP_IMAGE_PARAMS,
     )
     # Seedance 5.0 image generation via a ModelArk deployment endpoint.
-    # Returns hosted URLs (fetched and inlined by the gateway) and takes the
-    # shared ep- deployment params. BytePlus bills it tiered by output size
-    # ($0.045/image at <=2.61MP, $0.09 above); the gateway pins size "2K"
-    # (~4.2MP), which always lands in the upper tier, so bill flat $0.09.
+    # Returns hosted URLs (fetched and inlined by the gateway). Unlike the
+    # other ep- models it rejects sequential_image_generation, so it takes its
+    # own param set. BytePlus bills it tiered by output size ($0.045/image at
+    # <=2.61MP, $0.09 above); the gateway pins size "2K" (~4.2MP), which
+    # always lands in the upper tier, so bill flat $0.09.
     SEEDANCE_5_0 = ModelConfig(
         provider="bytedance",
         api_name="ep-20260803211347-hq9k8",
@@ -547,7 +557,7 @@ class SupportedModel(Enum):
         image_response_format="url",
         image_send_n=False,
         image_supports_reference=True,
-        image_extra_params=_BYTEDANCE_EP_IMAGE_PARAMS,
+        image_extra_params=_SEEDANCE_5_IMAGE_PARAMS,
     )
 
     # ── Nous Research (Nous Portal, OpenAI-compatible) ──────────────────

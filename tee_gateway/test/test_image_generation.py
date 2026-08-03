@@ -185,6 +185,33 @@ class TestGenerateImages(unittest.TestCase):
         self.assertFalse(payload["stream"])
         self.assertNotIn("n", payload)
 
+    def test_seedance_5_omits_sequential_image_generation(self):
+        # The Seedance 5.0 deployment endpoint rejects sequential_image_generation
+        # with HTTP 400 ("not supported by the current model"), so its payload is
+        # the shared ep- shape minus that field.
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"url": "https://cdn/img.jpg"}])
+        with (
+            patch.object(llm_backend, "bytedance_http_client", client),
+            patch.object(
+                image_generation,
+                "_fetch_url_as_data_uri",
+                return_value="data:image/jpeg;base64,RkVUQ0hFRA==",
+            ),
+        ):
+            images, count = generate_images(SEEDANCE_5, "a black hole", n=1)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(images, ["data:image/jpeg;base64,RkVUQ0hFRA=="])
+        payload = client.post.call_args.kwargs["json"]
+        self.assertEqual(payload["model"], get_model_config(SEEDANCE_5).api_name)
+        self.assertEqual(payload["response_format"], "url")
+        self.assertNotIn("sequential_image_generation", payload)
+        self.assertFalse(payload["watermark"])
+        self.assertEqual(payload["size"], "2K")
+        self.assertFalse(payload["stream"])
+        self.assertNotIn("n", payload)
+
     def test_seedance_forwards_single_reference_image(self):
         client = MagicMock()
         client.post.return_value = _mock_response([{"url": "https://cdn/edited.jpg"}])

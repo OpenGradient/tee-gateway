@@ -27,6 +27,7 @@ GROK_IMAGE = "grok-2-image"
 SEEDREAM = "seedream-4.0"
 SEEDREAM_5_LITE = "seedream-5.0-lite"
 SEEDANCE = "seedance-4.5"
+SEEDANCE_5 = "seedance-5.0"
 GLM_IMAGE = "glm-image"
 GPT_IMAGE = "gpt-image-2"
 
@@ -714,7 +715,7 @@ class TestPerImageBilling(unittest.TestCase):
         return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     def test_single_image_charged_flat_price(self):
-        for model in (GROK_IMAGE, SEEDREAM, SEEDANCE, GLM_IMAGE, GPT_IMAGE):
+        for model in (GROK_IMAGE, SEEDREAM, SEEDANCE, SEEDANCE_5, GLM_IMAGE, GPT_IMAGE):
             with self.subTest(model=model):
                 cfg = get_model_config(model)
                 cost = compute_session_cost(model, self._zero_usage(), image_count=1)

@@ -532,6 +532,23 @@ class SupportedModel(Enum):
         image_supports_reference=True,
         image_extra_params=_BYTEDANCE_EP_IMAGE_PARAMS,
     )
+    # Seedance 5.0 image generation via a ModelArk deployment endpoint.
+    # Returns hosted URLs (fetched and inlined by the gateway) and takes the
+    # shared ep- deployment params. BytePlus bills it tiered by output size
+    # ($0.045/image at <=2.61MP, $0.09 above); the gateway pins size "2K"
+    # (~4.2MP), which always lands in the upper tier, so bill flat $0.09.
+    SEEDANCE_5_0 = ModelConfig(
+        provider="bytedance",
+        api_name="ep-20260803211347-hq9k8",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.09"),
+        image_response_format="url",
+        image_send_n=False,
+        image_supports_reference=True,
+        image_extra_params=_BYTEDANCE_EP_IMAGE_PARAMS,
+    )
 
     # ── Nous Research (Nous Portal, OpenAI-compatible) ──────────────────
     # Hermes 4 family, served via Nous's OpenAI-compatible inference API.
@@ -555,10 +572,12 @@ class SupportedModel(Enum):
     )
 
     # ── Z.ai (Model API, OpenAI-compatible) ─────────────────────────────
-    # Z.ai publishes GLM-5.2 prices per 1M tokens: $1.40 input, $4.40 output.
+    # GLM-5.2 is served via a BytePlus ModelArk deployment endpoint (api_name
+    # "ep-…") rather than Z.ai's own API — same model, same per-1M-token
+    # pricing ($1.40 input, $4.40 output), routed through the bytedance client.
     GLM_5_2 = ModelConfig(
-        provider="zai",
-        api_name="glm-5.2",
+        provider="bytedance",
+        api_name="ep-20260803211658-fwpzs",
         input_price_usd=Decimal("0.0000014"),
         output_price_usd=Decimal("0.0000044"),
     )
@@ -675,11 +694,15 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "ep-20260624042612-7dxcv": SupportedModel.SEEDANCE_4_5,
     "seedance-4.5": SupportedModel.SEEDANCE_4_5,
     "seedance-4-5": SupportedModel.SEEDANCE_4_5,
+    "ep-20260803211347-hq9k8": SupportedModel.SEEDANCE_5_0,
+    "seedance-5.0": SupportedModel.SEEDANCE_5_0,
+    "seedance-5-0": SupportedModel.SEEDANCE_5_0,
     # Nous Research
     "hermes-4-405b": SupportedModel.HERMES_4_405B,
     "hermes-4-70b": SupportedModel.HERMES_4_70B,
     # Z.ai
     "glm-5.2": SupportedModel.GLM_5_2,
+    "ep-20260803211658-fwpzs": SupportedModel.GLM_5_2,
     "glm-image": SupportedModel.GLM_IMAGE,
     # Legacy — not in current SDK, retained for older SDK versions
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias

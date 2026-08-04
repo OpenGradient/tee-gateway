@@ -49,7 +49,7 @@ PROVIDERS = (
     _ProviderCase("Anthropic", "claude-haiku-4-5", "ANTHROPIC_API_KEY"),
     _ProviderCase("Google", "gemini-3.5-flash-lite", "GOOGLE_API_KEY"),
     _ProviderCase("xAI", "grok-4-fast", "XAI_API_KEY"),
-    _ProviderCase("ByteDance", "deepseek-v4-flash", "BYTEDANCE_API_KEY"),
+    _ProviderCase("ByteDance", "deepseek-v4-flash", "ARK_API_KEY"),
     _ProviderCase("Nous", "hermes-4-70b", "NOUS_API_KEY"),
     _ProviderCase("Z.ai", "glm-5.2", "ZAI_API_KEY"),
 )
@@ -79,7 +79,7 @@ def _request(*, model: str, stream: bool) -> CreateChatCompletionRequest:
                 content="Reply with exactly: OK",
             )
         ],
-        max_tokens=16,
+        max_tokens=128,
         temperature=0,
         stream=stream,
     )
@@ -106,21 +106,21 @@ def _assert_cost_block(test: unittest.TestCase, response: dict) -> None:
 
 
 def _stream_events(response) -> list[dict]:
-    events: list[dict] = []
-    done_seen = False
+    payloads: list[str] = []
     for chunk in response.response:
         text = chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk
         for line in text.splitlines():
             if not line.startswith("data:"):
                 continue
             payload = line[len("data:") :].strip()
-            if payload == "[DONE]":
-                done_seen = True
-            elif payload:
-                events.append(json.loads(payload))
-    if not done_seen:
-        raise AssertionError("Streaming response did not emit [DONE]")
-    return events
+            if payload:
+                payloads.append(payload)
+
+    if not payloads or payloads[-1] != "[DONE]":
+        raise AssertionError("Streaming response must end with [DONE]")
+    if "[DONE]" in payloads[:-1]:
+        raise AssertionError("Streaming response emitted [DONE] before the end")
+    return [json.loads(payload) for payload in payloads[:-1]]
 
 
 class TestLiveProviderUsageBilling(unittest.TestCase):
@@ -132,7 +132,7 @@ class TestLiveProviderUsageBilling(unittest.TestCase):
                 anthropic_api_key=os.environ["ANTHROPIC_API_KEY"],
                 google_api_key=os.environ["GOOGLE_API_KEY"],
                 xai_api_key=os.environ["XAI_API_KEY"],
-                bytedance_api_key=os.environ["BYTEDANCE_API_KEY"],
+                bytedance_api_key=os.environ["ARK_API_KEY"],
                 nous_api_key=os.environ["NOUS_API_KEY"],
                 zai_api_key=os.environ["ZAI_API_KEY"],
             )
@@ -185,8 +185,21 @@ class TestLiveProviderUsageBilling(unittest.TestCase):
                     )
                     events = _stream_events(response)
 
+                self.assertGreaterEqual(len(events), 2, events)
+                content_events = [
+                    event
+                    for event in events[:-1]
+                    if event.get("choices", [{}])[0].get("delta", {}).get("content")
+                ]
+                self.assertTrue(content_events, events)
+                for event in events[:-1]:
+                    self.assertNotIn("usage", event)
+                    self.assertNotIn("opengradient", event)
+
                 final = events[-1]
                 self.assertNotIn("error", final)
+                self.assertIn("tee_signature", final)
+                self.assertIsNotNone(final["choices"][0]["finish_reason"])
                 _assert_cost_block(self, final)
 
                 billing_frame = ohttp_controller._build_billing_frame(final)

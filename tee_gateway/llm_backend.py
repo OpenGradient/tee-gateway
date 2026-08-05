@@ -161,6 +161,18 @@ def get_provider_from_model(model: str) -> str:
     return cfg.provider
 
 
+def non_streaming_invoke_kwargs(provider: str) -> Dict[str, Any]:
+    """Kwargs for ``model.invoke()`` when a true non-streaming call is needed.
+
+    Chat models are cached with ``streaming=True`` for the streaming endpoint,
+    so ``invoke()`` streams internally and LangChain merges the chunks. xAI
+    reports cumulative usage snapshots on every chunk, which that merge sums
+    into inflated token counts — force a real non-streaming request so the
+    provider returns one authoritative usage object.
+    """
+    return {"stream": False} if provider == "x-ai" else {}
+
+
 @lru_cache(maxsize=64)
 def get_chat_model_cached(
     model: str,

@@ -29,14 +29,14 @@ jobs:
   live-provider-usage:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     env:
       RUN_PROVIDER_INTEGRATION_TESTS: "1"
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
-      BYTEDANCE_API_KEY: ${{ secrets.BYTEDANCE_API_KEY }}
+      ARK_API_KEY: ${{ secrets.ARK_API_KEY }}
       NOUS_API_KEY: ${{ secrets.NOUS_API_KEY }}
       ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
     steps:
@@ -47,7 +47,7 @@ jobs:
         run: |
           for name in \
             OPENAI_API_KEY ANTHROPIC_API_KEY GOOGLE_API_KEY XAI_API_KEY \
-            BYTEDANCE_API_KEY NOUS_API_KEY ZAI_API_KEY
+            ARK_API_KEY NOUS_API_KEY ZAI_API_KEY
           do
             if [[ -z "${!name}" ]]; then
               echo "Missing required repository secret: $name" >&2

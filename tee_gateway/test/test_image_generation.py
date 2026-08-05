@@ -17,6 +17,8 @@ import unittest
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+import httpx
+
 from tee_gateway import image_generation, llm_backend
 from tee_gateway.image_generation import generate_images
 from tee_gateway.model_registry import get_model_config
@@ -41,22 +43,22 @@ def _mock_response(data: list[dict]) -> MagicMock:
 class TestGenerateImages(unittest.TestCase):
     """Request shaping and response parsing for the images endpoint."""
 
-    def test_b64_json_becomes_data_uri(self):
+    def test_xai_hosted_url_becomes_data_uri(self):
         client = MagicMock()
-        client.post.return_value = _mock_response(
-            [{"b64_json": "aGVsbG8="}, {"b64_json": "d29ybGQ="}]
-        )
-        with patch.object(llm_backend, "xai_http_client", client):
+        client.post.return_value = _mock_response([{"url": "https://x.ai/image.jpg"}])
+        with (
+            patch.object(llm_backend, "xai_http_client", client),
+            patch.object(
+                image_generation,
+                "_fetch_url_as_data_uri",
+                return_value="data:image/jpeg;base64,aGVsbG8=",
+            ) as fetch,
+        ):
             images, count = generate_images(GROK_IMAGE, "a red cube", n=2)
 
-        self.assertEqual(count, 2)
-        self.assertEqual(
-            images,
-            [
-                "data:image/jpeg;base64,aGVsbG8=",
-                "data:image/jpeg;base64,d29ybGQ=",
-            ],
-        )
+        self.assertEqual(count, 1)
+        self.assertEqual(images, ["data:image/jpeg;base64,aGVsbG8="])
+        fetch.assert_called_once_with("https://x.ai/image.jpg")
 
         # Verify the outgoing request shape.
         _, kwargs = client.post.call_args
@@ -64,7 +66,7 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(payload["model"], get_model_config(GROK_IMAGE).api_name)
         self.assertEqual(payload["prompt"], "a red cube")
         self.assertEqual(payload["n"], 2)
-        self.assertEqual(payload["response_format"], "b64_json")
+        self.assertEqual(payload["response_format"], "url")
 
     def test_hosted_url_is_fetched_and_inlined(self):
         # Providers that return a hosted URL instead of inline bytes are fetched
@@ -415,6 +417,13 @@ def _mock_stream_client(headers: dict, chunks: list[bytes]) -> MagicMock:
     return client
 
 
+def _mock_stream_context(response) -> MagicMock:
+    context = MagicMock()
+    context.__enter__.return_value = response
+    context.__exit__.return_value = False
+    return context
+
+
 class TestFetchUrlAsDataUri(unittest.TestCase):
     """The hosted-URL fetch that inlines provider images into the enclave."""
 
@@ -435,6 +444,61 @@ class TestFetchUrlAsDataUri(unittest.TestCase):
             uri = image_generation._fetch_url_as_data_uri("https://cdn/x")
 
         self.assertEqual(uri, "data:image/jpeg;base64,aGVsbG8=")
+
+    def test_retries_404_until_provider_image_is_available(self):
+        request = httpx.Request("GET", "https://cdn/x.png")
+        not_found = httpx.Response(
+            404,
+            json={"RetCode": -148654, "ErrMsg": "file not exist"},
+            request=request,
+        )
+        available = MagicMock()
+        available.raise_for_status.return_value = None
+        available.headers = {"content-type": "image/png"}
+        available.iter_bytes.return_value = [b"hello"]
+
+        client = MagicMock()
+        client.stream.side_effect = [
+            _mock_stream_context(not_found),
+            _mock_stream_context(available),
+        ]
+        with (
+            patch.object(image_generation, "_image_fetch_client", client),
+            patch.object(image_generation.time, "sleep") as sleep,
+        ):
+            uri = image_generation._fetch_url_as_data_uri("https://cdn/x.png")
+
+        self.assertEqual(uri, "data:image/png;base64,aGVsbG8=")
+        self.assertEqual(client.stream.call_count, 2)
+        sleep.assert_called_once_with(1.0)
+
+    def test_persistent_404_stops_after_bounded_retries(self):
+        request = httpx.Request("GET", "https://cdn/x.png")
+        responses = [
+            httpx.Response(
+                404,
+                json={"RetCode": -148654, "ErrMsg": "file not exist"},
+                request=request,
+            )
+            for _ in range(5)
+        ]
+        client = MagicMock()
+        client.stream.side_effect = [
+            _mock_stream_context(response) for response in responses
+        ]
+        with (
+            patch.object(image_generation, "_image_fetch_client", client),
+            patch.object(image_generation.time, "sleep") as sleep,
+        ):
+            with self.assertRaises(httpx.HTTPStatusError) as ctx:
+                image_generation._fetch_url_as_data_uri("https://cdn/x.png")
+
+        self.assertIn("file not exist", str(ctx.exception))
+        self.assertEqual(client.stream.call_count, 5)
+        self.assertEqual(
+            [call.args[0] for call in sleep.call_args_list],
+            [1.0, 2.0, 4.0, 8.0],
+        )
 
     def test_rejects_non_http_scheme(self):
         # Validation happens before any client use, so no client is needed.

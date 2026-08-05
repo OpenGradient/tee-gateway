@@ -13,7 +13,9 @@ from tee_gateway.models.create_completion_request import CreateCompletionRequest
 from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
 from tee_gateway.llm_backend import (
     get_chat_model_cached,
+    get_provider_from_model,
     extract_usage,
+    non_streaming_invoke_kwargs,
 )
 from tee_gateway.pricing import compute_session_cost
 
@@ -58,7 +60,8 @@ def create_completion(body):
         )
 
         messages = [HumanMessage(content=body.prompt)]
-        response = model.invoke(messages)
+        provider = get_provider_from_model(body.model)
+        response = model.invoke(messages, **non_streaming_invoke_kwargs(provider))
 
         # Some providers can return content as a list of blocks; flatten to the
         # text the caller expects.

@@ -7,6 +7,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   unit-tests:
@@ -24,3 +25,37 @@ jobs:
         # To also run integration tests (real CoinGecko network calls), add:
         # env:
         #   RUN_INTEGRATION_TESTS: "1"
+
+  live-provider-usage:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      RUN_PROVIDER_INTEGRATION_TESTS: "1"
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+      ARK_API_KEY: ${{ secrets.ARK_API_KEY }}
+      NOUS_API_KEY: ${{ secrets.NOUS_API_KEY }}
+      ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Check provider API keys
+        shell: bash
+        run: |
+          for name in \
+            OPENAI_API_KEY ANTHROPIC_API_KEY GOOGLE_API_KEY XAI_API_KEY \
+            ARK_API_KEY NOUS_API_KEY ZAI_API_KEY
+          do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required repository secret: $name" >&2
+              exit 1
+            fi
+          done
+      - name: Run live provider usage tests
+        run: >-
+          uv run --group test pytest
+          tee_gateway/test/test_provider_usage_integration.py
+          -v --import-mode=importlib

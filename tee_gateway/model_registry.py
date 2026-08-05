@@ -448,15 +448,18 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000002"),
         output_price_usd=Decimal("0.0000015"),
     )
-    # Image generation via xAI's OpenAI-compatible /images/generations endpoint
-    # (Aurora). Billed at a flat $0.07 per generated image; token prices unused.
+    # Image generation via xAI's OpenAI-compatible /images/generations endpoint.
+    # grok-2-image-1212 was retired in February 2026; grok-imagine-image is its
+    # current replacement and returns hosted URLs that the gateway fetches and
+    # inlines. Billed at a flat $0.02 per generated image; token prices unused.
     GROK_2_IMAGE = ModelConfig(
         provider="x-ai",
-        api_name="grok-2-image-1212",
+        api_name="grok-imagine-image",
         input_price_usd=Decimal("0"),
         output_price_usd=Decimal("0"),
         image_generation=True,
-        per_image_price_usd=Decimal("0.07"),
+        per_image_price_usd=Decimal("0.02"),
+        image_response_format="url",
     )
 
     # ── ByteDance (BytePlus ModelArk, OpenAI-compatible) ────────────────
@@ -683,6 +686,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "grok-2-image": SupportedModel.GROK_2_IMAGE,
     "grok-2-image-1212": SupportedModel.GROK_2_IMAGE,
     "grok-2-image-latest": SupportedModel.GROK_2_IMAGE,
+    "grok-imagine-image": SupportedModel.GROK_2_IMAGE,
+    "grok-imagine-image-2026-03-02": SupportedModel.GROK_2_IMAGE,
     # ByteDance
     "seed-1-6-250615": SupportedModel.SEED_1_6,
     "seed-1.6": SupportedModel.SEED_1_6,

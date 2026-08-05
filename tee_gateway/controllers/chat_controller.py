@@ -29,6 +29,7 @@ from tee_gateway.llm_backend import (
     get_chat_model_cached,
     convert_messages,
     extract_usage,
+    non_streaming_invoke_kwargs,
     validate_attachments,
     AttachmentValidationError,
     canonical_user_content,
@@ -287,11 +288,9 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         if rf_dict and provider == "anthropic":
             response = _invoke_anthropic_structured(model, rf_dict, langchain_messages)
         else:
-            # ChatXAI is cached with streaming enabled for the streaming
-            # endpoint. Disable it here so stream=false gets one complete
-            # provider response with its authoritative usage object.
-            invoke_kwargs = {"stream": False} if provider == "x-ai" else {}
-            response = model.invoke(langchain_messages, **invoke_kwargs)
+            response = model.invoke(
+                langchain_messages, **non_streaming_invoke_kwargs(provider)
+            )
 
         # Normalize content (Gemini may return a list of content parts, and
         # image-generation models return image blocks alongside any text).
@@ -567,19 +566,10 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     yield f"data: {json.dumps(data)}\n\n"
                     chunks_iter = []
                 else:
-                    # xAI Chat Completions requires include_usage for the
-                    # terminal billing event. Its Responses API (used for web
-                    # search) includes terminal usage automatically and does
-                    # not accept the LangChain-only stream_usage argument.
-                    stream_kwargs = (
-                        {"stream_usage": True}
-                        if provider == "x-ai" and not chat_request.web_search
-                        else {}
-                    )
-                    chunks_iter = model.stream(  # type: ignore[assignment]
-                        langchain_messages,
-                        **stream_kwargs,
-                    )
+                    # Terminal usage needs no per-call opt-in: every provider
+                    # is constructed with stream_usage=True (see
+                    # get_chat_model_cached).
+                    chunks_iter = model.stream(langchain_messages)  # type: ignore[assignment]
 
                 for chunk in chunks_iter:
                     # --- Text content ---

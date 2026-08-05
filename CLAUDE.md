@@ -12,6 +12,7 @@ The repo must provide a stable AWS Nitro PCR when the code doesn't change in ord
 │   ├── llm_backend.py       # LLM provider routing via LangChain, HTTP client management
 │   ├── image_generation.py  # Endpoint-based image gen (/images/generations): request shaping, URL→inline-bytes, signed responses
 │   ├── tee_manager.py       # TEE key generation, nitriding registration, response signing
+│   ├── web_search.py        # In-enclave web search: Exa client, execution, result formatting
 │   ├── model_registry.py    # Model config and per-token pricing
 │   ├── definitions.py       # On-chain addresses, network IDs, payment amounts
 │   ├── facilitator_api.py   # x402 facilitator API client
@@ -69,6 +70,9 @@ API keys (injected at runtime via POST /v1/keys — do NOT bake into the image):
 - `ARK_API_KEY` (BytePlus / ByteDance ModelArk; injected as `bytedance_api_key`)
 - `NOUS_API_KEY` (Nous Research / Nous Portal; injected as `nous_api_key`)
 - `ZAI_API_KEY` (Z.ai Model API; injected as `zai_api_key`)
+- `EXA_API_KEY` (Exa search; injected as `exa_api_key`) — backs the in-enclave
+  `/v1/web_search` endpoint, not an LLM provider. Without it the endpoint
+  returns 503 and `/health` reports `web_search_enabled: false`.
 
 Server configuration:
 - `API_SERVER_PORT` (default: 8000)
@@ -92,18 +96,20 @@ Server configuration:
 - **`llm_backend.py`**: LangChain model instantiation, HTTP client management, provider routing from model name
 - **`model_registry.py`**: Maps model names to providers and per-token USD pricing (used by dynamic cost calculator)
 - **`definitions.py`**: On-chain constants (addresses, network IDs, payment amounts) — configure here for your deployment
+- **`web_search.py`**: Exa HTTP client, search execution, and result formatting/citation extraction (serves `/v1/web_search`)
 - **`util.py`**: `dynamic_session_cost_calculator` converts actual token usage to x402 payment amounts
 
 ### API Endpoints
 
 | Endpoint | Purpose |
 |----------|---------|
-| `/health` | Health check (status, version, tee_enabled) |
+| `/health` | Health check (status, version, tee_enabled, web_search_enabled) |
 | `/signing-key` | TEE public key (PEM) and tee_id |
 | `/enclave/attestation` | Nitro attestation document (served by nitriding) |
 | `/v1/keys` | One-time API key injection (POST, loopback-only) |
 | `/v1/completions` | Text completion (signed) |
 | `/v1/chat/completions` | Chat completion with tool support (signed) |
+| `/v1/web_search` | In-enclave Exa web search (signed, flat per-search price) |
 
 ### TEE Integration
 
@@ -118,12 +124,12 @@ Model name prefixes determine routing:
 - **Anthropic**: claude-sonnet-4-0/4-5/4-6, claude-sonnet-5, claude-haiku-4-5, claude-opus-4-5/4-6/4-7/4-8, claude-opus-5, claude-fable-5, claude-3-7-sonnet, claude-3-5-haiku
 - **Google**: gemini-3.6-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview, gemini-3.1-pro-preview, gemini-3.5-flash; image generation: gemini-2.5-flash-image, gemini-3.1-flash-image
 - **xAI**: grok-2, grok-3, grok-3-mini, grok-4, grok-4.3, grok-4.5, grok-4-fast, grok-4-1-fast; image generation: grok-2-image
-- **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro; image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5
+- **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro, glm-5.2 (Z.ai's model served via a ModelArk deployment endpoint); image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0
 - **Nous Research** (Nous Portal, OpenAI-compatible): hermes-4-405b, hermes-4-70b
-- **Z.ai** (Model API, OpenAI-compatible): glm-5.2; image generation: glm-image
+- **Z.ai** (Model API, OpenAI-compatible): image generation: glm-image (glm-5.2 chat is routed through BytePlus ModelArk, see ByteDance above)
 
 Image generation via OpenAI (gpt-image-2), xAI (grok-2-image), ByteDance
-(seedream-4.0, seedream-5.0-lite, seedance-4.5), and Z.ai (glm-image) is served
+(seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0), and Z.ai (glm-image) is served
 through a provider `/images/generations` endpoint rather than the chat path (see
 `image_generation.py`), but is surfaced on `/v1/chat/completions` exactly like
 Gemini's inline-image models (images returned out-of-band under the message
@@ -143,6 +149,38 @@ skipped rather than dereferenced in the enclave). Per-provider request quirks
 (response format, `n`, size/watermark, reference support, edit endpoint) live in
 `model_registry.py`. These models are billed a flat per-image
 price (see `per_image_price_usd`), not per token.
+
+### Web Search
+
+Web search is a dedicated endpoint — `POST /v1/web_search` — not a chat feature.
+It does NOT use any provider's native web search (OpenAI/Anthropic/Google/xAI
+all have one; those were removed), and the gateway runs no tool loop of its own:
+the client advertises a `web_search` function tool to its model, calls this
+endpoint when the model invokes it, and feeds the returned `content` back as the
+tool result. The search runs inside the enclave against Exa (`web_search.py`),
+so a query rides the same encrypted OHTTP channel as chat and is never visible
+to the relay or the gateway operator. Points to keep in mind:
+
+- **The chat/completions `web_search` request flag is a deprecated no-op.** It
+  is still accepted (and still part of the signed request hash when sent) so
+  old clients' requests parse and verify, but it binds nothing and bills
+  nothing.
+- **Every text model can search** — the tool lives in the client, so this is
+  purely a question of function calling, not of provider search support.
+- **Request/response**: `{"query", "num_results"?, "recency_days"?}` in;
+  `content` (model-ready numbered results), `citations` (structured sources),
+  and the standard `tee_*` signing fields out. The request hash covers the
+  canonical (sorted-keys) JSON body; the output hash covers `content`.
+- **Reachable through OHTTP**: the inner payload's `endpoint` field
+  (`"web_search"`) routes the sealed request; absent means chat, so existing
+  OHTTP clients are unaffected. Billing flows through the same outer
+  cost-header / billing-frame channel the relay already consumes.
+- **Billing is one flat rate** (`WEB_SEARCH_PRICE_USD`) per search that reached
+  Exa, settled from the response's `opengradient` block like every paid
+  endpoint. Validation failures (400/503) and Exa failures (502) return no cost
+  block and are never settled. A search that ran but matched nothing IS billed.
+- Exa's self-reported `costDollars` is logged for margin reconciliation only;
+  settlement never depends on it.
 
 ## Verification Examples
 

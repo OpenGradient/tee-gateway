@@ -22,11 +22,13 @@ from tee_gateway.config import (
     DEFAULT_HEARTBEAT_INTERVAL,
 )
 from tee_gateway.llm_backend import get_provider_config, set_provider_config
+from tee_gateway.web_search import web_search_available
 from tee_gateway.heartbeat import create_heartbeat_service
 from tee_gateway.controllers.ohttp_controller import (
     create_anonymous_chat_completion,
     get_hpke_config,
 )
+from tee_gateway.controllers.web_search_controller import create_web_search
 
 from x402.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
 from x402.http.middleware.flask import payment_middleware
@@ -51,6 +53,7 @@ from .definitions import (
     COMPLETIONS_OPG_SESSION_MAX_SPEND,
     FACILITATOR_URL,
     OHTTP_OPG_SESSION_MAX_SPEND,
+    WEB_SEARCH_OPG_SESSION_MAX_SPEND,
 )
 
 # ---------------------------------------------------------------------------
@@ -321,6 +324,29 @@ def _init_payment_middleware(facilitator_url: str) -> None:
             mime_type="application/json",
             description="Completion",
         ),
+        "POST /v1/web_search": RouteConfig(
+            accepts=[
+                PaymentOption(
+                    scheme="upto",
+                    pay_to=EVM_PAYMENT_ADDRESS,
+                    price=AssetAmount(
+                        amount=WEB_SEARCH_OPG_SESSION_MAX_SPEND,
+                        asset=BASE_MAINNET_OPG_ADDRESS,
+                        extra={
+                            "name": "OpenGradient",
+                            "version": "1",
+                            "assetTransferMethod": "permit2",
+                        },
+                    ),
+                    network=BASE_MAINNET_NETWORK,
+                ),
+            ],
+            extensions={
+                **declare_erc20_approval_gas_sponsoring_extension(),
+            },
+            mime_type="application/json",
+            description="Web search",
+        ),
         "POST /v1/ohttp": RouteConfig(
             accepts=[
                 PaymentOption(
@@ -395,6 +421,7 @@ def set_provider_keys():
             bytedance_api_key=body.get("bytedance_api_key") or None,
             nous_api_key=body.get("nous_api_key") or None,
             zai_api_key=body.get("zai_api_key") or None,
+            exa_api_key=body.get("exa_api_key") or None,
         )
         set_provider_config(provider_config)
 
@@ -460,6 +487,9 @@ def set_provider_keys():
         logger.info(
             "  zai_api_key                 : %s", _set(provider_config.zai_api_key)
         )
+        logger.info(
+            "  exa_api_key (web search)    : %s", _set(provider_config.exa_api_key)
+        )
         logger.info("  facilitator_url             : %s", facilitator_url)
         logger.info(
             "  heartbeat_contract_address  : %s",
@@ -503,6 +533,7 @@ def set_provider_keys():
             "status": "ok",
             "providers_initialized": providers_set,
             "heartbeat_enabled": heartbeat_config is not None,
+            "web_search_enabled": bool(provider_config.exa_api_key),
         }
     ), 200
 
@@ -517,6 +548,10 @@ def health():
         "tee_enabled": True,
         "uptime_seconds": int(time.time() - _started_at),
         "providers": providers,
+        # Whether /v1/web_search can serve searches (an Exa key was injected).
+        # Not a provider capability — the search endpoint has no model — so it
+        # is reported separately from `providers`.
+        "web_search_enabled": web_search_available(),
         "facilitator_url": _active_facilitator_url,
         "price_feed": _price_feed.get_status(),
     }, 200
@@ -567,6 +602,13 @@ def create_app():
         "/v1/ohttp/config", "ohttp-config", get_hpke_config, methods=["GET"]
     )
 
+    # Dedicated in-enclave web search (Exa). Mounted outside the OpenAI spec
+    # like the other gateway-specific endpoints; the client's tool loop calls
+    # it when its model asks to search (see web_search_controller.py).
+    app.app.add_url_rule(
+        "/v1/web_search", "web-search", create_web_search, methods=["POST"]
+    )
+
     # Initialize TEE here so it runs under both Gunicorn and direct execution.
     # This is the single TEEKeyManager instance — the same key both registers
     # with nitriding and signs all LLM responses.
@@ -600,7 +642,12 @@ application = create_app()
 
 @application.before_request
 def _check_pricing_ready():
-    if request.path not in ("/v1/chat/completions", "/v1/completions", "/v1/ohttp"):
+    if request.path not in (
+        "/v1/chat/completions",
+        "/v1/completions",
+        "/v1/ohttp",
+        "/v1/web_search",
+    ):
         return
     try:
         _price_feed.get_price()
@@ -608,7 +655,8 @@ def _check_pricing_ready():
         logger.warning("Rejecting inference request — price feed unavailable: %s", exc)
         return jsonify({"error": f"Pricing unavailable: {exc}"}), 503
 
-    if request.path == "/v1/ohttp":
+    # OHTTP carries its model inside the ciphertext; web search has no model.
+    if request.path in ("/v1/ohttp", "/v1/web_search"):
         return
 
     body = request.get_json(silent=True, cache=True) or {}

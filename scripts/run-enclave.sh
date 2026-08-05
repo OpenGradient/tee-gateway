@@ -92,6 +92,8 @@ if [ -f "$ENV_FILE" ]; then
         ARK_API_KEY="$(grep -E '^ARK_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         NOUS_API_KEY="$(grep -E '^NOUS_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         ZAI_API_KEY="$(grep -E '^ZAI_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
+        # Backs the in-enclave `web_search` tool (Exa), not an LLM provider.
+        EXA_API_KEY="$(grep -E '^EXA_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
 
         # FACILITATOR_URL is used for both x402 payment verification and the heartbeat relay.
         # HEARTBEAT_CONTRACT_ADDRESS and TEE_HEARTBEAT_INTERVAL are optional heartbeat parameters.
@@ -110,6 +112,7 @@ if [ -f "$ENV_FILE" ]; then
             --arg bytedance "$ARK_API_KEY" \
             --arg nous "$NOUS_API_KEY" \
             --arg zai "$ZAI_API_KEY" \
+            --arg exa "$EXA_API_KEY" \
             --arg hb_contract "$HEARTBEAT_CONTRACT_ADDRESS" \
             --arg facilitator "$FACILITATOR_URL" \
             --arg hb_interval "$TEE_HEARTBEAT_INTERVAL" \
@@ -120,7 +123,8 @@ if [ -f "$ENV_FILE" ]; then
                 xai_api_key: $xai,
                 bytedance_api_key: $bytedance,
                 nous_api_key: $nous,
-                zai_api_key: $zai
+                zai_api_key: $zai,
+                exa_api_key: $exa
             }
             + if $hb_contract != "" then {heartbeat_contract_address: $hb_contract} else {} end
             + if $facilitator != "" then {facilitator_url: $facilitator} else {} end
@@ -151,7 +155,7 @@ if [ -f "$ENV_FILE" ]; then
 
         # Clear key variables from this shell immediately after use
         unset OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY XAI_API_KEY ARK_API_KEY
-        unset NOUS_API_KEY ZAI_API_KEY
+        unset NOUS_API_KEY ZAI_API_KEY EXA_API_KEY
         unset HEARTBEAT_CONTRACT_ADDRESS FACILITATOR_URL TEE_HEARTBEAT_INTERVAL
     fi
 else

@@ -68,10 +68,6 @@ class ModelConfig:
     # ``output_tokens`` count and only breaks out thinking (``reasoning``), so the
     # billing splits reasoning at ``output_price_usd`` and the remainder here.
     image_output_price_usd: Optional[Decimal] = None
-    # Per-search USD surcharge billed when native web search is used. ``None``
-    # means "use the provider default" (see WEB_SEARCH_PRICE_USD_BY_PROVIDER);
-    # set an explicit value here to override a single model's web-search price.
-    web_search_price_usd: Optional[Decimal] = None
     # OpenAI's newest reasoning models (the gpt-5.6 family) apply a default
     # ``reasoning_effort`` that the Chat Completions endpoint rejects when
     # function tools are also present ("Function tools with reasoning_effort are
@@ -83,20 +79,20 @@ class ModelConfig:
     responses_api_for_tools: bool = False
 
 
-# Default per-search USD price charged when a model uses native web search.
-# The billable "unit" differs per provider (see extract_web_search_count in
-# llm_backend.py) and these mirror each provider's public list price:
-#   - OpenAI:    per web_search tool call          (~$10 / 1k calls)
-#   - Anthropic: per web_search request            ($10 / 1k searches)
-#   - xAI:       per web_search tool call / source ($25 / 1k units)
-#   - Google:    per grounded request               ($35 / 1k requests)
-# Providers without native web search are omitted (charged nothing).
-WEB_SEARCH_PRICE_USD_BY_PROVIDER: dict[str, Decimal] = {
-    "openai": Decimal("0.01"),
-    "anthropic": Decimal("0.01"),
-    "x-ai": Decimal("0.025"),
-    "google": Decimal("0.035"),
-}
+# Flat USD price per call to the /v1/web_search endpoint.
+#
+# The gateway runs searches against Exa (see web_search.py), so there is one
+# cost to pass through, independent of any model. At our request shape — one
+# Exa search plus page text for up to `MAX_NUM_RESULTS` results — Exa charges
+# $7/1k requests and $1/1k pages per content type, i.e. ~$0.013 for a 6-result
+# search. This rate covers that with a small margin, and is below what three of
+# the four native provider searches used to cost (xAI $0.025/unit, Google
+# $0.035/request).
+#
+# The billable unit is "one search that reached Exa": a request that fails
+# validation or errors out at Exa returns without a cost block and is not
+# settled (see WebSearchOutcome.billable).
+WEB_SEARCH_PRICE_USD: Decimal = Decimal("0.015")
 
 # ByteDance ModelArk image *deployment* endpoints (api_name "ep-…", e.g. Seedance
 # 4.5, Seedream 5.0 Lite) return the URL response format and require these extra
@@ -104,6 +100,15 @@ WEB_SEARCH_PRICE_USD_BY_PROVIDER: dict[str, Decimal] = {
 # client still receives inline bytes. Shared so the two ep- models stay in sync.
 _BYTEDANCE_EP_IMAGE_PARAMS: dict[str, Any] = {
     "sequential_image_generation": "disabled",
+    "watermark": False,
+    "size": "2K",
+    "stream": False,
+}
+
+# Seedance 5.0's deployment endpoint rejects ``sequential_image_generation``
+# ("not supported by the current model" -> HTTP 400), so it takes the shared
+# params minus that field.
+_SEEDANCE_5_IMAGE_PARAMS: dict[str, Any] = {
     "watermark": False,
     "size": "2K",
     "stream": False,
@@ -539,6 +544,24 @@ class SupportedModel(Enum):
         image_supports_reference=True,
         image_extra_params=_BYTEDANCE_EP_IMAGE_PARAMS,
     )
+    # Seedance 5.0 image generation via a ModelArk deployment endpoint.
+    # Returns hosted URLs (fetched and inlined by the gateway). Unlike the
+    # other ep- models it rejects sequential_image_generation, so it takes its
+    # own param set. BytePlus bills it tiered by output size ($0.045/image at
+    # <=2.61MP, $0.09 above); the gateway pins size "2K" (~4.2MP), which
+    # always lands in the upper tier, so bill flat $0.09.
+    SEEDANCE_5_0 = ModelConfig(
+        provider="bytedance",
+        api_name="ep-20260803211347-hq9k8",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.09"),
+        image_response_format="url",
+        image_send_n=False,
+        image_supports_reference=True,
+        image_extra_params=_SEEDANCE_5_IMAGE_PARAMS,
+    )
 
     # ── Nous Research (Nous Portal, OpenAI-compatible) ──────────────────
     # Hermes 4 family, served via Nous's OpenAI-compatible inference API.
@@ -562,10 +585,12 @@ class SupportedModel(Enum):
     )
 
     # ── Z.ai (Model API, OpenAI-compatible) ─────────────────────────────
-    # Z.ai publishes GLM-5.2 prices per 1M tokens: $1.40 input, $4.40 output.
+    # GLM-5.2 is served via a BytePlus ModelArk deployment endpoint (api_name
+    # "ep-…") rather than Z.ai's own API — same model, same per-1M-token
+    # pricing ($1.40 input, $4.40 output), routed through the bytedance client.
     GLM_5_2 = ModelConfig(
-        provider="zai",
-        api_name="glm-5.2",
+        provider="bytedance",
+        api_name="ep-20260803211658-fwpzs",
         input_price_usd=Decimal("0.0000014"),
         output_price_usd=Decimal("0.0000044"),
     )
@@ -684,11 +709,15 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "ep-20260624042612-7dxcv": SupportedModel.SEEDANCE_4_5,
     "seedance-4.5": SupportedModel.SEEDANCE_4_5,
     "seedance-4-5": SupportedModel.SEEDANCE_4_5,
+    "ep-20260803211347-hq9k8": SupportedModel.SEEDANCE_5_0,
+    "seedance-5.0": SupportedModel.SEEDANCE_5_0,
+    "seedance-5-0": SupportedModel.SEEDANCE_5_0,
     # Nous Research
     "hermes-4-405b": SupportedModel.HERMES_4_405B,
     "hermes-4-70b": SupportedModel.HERMES_4_70B,
     # Z.ai
     "glm-5.2": SupportedModel.GLM_5_2,
+    "ep-20260803211658-fwpzs": SupportedModel.GLM_5_2,
     "glm-image": SupportedModel.GLM_IMAGE,
     # Legacy — not in current SDK, retained for older SDK versions
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
@@ -723,21 +752,3 @@ def get_rate_card(model: str) -> dict[str, Decimal]:
     """Return {"input": ..., "output": ...} pricing for a model. Raises on unknown."""
     cfg = get_model_config(model)
     return {"input": cfg.input_price_usd, "output": cfg.output_price_usd}
-
-
-def get_web_search_price_usd(model: str) -> Decimal:
-    """Return the per-search USD surcharge for a model's native web search.
-
-    Falls back to the provider default when the model does not override it, and
-    to ``Decimal("0")`` for providers with no native web search support. Raises
-    ValueError if the model is unknown.
-    """
-    cfg = get_model_config(model)
-    if cfg.web_search_price_usd is not None:
-        return cfg.web_search_price_usd
-    return WEB_SEARCH_PRICE_USD_BY_PROVIDER.get(cfg.provider, Decimal("0"))
-
-
-def provider_supports_web_search(provider: str) -> bool:
-    """Whether the given provider has native web search the gateway can enable."""
-    return provider in WEB_SEARCH_PRICE_USD_BY_PROVIDER

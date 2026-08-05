@@ -1,196 +1,334 @@
 """
-Unit tests for native web search support across providers.
+Unit tests for the dedicated in-enclave web search endpoint (Exa).
 
 Covers:
-  - model_registry: per-search pricing lookup and provider support predicate
-  - llm_backend.get_web_search_tool: provider-specific tool specs
-  - llm_backend.extract_web_search_count: counting billable search units from
-    each provider's response shape
-  - pricing.compute_session_cost: per-search surcharge added to token cost
-  - chat_controller: web_search flag binds the tool and bills the searches
+  - web_search: argument coercion, Exa request shaping, result formatting, and
+    every failure mode of the Exa call
+  - pricing: the flat per-search cost (compute_web_search_cost) and that chat
+    token pricing no longer carries a search surcharge
+  - web_search_controller: request validation, signed response shape, the
+    opengradient cost block, and the unbilled failure paths
+  - ohttp_controller: the inner `endpoint` discriminator routes a sealed
+    request to /v1/web_search (and defaults to chat for existing clients)
 """
 
+import json
 import unittest
 from decimal import Decimal
-from types import SimpleNamespace
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
 
-from langchain_core.messages import AIMessage
+from flask import Flask
 
-from tee_gateway.model_registry import (
-    get_web_search_price_usd,
-    provider_supports_web_search,
-)
-from tee_gateway.llm_backend import (
-    get_web_search_tool,
-    extract_web_search_count,
-)
-from tee_gateway.pricing import SessionCost, compute_session_cost
-from tee_gateway.controllers.chat_controller import create_chat_completion
+from tee_gateway import web_search as ws
+from tee_gateway.controllers import ohttp_controller
+from tee_gateway.controllers.web_search_controller import create_web_search
+from tee_gateway.model_registry import WEB_SEARCH_PRICE_USD
+from tee_gateway.pricing import compute_session_cost, compute_web_search_cost
 
 
 # ---------------------------------------------------------------------------
-# model_registry pricing
+# Exa test doubles
 # ---------------------------------------------------------------------------
+
+
+def _exa_result(url: str, title: str = "A title", text: str = "Some body text"):
+    return {
+        "title": title,
+        "url": url,
+        "publishedDate": "2026-03-04T10:00:00.000Z",
+        "author": "An author",
+        "id": url,
+        "text": text,
+    }
+
+
+def _exa_response(status: int = 200, body: dict | None = None):
+    """A stand-in for httpx.Response carrying just what the code reads."""
+    response = Mock()
+    response.status_code = status
+    response.json.return_value = body if body is not None else {}
+    response.text = json.dumps(body) if body is not None else ""
+    response.reason_phrase = "OK" if status == 200 else "Error"
+    return response
+
+
+class _ExaClient:
+    """Records the payloads posted to /search and replays queued responses."""
+
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.payloads: list[dict] = []
+
+    def post(self, path, json=None):  # noqa: A002 - matches httpx.Client.post
+        self.payloads.append(json)
+        return self.responses.pop(0) if self.responses else _exa_response(200, {})
+
+
+def _with_exa(*responses):
+    """Patch in a fake Exa client, returning it so payloads can be asserted."""
+    client = _ExaClient(responses)
+    return patch.object(ws, "_exa_http_client", client), client
+
+
+# ---------------------------------------------------------------------------
+# Availability
+# ---------------------------------------------------------------------------
+
+
+class TestAvailability(unittest.TestCase):
+    def test_availability_tracks_the_injected_key(self):
+        ws.configure_exa_client("test-key")
+        try:
+            self.assertTrue(ws.web_search_available())
+        finally:
+            ws.configure_exa_client(None)
+        self.assertFalse(ws.web_search_available())
+
+
+# ---------------------------------------------------------------------------
+# Argument coercion
+# ---------------------------------------------------------------------------
+
+
+class TestArgumentCoercion(unittest.TestCase):
+    def test_missing_or_blank_query_is_an_unbilled_error(self):
+        for args in ({}, {"query": ""}, {"query": "   "}, {"query": 42}):
+            outcome = ws.execute_web_search_call(args)
+            self.assertTrue(outcome.is_error, args)
+            self.assertFalse(outcome.billable, args)
+            self.assertIn("query", outcome.content)
+
+    def test_num_results_is_clamped_and_coerced(self):
+        patcher, client = _with_exa(
+            _exa_response(200, {"results": []}),
+            _exa_response(200, {"results": []}),
+            _exa_response(200, {"results": []}),
+        )
+        with patcher:
+            ws.execute_web_search_call({"query": "q", "num_results": 99})
+            ws.execute_web_search_call({"query": "q", "num_results": "3"})
+            ws.execute_web_search_call({"query": "q", "num_results": "junk"})
+        self.assertEqual(
+            [p["numResults"] for p in client.payloads],
+            [ws.MAX_NUM_RESULTS, 3, ws.DEFAULT_NUM_RESULTS],
+        )
+
+    def test_recency_days_maps_to_a_published_date_floor(self):
+        patcher, client = _with_exa(_exa_response(200, {"results": []}))
+        with patcher:
+            ws.execute_web_search_call({"query": "q", "recency_days": 7})
+        self.assertIn("startPublishedDate", client.payloads[0])
+
+    def test_recency_days_omitted_by_default(self):
+        patcher, client = _with_exa(_exa_response(200, {"results": []}))
+        with patcher:
+            ws.execute_web_search_call({"query": "q"})
+        self.assertNotIn("startPublishedDate", client.payloads[0])
+
+
+# ---------------------------------------------------------------------------
+# Exa request shaping
+# ---------------------------------------------------------------------------
+
+
+class TestExaRequestShaping(unittest.TestCase):
+    def test_request_asks_for_text_only_with_char_cap(self):
+        """`highlights`/`summary` are each billed as another content type."""
+        patcher, client = _with_exa(_exa_response(200, {"results": []}))
+        with patcher:
+            ws.run_web_search("anything")
+        payload = client.payloads[0]
+        self.assertEqual(
+            payload["contents"], {"text": {"maxCharacters": ws.MAX_RESULT_CHARS}}
+        )
+        self.assertEqual(payload["type"], ws.EXA_SEARCH_TYPE)
+
+    def test_reported_cost_is_captured_but_not_authoritative(self):
+        patcher, _ = _with_exa(
+            _exa_response(
+                200,
+                {
+                    "results": [_exa_result("https://a.com")],
+                    "costDollars": {"total": 0.012},
+                },
+            )
+        )
+        with patcher:
+            outcome = ws.run_web_search("q")
+        self.assertEqual(outcome.reported_cost_usd, 0.012)
+        self.assertTrue(outcome.billable)
+
+
+# ---------------------------------------------------------------------------
+# Result formatting
+# ---------------------------------------------------------------------------
+
+
+class TestResultFormatting(unittest.TestCase):
+    def _search(self, results):
+        patcher, _ = _with_exa(_exa_response(200, {"results": results}))
+        with patcher:
+            return ws.run_web_search("test query")
+
+    def test_results_are_numbered_and_carry_url_and_date(self):
+        outcome = self._search(
+            [
+                _exa_result("https://a.com", title="Alpha"),
+                _exa_result("https://b.com", title="Beta"),
+            ]
+        )
+        self.assertIn("[1] Alpha", outcome.content)
+        self.assertIn("[2] Beta", outcome.content)
+        self.assertIn("URL: https://a.com", outcome.content)
+        self.assertIn("Published: 2026-03-04", outcome.content)
+
+    def test_citations_match_only_results_shown_to_the_model(self):
+        long_text = "x" * ws.MAX_RESULT_CHARS
+        results = [
+            _exa_result(f"https://site{i}.com", text=long_text) for i in range(30)
+        ]
+        outcome = self._search(results)
+        self.assertLess(len(outcome.citations), 30)
+        for citation in outcome.citations:
+            self.assertIn(citation["url"], outcome.content)
+        self.assertLessEqual(
+            len(outcome.content), ws.MAX_TOTAL_CHARS + ws.MAX_RESULT_CHARS
+        )
+
+    def test_citation_shape(self):
+        outcome = self._search([_exa_result("https://a.com", title="Alpha")])
+        self.assertEqual(
+            outcome.citations,
+            [
+                {
+                    "title": "Alpha",
+                    "url": "https://a.com",
+                    "published_date": "2026-03-04T10:00:00.000Z",
+                }
+            ],
+        )
+
+    def test_result_without_url_is_skipped(self):
+        outcome = self._search(
+            [{"title": "no url", "text": "t"}, _exa_result("https://a.com")]
+        )
+        self.assertEqual(len(outcome.citations), 1)
+
+    def test_per_result_text_is_truncated(self):
+        outcome = self._search(
+            [_exa_result("https://a.com", text="y" * (ws.MAX_RESULT_CHARS * 2))]
+        )
+        self.assertIn("…", outcome.content)
+
+    def test_zero_results_is_billable_but_says_so(self):
+        outcome = self._search([])
+        self.assertTrue(outcome.billable)
+        self.assertFalse(outcome.is_error)
+        self.assertIn("No web results", outcome.content)
+        self.assertEqual(outcome.citations, [])
+
+
+# ---------------------------------------------------------------------------
+# Failure modes
+# ---------------------------------------------------------------------------
+
+
+class TestSearchFailureModes(unittest.TestCase):
+    def test_no_key_configured_is_an_unbilled_error(self):
+        with patch.object(ws, "_exa_http_client", None):
+            outcome = ws.run_web_search("q")
+        self.assertTrue(outcome.is_error)
+        self.assertFalse(outcome.billable)
+
+    def test_transport_error_is_an_unbilled_error(self):
+        import httpx
+
+        client = Mock()
+        client.post.side_effect = httpx.ConnectError("boom")
+        with patch.object(ws, "_exa_http_client", client):
+            outcome = ws.run_web_search("q")
+        self.assertTrue(outcome.is_error)
+        self.assertFalse(outcome.billable)
+        self.assertIn("could not reach", outcome.content)
+
+    def test_http_error_surfaces_exa_detail(self):
+        patcher, _ = _with_exa(_exa_response(401, {"error": "invalid api key"}))
+        with patcher:
+            outcome = ws.run_web_search("q")
+        self.assertTrue(outcome.is_error)
+        self.assertFalse(outcome.billable)
+        self.assertIn("401", outcome.content)
+        self.assertIn("invalid api key", outcome.content)
+
+    def test_malformed_json_is_an_unbilled_error(self):
+        response = Mock()
+        response.status_code = 200
+        response.json.side_effect = ValueError("bad json")
+        client = _ExaClient([response])
+        with patch.object(ws, "_exa_http_client", client):
+            outcome = ws.run_web_search("q")
+        self.assertTrue(outcome.is_error)
+        self.assertFalse(outcome.billable)
+
+
+# ---------------------------------------------------------------------------
+# Pricing
+# ---------------------------------------------------------------------------
+
+
+class _FakePriceFeed:
+    def __init__(self, price):
+        self._price = price
+
+    def get_price(self):
+        if isinstance(self._price, Exception):
+            raise self._price
+        return self._price
 
 
 class TestWebSearchPricing(unittest.TestCase):
-    def test_provider_support_predicate(self):
-        for provider in ("openai", "anthropic", "google", "x-ai"):
-            self.assertTrue(provider_supports_web_search(provider))
-        self.assertFalse(provider_supports_web_search("bytedance"))
-
-    def test_price_uses_provider_default(self):
-        # gpt-4.1 -> openai default ($0.01/search)
-        self.assertEqual(get_web_search_price_usd("gpt-4.1"), Decimal("0.01"))
-        # grok-4 -> xAI default ($0.025/search unit)
-        self.assertEqual(get_web_search_price_usd("grok-4"), Decimal("0.025"))
-        # gemini -> google default ($0.035/grounded request)
-        self.assertEqual(get_web_search_price_usd("gemini-2.5-flash"), Decimal("0.035"))
-
-    def test_unsupported_provider_is_free(self):
-        # ByteDance has no native web search -> no charge
-        self.assertEqual(get_web_search_price_usd("seed-1.6"), Decimal("0"))
-
-    def test_unknown_model_raises(self):
-        with self.assertRaises(ValueError):
-            get_web_search_price_usd("not-a-real-model")
-
-
-# ---------------------------------------------------------------------------
-# llm_backend.get_web_search_tool
-# ---------------------------------------------------------------------------
-
-
-class TestGetWebSearchTool(unittest.TestCase):
-    def test_openai_tool(self):
-        self.assertEqual(get_web_search_tool("openai"), {"type": "web_search"})
-
-    def test_anthropic_tool(self):
-        tool = get_web_search_tool("anthropic")
-        self.assertEqual(tool["type"], "web_search_20250305")
-        self.assertEqual(tool["name"], "web_search")
-
-    def test_google_tool(self):
-        self.assertEqual(get_web_search_tool("google"), {"google_search": {}})
-
-    def test_xai_tool(self):
-        self.assertEqual(get_web_search_tool("x-ai"), {"type": "web_search"})
-
-    def test_bytedance_has_no_bound_tool(self):
-        self.assertIsNone(get_web_search_tool("bytedance"))
-
-
-# ---------------------------------------------------------------------------
-# llm_backend.extract_web_search_count
-# ---------------------------------------------------------------------------
-
-
-class TestExtractWebSearchCount(unittest.TestCase):
-    def test_none_message(self):
-        self.assertEqual(extract_web_search_count(None), 0)
-
-    def test_plain_text_response_has_no_searches(self):
-        self.assertEqual(extract_web_search_count(AIMessage(content="hi")), 0)
-
-    def test_openai_web_search_call_blocks(self):
-        msg = AIMessage(
-            content=[
-                {"type": "web_search_call", "id": "ws_1"},
-                {"type": "text", "text": "answer"},
-                {"type": "web_search_call", "id": "ws_2"},
-            ]
+    def test_flat_cost_converts_usd_to_opg(self):
+        feed = _FakePriceFeed(Decimal("0.10"))
+        with patch("tee_gateway.price_feed.get_price_feed", return_value=feed):
+            cost = compute_web_search_cost()
+        self.assertIsNotNone(cost)
+        # $0.015 at $0.10/OPG => 0.15 OPG = 15e16 smallest units.
+        expected_opg = int((WEB_SEARCH_PRICE_USD / Decimal("0.10")) * Decimal(10) ** 18)
+        self.assertEqual(cost.cost_opg, expected_opg)
+        # The USD figure reconciles from the rounded OPG value.
+        self.assertEqual(
+            cost.cost_usd,
+            Decimal(cost.cost_opg) / Decimal(10) ** 18 * Decimal("0.10"),
         )
-        self.assertEqual(extract_web_search_count(msg), 2)
 
-    def test_anthropic_server_tool_use_blocks(self):
-        msg = AIMessage(
-            content=[
-                {"type": "text", "text": "let me search"},
-                {"type": "server_tool_use", "name": "web_search", "id": "srv_1"},
-                {"type": "web_search_tool_result", "content": []},
-            ]
+    def test_price_feed_failure_returns_none(self):
+        feed = _FakePriceFeed(ValueError("feed down"))
+        with patch("tee_gateway.price_feed.get_price_feed", return_value=feed):
+            self.assertIsNone(compute_web_search_cost())
+
+    def test_chat_token_cost_carries_no_search_surcharge(self):
+        """Search billing left the chat path entirely with the loop."""
+        feed = _FakePriceFeed(Decimal("0.10"))
+        usage = {"prompt_tokens": 1000, "completion_tokens": 100}
+        with patch("tee_gateway.price_feed.get_price_feed", return_value=feed):
+            cost = compute_session_cost("gpt-4.1", usage)
+        self.assertIsNotNone(cost)
+        # Recompute from the rate card alone: tokens only, nothing else.
+        from tee_gateway.model_registry import get_model_config
+
+        cfg = get_model_config("gpt-4.1")
+        raw_usd = 1000 * cfg.input_price_usd + 100 * cfg.output_price_usd
+        expected_opg = int(
+            ((raw_usd / Decimal("0.10")) * Decimal(10) ** 18).to_integral_value(
+                rounding="ROUND_CEILING"
+            )
         )
-        # Only the server_tool_use (the request) is billed, not the result block.
-        self.assertEqual(extract_web_search_count(msg), 1)
-
-    def test_xai_citations_counted_as_sources(self):
-        msg = AIMessage(content="answer")
-        msg.additional_kwargs = {
-            "citations": ["https://a.com", "https://b.com", "https://c.com"]
-        }
-        self.assertEqual(extract_web_search_count(msg), 3)
-
-    def test_google_grounding_counts_as_one_request(self):
-        msg = AIMessage(content="answer")
-        msg.response_metadata = {
-            "grounding_metadata": {"web_search_queries": ["q1", "q2"]}
-        }
-        # Google bills per grounded request, not per query.
-        self.assertEqual(extract_web_search_count(msg), 1)
+        self.assertEqual(cost.cost_opg, expected_opg)
 
 
 # ---------------------------------------------------------------------------
-# pricing.compute_session_cost with web search
+# /v1/web_search controller
 # ---------------------------------------------------------------------------
-
-
-def _usage(input_tokens: int = 100, output_tokens: int = 50) -> dict:
-    return {"prompt_tokens": input_tokens, "completion_tokens": output_tokens}
-
-
-def _call(usage, model, web_search_count=0, price=Decimal("0.10")):
-    feed = SimpleNamespace(get_price=lambda: price)
-    with patch("tee_gateway.price_feed.get_price_feed", return_value=feed):
-        return compute_session_cost(model, usage, web_search_count=web_search_count)
-
-
-class TestSessionCostWithWebSearch(unittest.TestCase):
-    def test_web_search_increases_cost(self):
-        base = _call(_usage(), "gpt-4.1")
-        searched = _call(_usage(), "gpt-4.1", web_search_count=2)
-        self.assertIsInstance(base, SessionCost)
-        self.assertIsInstance(searched, SessionCost)
-        self.assertGreater(searched.cost_opg, base.cost_opg)
-
-    def test_web_search_surcharge_amount(self):
-        """Two openai searches at $0.01 each add $0.02 of USD cost."""
-        base = _call(_usage(), "gpt-4.1")
-        searched = _call(_usage(), "gpt-4.1", web_search_count=2)
-        # cost_usd is reconciled from rounded OPG; compare via the underlying math.
-        # At price $0.10/OPG, $0.02 surcharge ≈ 0.2 OPG = 2e17 smallest units.
-        delta_opg = searched.cost_opg - base.cost_opg
-        scale = Decimal(10) ** 18
-        delta_usd = (Decimal(delta_opg) / scale) * Decimal("0.10")
-        # Allow a tiny rounding tolerance from ceiling rounding on each call.
-        self.assertAlmostEqual(delta_usd, Decimal("0.02"), places=6)
-
-    def test_zero_searches_matches_no_web_search(self):
-        a = _call(_usage(), "gpt-4.1", web_search_count=0)
-        b = _call(_usage(), "gpt-4.1")
-        self.assertEqual(a.cost_opg, b.cost_opg)
-
-    def test_unsupported_provider_not_charged_for_search(self):
-        # Even if a count slips through, bytedance price is 0 -> no surcharge.
-        base = _call(_usage(), "seed-1.6")
-        searched = _call(_usage(), "seed-1.6", web_search_count=5)
-        self.assertEqual(searched.cost_opg, base.cost_opg)
-
-
-# ---------------------------------------------------------------------------
-# chat_controller integration
-# ---------------------------------------------------------------------------
-
-
-class _MockResponse:
-    def __init__(self, content="", tool_calls=None, usage=None):
-        self.content = content
-        self.tool_calls = tool_calls or []
-        self.usage_metadata = usage or {
-            "input_tokens": 10,
-            "output_tokens": 5,
-            "total_tokens": 15,
-        }
 
 
 def _mock_tee_keys():
@@ -200,78 +338,203 @@ def _mock_tee_keys():
     return tee
 
 
-class TestChatControllerWebSearch(unittest.TestCase):
-    @patch("tee_gateway.controllers.chat_controller.compute_session_cost")
-    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
-    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
-    @patch("tee_gateway.controllers.chat_controller.connexion")
-    def test_web_search_flag_binds_tool_and_bills(
-        self, mock_connexion, mock_get_model, mock_get_tee_keys, mock_cost
-    ):
-        mock_connexion.request.is_json = True
-        mock_connexion.request.get_json.return_value = {
-            "model": "claude-sonnet-4-5",
-            "messages": [{"role": "user", "content": "latest news?"}],
-            "web_search": True,
-            "stream": False,
-        }
-
-        # Anthropic response with a server_tool_use web_search block.
-        response = _MockResponse(
-            content=[
-                {"type": "text", "text": "Here is the news."},
-                {"type": "server_tool_use", "name": "web_search", "id": "srv_1"},
-            ]
+class TestWebSearchController(unittest.TestCase):
+    def setUp(self):
+        app = Flask(__name__)
+        app.add_url_rule(
+            "/v1/web_search", "web-search", create_web_search, methods=["POST"]
         )
-        model = Mock()
-        model.invoke.return_value = response
-        model.bind_tools.return_value = model
-        mock_get_model.return_value = model
-        mock_get_tee_keys.return_value = _mock_tee_keys()
-        mock_cost.return_value = None
+        self.client = app.test_client()
 
-        result = create_chat_completion(None)
-
-        # Model must be constructed with web_search=True.
-        self.assertTrue(mock_get_model.call_args.kwargs["web_search"])
-        # The anthropic web search tool must be bound.
-        bound = model.bind_tools.call_args[0][0]
-        self.assertTrue(
-            any(
-                isinstance(t, dict) and t.get("type") == "web_search_20250305"
-                for t in bound
-            )
+        self.tee = patch(
+            "tee_gateway.controllers.web_search_controller.get_tee_keys",
+            return_value=_mock_tee_keys(),
         )
-        # Billing must receive the detected search count (1 server_tool_use).
-        self.assertEqual(mock_cost.call_args.kwargs["web_search_count"], 1)
-        self.assertIn("choices", result)
+        self.tee.start()
+        self.addCleanup(self.tee.stop)
 
-    @patch("tee_gateway.controllers.chat_controller.compute_session_cost")
-    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
-    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
-    @patch("tee_gateway.controllers.chat_controller.connexion")
-    def test_no_web_search_does_not_bind_or_bill_search(
-        self, mock_connexion, mock_get_model, mock_get_tee_keys, mock_cost
-    ):
-        mock_connexion.request.is_json = True
-        mock_connexion.request.get_json.return_value = {
-            "model": "gpt-4.1",
-            "messages": [{"role": "user", "content": "hello"}],
-            "stream": False,
-        }
-        model = Mock()
-        model.invoke.return_value = _MockResponse(content="hi")
-        model.bind_tools.return_value = model
-        mock_get_model.return_value = model
-        mock_get_tee_keys.return_value = _mock_tee_keys()
-        mock_cost.return_value = None
+        self.feed = patch(
+            "tee_gateway.price_feed.get_price_feed",
+            return_value=_FakePriceFeed(Decimal("0.10")),
+        )
+        self.feed.start()
+        self.addCleanup(self.feed.stop)
 
-        create_chat_completion(None)
+    def _post(self, body):
+        return self.client.post("/v1/web_search", json=body)
 
-        self.assertFalse(mock_get_model.call_args.kwargs["web_search"])
-        # No tools and no web search -> bind_tools must not be called.
-        model.bind_tools.assert_not_called()
-        self.assertEqual(mock_cost.call_args.kwargs["web_search_count"], 0)
+    def test_successful_search_returns_signed_result_with_cost(self):
+        patcher, exa = _with_exa(
+            _exa_response(200, {"results": [_exa_result("https://a.com", "Alpha")]})
+        )
+        with patcher:
+            response = self._post({"query": "latest news"})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["object"], "web_search.result")
+        self.assertEqual(body["query"], "latest news")
+        self.assertIn("[1] Alpha", body["content"])
+        self.assertEqual(body["citations"][0]["url"], "https://a.com")
+        # Signed like every other paid endpoint.
+        for field in (
+            "tee_signature",
+            "tee_request_hash",
+            "tee_output_hash",
+            "tee_timestamp",
+            "tee_id",
+        ):
+            self.assertIn(field, body)
+        # Billed at the flat per-search rate.
+        expected_opg = int((WEB_SEARCH_PRICE_USD / Decimal("0.10")) * Decimal(10) ** 18)
+        self.assertEqual(body["opengradient"]["cost_opg"], str(expected_opg))
+        self.assertEqual(exa.payloads[0]["query"], "latest news")
+
+    def test_request_hash_covers_the_canonical_body(self):
+        """The client can recompute the hash from exactly what it sent."""
+        from tee_gateway.tee_manager import compute_tee_msg_hash
+
+        request_body = {"query": "q", "num_results": 2}
+        patcher, _ = _with_exa(
+            _exa_response(200, {"results": [_exa_result("https://a.com")]})
+        )
+        with patcher:
+            body = self._post(request_body).get_json()
+
+        request_bytes = json.dumps(request_body, sort_keys=True).encode("utf-8")
+        _, input_hash_hex, output_hash_hex = compute_tee_msg_hash(
+            request_bytes, body["content"], body["tee_timestamp"]
+        )
+        self.assertEqual(body["tee_request_hash"], input_hash_hex)
+        self.assertEqual(body["tee_output_hash"], output_hash_hex)
+
+    def test_zero_results_still_bills_and_tells_the_model(self):
+        patcher, _ = _with_exa(_exa_response(200, {"results": []}))
+        with patcher:
+            response = self._post({"query": "obscure thing"})
+        body = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("No web results", body["content"])
+        self.assertEqual(body["citations"], [])
+        self.assertIn("opengradient", body)
+
+    def test_missing_query_is_400(self):
+        with patch.object(ws, "_exa_http_client", Mock()):
+            for payload in ({}, {"query": ""}, {"query": 7}):
+                response = self._post(payload)
+                self.assertEqual(response.status_code, 400, payload)
+
+    def test_no_exa_key_is_503(self):
+        with patch.object(ws, "_exa_http_client", None):
+            response = self._post({"query": "q"})
+        self.assertEqual(response.status_code, 503)
+
+    def test_exa_failure_is_502_without_cost_block(self):
+        patcher, _ = _with_exa(_exa_response(500, {"error": "upstream broke"}))
+        with patcher:
+            response = self._post({"query": "q"})
+        self.assertEqual(response.status_code, 502)
+        body = response.get_json()
+        self.assertNotIn("opengradient", body)
+        self.assertIn("upstream broke", body["error"])
+
+    def test_price_feed_outage_returns_result_without_cost_block(self):
+        """Fail-open like chat: the client gets its answer, unsettled."""
+        self.feed.stop()
+        feed = patch(
+            "tee_gateway.price_feed.get_price_feed",
+            return_value=_FakePriceFeed(ValueError("down")),
+        )
+        feed.start()
+        self.addCleanup(feed.stop)
+        # Re-arm the harness patcher reference so cleanup doesn't double-stop.
+        self.feed = feed
+
+        patcher, _ = _with_exa(
+            _exa_response(200, {"results": [_exa_result("https://a.com")]})
+        )
+        with patcher:
+            response = self._post({"query": "q"})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("opengradient", response.get_json())
+
+
+# ---------------------------------------------------------------------------
+# OHTTP inner-endpoint dispatch
+# ---------------------------------------------------------------------------
+
+
+class _FakeDecap:
+    plaintext = b""  # set per-test
+    response_key = b"k" * 32
+    response_key_chunked = b"c" * 32
+    enc = b"e" * 32
+
+
+class TestOhttpEndpointDispatch(unittest.TestCase):
+    """The sealed payload's `endpoint` field picks the inner path."""
+
+    def setUp(self):
+        app = Flask(__name__)
+        app.add_url_rule(
+            "/v1/ohttp",
+            "anonymous-chat",
+            ohttp_controller.create_anonymous_chat_completion,
+            methods=["POST"],
+        )
+        self.client = app.test_client()
+
+        tee = Mock()
+        tee.hpke_private_key = object()
+        self.patchers = [
+            patch.object(ohttp_controller, "get_tee_keys", return_value=tee),
+            patch.object(ohttp_controller.ohttp, "decapsulate_request"),
+            patch.object(ohttp_controller, "_wsgi_subrequest"),
+            patch.object(
+                ohttp_controller.ohttp, "encapsulate_response", return_value=b"sealed"
+            ),
+        ]
+        _, self.decap, self.subrequest, _ = [p.start() for p in self.patchers]
+        self.addCleanup(lambda: [p.stop() for p in self.patchers])
+
+        self.subrequest.return_value = (
+            200,
+            [("Content-Type", "application/json")],
+            iter([b'{"ok": true}']),
+        )
+
+    def _post_inner(self, inner: dict):
+        decap = _FakeDecap()
+        decap.plaintext = json.dumps(inner).encode("utf-8")
+        self.decap.return_value = decap
+        return self.client.post(
+            "/v1/ohttp",
+            data=b"ciphertext",
+            content_type="message/ohttp-req",
+        )
+
+    def test_web_search_endpoint_routes_to_the_search_path(self):
+        response = self._post_inner({"endpoint": "web_search", "query": "q"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.subrequest.call_args.kwargs["path"], "/v1/web_search")
+        # The discriminator is routing metadata, not part of the inner body.
+        forwarded = json.loads(self.subrequest.call_args.kwargs["body_bytes"])
+        self.assertEqual(forwarded, {"query": "q"})
+
+    def test_absent_endpoint_still_means_chat(self):
+        """The original OHTTP contract: existing clients keep working."""
+        response = self._post_inner({"model": "gpt-4.1", "messages": []})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self.subrequest.call_args.kwargs["path"], "/v1/chat/completions"
+        )
+
+    def test_unknown_endpoint_is_rejected_without_dispatch(self):
+        response = self._post_inner({"endpoint": "nope", "query": "q"})
+        # Sealed error: outer 200 carrying an encapsulated {status: 400, ...}.
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "message/ohttp-res")
+        self.subrequest.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -2,10 +2,12 @@
 Oblivious HTTP endpoint for anonymous inference (relay-pays model).
 
 This handler is a thin shell: it HPKE-decapsulates the inner request, re-issues
-it as an in-process WSGI sub-request against the enclave's own
-``/v1/chat/completions``, then encapsulates the response. All x402 payment,
-LangChain routing, cost settlement and TEE response signing reuse the public
-chat code paths — there is no duplicated routing or pricing logic here.
+it as an in-process WSGI sub-request against one of the enclave's own paid
+endpoints — ``/v1/chat/completions`` by default, or the endpoint named by the
+inner payload's ``endpoint`` field (currently also ``web_search`` →
+``/v1/web_search``) — then encapsulates the response. All x402 payment, routing,
+cost settlement and TEE response signing reuse the public code paths — there is
+no duplicated routing or pricing logic here.
 
 Two response modes are supported, dispatched by the inner ``stream`` flag:
   * stream=false → single-shot OHTTP response (RFC 9458 §4.5),
@@ -100,6 +102,16 @@ _MAX_ENCAPSULATED_REQUEST_BYTES = 20 * 1024 * 1024
 # the upstream LLM provider.
 _IDENTIFYING_FIELDS = ("user", "metadata", "x-request-id", "request_id")
 
+# Inner endpoints reachable through the OHTTP envelope, keyed by the payload's
+# `endpoint` discriminator. Absent means chat (the original OHTTP contract, so
+# existing clients keep working unchanged). The field is popped before the
+# sub-dispatch: it is routing metadata, not part of the endpoint's request body
+# (or its signed request hash).
+_INNER_ENDPOINT_PATHS = {
+    "chat.completions": "/v1/chat/completions",
+    "web_search": "/v1/web_search",
+}
+
 # Response headers we propagate from the inner /v1/chat/completions response
 # back through the relay to the client.
 _FORWARDED_HEADER_PREFIXES = ("x-payment", "x-upto", "x-settlement", "x-tee")
@@ -154,12 +166,19 @@ def create_anonymous_chat_completion():
     if not isinstance(chat_body, dict):
         return _error(400, "inner payload must be a JSON object")
 
+    endpoint = chat_body.pop("endpoint", "chat.completions")
+    inner_path = _INNER_ENDPOINT_PATHS.get(endpoint)
+    if inner_path is None:
+        return _sealed_error(
+            flask_request, decap, 400, f"unknown inner endpoint {endpoint!r}"
+        )
+
     chat_body = _scrub(chat_body)
     _set_inner_cost_context(flask_request, request_json=chat_body)
     body_bytes = json.dumps(chat_body, separators=(",", ":")).encode("utf-8")
 
     sub_status, sub_headers, sub_iter = _wsgi_subrequest(
-        path="/v1/chat/completions",
+        path=inner_path,
         body_bytes=body_bytes,
     )
 

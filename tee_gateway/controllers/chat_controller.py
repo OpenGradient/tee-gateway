@@ -27,8 +27,6 @@ from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
 from tee_gateway.llm_backend import (
     get_provider_from_model,
     get_chat_model_cached,
-    get_web_search_tool,
-    extract_web_search_count,
     convert_messages,
     extract_usage,
     validate_attachments,
@@ -104,13 +102,12 @@ def create_chat_completion(body):
         return _create_non_streaming_response(chat_request)
 
 
-def _build_tools_list(chat_request: CreateChatCompletionRequest, provider: str) -> list:
-    """Build the combined tools list (user tools + native web search tool).
+def _build_tools_list(chat_request: CreateChatCompletionRequest) -> list:
+    """Normalize the caller's function tools into bind_tools() form.
 
-    User-supplied function tools and the provider's built-in web search tool are
-    bound together in a single bind_tools() call. xAI configures search at
-    construction time (no tool), and providers without native web search return
-    no tool — in both cases only user tools are included.
+    Web search is deliberately NOT handled here: the ``web_search`` request flag
+    is a deprecated no-op (search moved to the dedicated ``/v1/web_search``
+    endpoint, driven by the client's own tool loop).
     """
     tools_list: list = []
     if chat_request.tools:
@@ -122,11 +119,6 @@ def _build_tools_list(chat_request: CreateChatCompletionRequest, provider: str) 
                 )
             else:
                 tools_list.append(tool)
-
-    if getattr(chat_request, "web_search", False):
-        ws_tool = get_web_search_tool(provider)
-        if ws_tool is not None:
-            tools_list.append(ws_tool)
 
     return tools_list
 
@@ -252,7 +244,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
 
         # Build the tools list first: some OpenAI models (gpt-5.6 family) must be
         # constructed against the Responses API when function tools are bound.
-        tools_list = _build_tools_list(chat_request, provider)
+        tools_list = _build_tools_list(chat_request)
 
         model = get_chat_model_cached(
             model=chat_request.model,
@@ -260,7 +252,6 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
             if chat_request.temperature is not None
             else 0.0,
             max_tokens=chat_request.max_tokens or 4096,
-            web_search=bool(chat_request.web_search),
             force_responses_api=_needs_responses_api_for_tools(
                 provider, cfg, tools_list
             ),
@@ -376,12 +367,7 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
                 "completion_tokens": usage["completion_tokens"],
                 "total_tokens": usage["total_tokens"],
             }
-            web_search_count = (
-                extract_web_search_count(response) if chat_request.web_search else 0
-            )
-            cost = compute_session_cost(
-                chat_request.model, usage, web_search_count=web_search_count
-            )
+            cost = compute_session_cost(chat_request.model, usage)
             if cost is not None:
                 openai_response["opengradient"] = cost.model_dump(mode="json")
         else:
@@ -427,7 +413,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
 
         # Build the tools list first: some OpenAI models (gpt-5.6 family) must be
         # constructed against the Responses API when function tools are bound.
-        tools_list = _build_tools_list(chat_request, provider)
+        tools_list = _build_tools_list(chat_request)
 
         model = get_chat_model_cached(
             model=chat_request.model,
@@ -435,7 +421,6 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
             if chat_request.temperature is not None
             else 0.0,
             max_tokens=chat_request.max_tokens or 4096,
-            web_search=bool(chat_request.web_search),
             force_responses_api=_needs_responses_api_for_tools(
                 provider, cfg, tools_list
             ),
@@ -512,10 +497,6 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
             buffered_tool_calls = {}
             finish_reason = "stop"
             generated_images: list[str] = []
-            # Accumulate streamed chunks so native web-search activity (content
-            # blocks, citations, grounding metadata) can be counted for billing
-            # once the stream completes.
-            merged_chunk = None
 
             try:
                 if image_output_model:
@@ -601,13 +582,6 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                     )
 
                 for chunk in chunks_iter:
-                    # Accumulate for post-stream web-search billing (cheap: merges
-                    # content/metadata deltas into a single AIMessageChunk).
-                    if chat_request.web_search:
-                        merged_chunk = (
-                            chunk if merged_chunk is None else merged_chunk + chunk
-                        )
-
                     # --- Text content ---
                     if chunk.content:
                         if isinstance(chunk.content, str):
@@ -812,22 +786,13 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                         "completion_tokens": final_usage.get("output_tokens", 0),
                         "total_tokens": final_usage.get("total_tokens", 0),
                     }
-                    web_search_count = (
-                        extract_web_search_count(merged_chunk)
-                        if chat_request.web_search
-                        else 0
-                    )
                     # Pass thinking tokens to the cost calculator (for the image
                     # dual-rate split) without polluting the OpenAI usage triple.
                     cost_usage = dict(
                         final_data["usage"],
                         reasoning_tokens=final_usage.get("reasoning", 0),
                     )
-                    cost = compute_session_cost(
-                        chat_request.model,
-                        cost_usage,
-                        web_search_count=web_search_count,
-                    )
+                    cost = compute_session_cost(chat_request.model, cost_usage)
                     if cost is not None:
                         # final_data is hand-serialized to SSE via json.dumps below,
                         # which doesn't go through Flask's JSONEncoder — so do the

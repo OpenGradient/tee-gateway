@@ -63,11 +63,19 @@ _IMAGE_CLIENT_ATTRS = {
 # size cap; the redirect cap stops a redirect chain from being chased off-host.
 _MAX_IMAGE_BYTES = 25 * 1024 * 1024  # 25 MiB
 _MAX_REDIRECTS = 3
-_IMAGE_FETCH_404_RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0)
 _ALLOWED_FETCH_SCHEMES = {"http", "https"}
 
 # Shared keyless client for fetching provider-hosted image URLs into the enclave.
 _image_fetch_client: Optional[httpx.Client] = None
+
+# Retry policy for the hosted-URL fetch. Some providers (notably Z.ai, whose
+# generations response points at mfile.z.ai) return the URL before the file is
+# visible on their CDN, so an immediate GET can 404 with "file not exist" even
+# though the image was generated — retrying shortly after succeeds. 404 covers
+# that visibility race; 5xx and transport errors are ordinary transient CDN
+# failures. Anything else (403, size-cap ValueError, …) fails fast.
+_FETCH_RETRY_STATUS_CODES = frozenset({404, 500, 502, 503, 504})
+_FETCH_RETRY_DELAYS_SECONDS = (1.0, 2.0, 4.0)
 
 # Cap on how much of a provider error body is copied into an exception message
 # (and from there into logs and the client-facing error payload).
@@ -162,6 +170,10 @@ def _fetch_url_as_data_uri(url: str) -> str:
     identically to inline-byte ones: the bytes are pulled into the enclave and
     ride out inside the OHTTP/TEE envelope, so the client never sees a raw URL.
 
+    Retries 404s and transient failures per ``_FETCH_RETRY_STATUS_CODES`` — the
+    URL comes straight out of the provider's response, so a 404 means the CDN
+    hasn't caught up yet, not that the image doesn't exist.
+
     Hardened against egress abuse: http(s) only, non-public IP hosts rejected,
     redirects capped, and the body capped at ``_MAX_IMAGE_BYTES`` (streamed so an
     oversized response is aborted instead of buffered whole).
@@ -176,50 +188,44 @@ def _fetch_url_as_data_uri(url: str) -> str:
             max_redirects=_MAX_REDIRECTS,
         )
 
-    attempt_delays = (0.0,) + _IMAGE_FETCH_404_RETRY_DELAYS
-    for attempt, delay in enumerate(attempt_delays):
-        if delay:
-            time.sleep(delay)
+    for delay in _FETCH_RETRY_DELAYS_SECONDS:
         try:
-            with _image_fetch_client.stream("GET", url) as resp:
-                _raise_for_status_with_detail(resp)
-                declared = resp.headers.get("content-length")
-                if declared and declared.isdigit() and int(declared) > _MAX_IMAGE_BYTES:
-                    raise ValueError(
-                        f"Refusing to fetch image larger than {_MAX_IMAGE_BYTES} bytes"
-                    )
-                mime = (
-                    (resp.headers.get("content-type") or "image/jpeg")
-                    .split(";", 1)[0]
-                    .strip()
-                )
-                chunks: list[bytes] = []
-                total = 0
-                for chunk in resp.iter_bytes():
-                    total += len(chunk)
-                    if total > _MAX_IMAGE_BYTES:
-                        raise ValueError(
-                            f"Refusing to fetch image larger than {_MAX_IMAGE_BYTES} bytes"
-                        )
-                    chunks.append(chunk)
-
-            b64 = base64.b64encode(b"".join(chunks)).decode("ascii")
-            return f"data:{mime or 'image/jpeg'};base64,{b64}"
-        except httpx.HTTPStatusError as exc:
-            is_retryable = exc.response.status_code == 404
-            is_last_attempt = attempt == len(attempt_delays) - 1
-            if not is_retryable or is_last_attempt:
+            return _fetch_url_once(_image_fetch_client, url)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code not in _FETCH_RETRY_STATUS_CODES:
                 raise
-            next_delay = attempt_delays[attempt + 1]
-            logger.warning(
-                "Provider image URL returned 404; retrying in %.0fs (%d/%d)",
-                next_delay,
-                attempt + 1,
-                len(_IMAGE_FETCH_404_RETRY_DELAYS),
-            )
+            reason: str = str(e)
+        except httpx.TransportError as e:
+            reason = str(e)
+        logger.warning("Image URL fetch failed, retrying in %.0fs: %s", delay, reason)
+        time.sleep(delay)
+    return _fetch_url_once(_image_fetch_client, url)  # last attempt: raise as-is
 
-    # The loop either returns an image or raises the final HTTP error.
-    raise RuntimeError("Provider image fetch retry loop exited unexpectedly")
+
+def _fetch_url_once(client: httpx.Client, url: str) -> str:
+    """Single GET for ``_fetch_url_as_data_uri`` (see there for the contract)."""
+    with client.stream("GET", url) as resp:
+        _raise_for_status_with_detail(resp)
+        declared = resp.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > _MAX_IMAGE_BYTES:
+            raise ValueError(
+                f"Refusing to fetch image larger than {_MAX_IMAGE_BYTES} bytes"
+            )
+        mime = (
+            (resp.headers.get("content-type") or "image/jpeg").split(";", 1)[0].strip()
+        )
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in resp.iter_bytes():
+            total += len(chunk)
+            if total > _MAX_IMAGE_BYTES:
+                raise ValueError(
+                    f"Refusing to fetch image larger than {_MAX_IMAGE_BYTES} bytes"
+                )
+            chunks.append(chunk)
+
+    b64 = base64.b64encode(b"".join(chunks)).decode("ascii")
+    return f"data:{mime or 'image/jpeg'};base64,{b64}"
 
 
 # MIME -> filename extension for multipart reference uploads. The edits endpoint

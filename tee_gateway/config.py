@@ -21,7 +21,7 @@ HEARTBEAT_RETRY_DELAY = 10  # seconds
 
 @dataclass(frozen=True)
 class ProviderConfig:
-    """API keys for each supported LLM provider."""
+    """API keys for each supported LLM provider, plus the web-search backend."""
 
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
@@ -30,6 +30,11 @@ class ProviderConfig:
     bytedance_api_key: Optional[str] = None
     nous_api_key: Optional[str] = None
     zai_api_key: Optional[str] = None
+    # Exa, which backs the `web_search` tool the gateway executes inside the
+    # enclave for every model (see web_search.py). Not an LLM provider, so it is
+    # deliberately absent from initialized_providers() — /health reports it
+    # separately as `web_search_enabled`.
+    exa_api_key: Optional[str] = None
 
     def initialized_providers(self) -> list[str]:
         """Return provider names whose API key is set (non-empty)."""

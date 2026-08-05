@@ -29,6 +29,7 @@ GROK_IMAGE = "grok-2-image"
 SEEDREAM = "seedream-4.0"
 SEEDREAM_5_LITE = "seedream-5.0-lite"
 SEEDANCE = "seedance-4.5"
+SEEDANCE_5 = "seedance-5.0"
 GLM_IMAGE = "glm-image"
 GPT_IMAGE = "gpt-image-2"
 
@@ -181,6 +182,33 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(payload["model"], get_model_config(SEEDREAM_5_LITE).api_name)
         self.assertEqual(payload["response_format"], "url")
         self.assertEqual(payload["sequential_image_generation"], "disabled")
+        self.assertFalse(payload["watermark"])
+        self.assertEqual(payload["size"], "2K")
+        self.assertFalse(payload["stream"])
+        self.assertNotIn("n", payload)
+
+    def test_seedance_5_omits_sequential_image_generation(self):
+        # The Seedance 5.0 deployment endpoint rejects sequential_image_generation
+        # with HTTP 400 ("not supported by the current model"), so its payload is
+        # the shared ep- shape minus that field.
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"url": "https://cdn/img.jpg"}])
+        with (
+            patch.object(llm_backend, "bytedance_http_client", client),
+            patch.object(
+                image_generation,
+                "_fetch_url_as_data_uri",
+                return_value="data:image/jpeg;base64,RkVUQ0hFRA==",
+            ),
+        ):
+            images, count = generate_images(SEEDANCE_5, "a black hole", n=1)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(images, ["data:image/jpeg;base64,RkVUQ0hFRA=="])
+        payload = client.post.call_args.kwargs["json"]
+        self.assertEqual(payload["model"], get_model_config(SEEDANCE_5).api_name)
+        self.assertEqual(payload["response_format"], "url")
+        self.assertNotIn("sequential_image_generation", payload)
         self.assertFalse(payload["watermark"])
         self.assertEqual(payload["size"], "2K")
         self.assertFalse(payload["stream"])
@@ -541,6 +569,126 @@ class TestFetchUrlAsDataUri(unittest.TestCase):
                 image_generation._fetch_url_as_data_uri("https://cdn/big.png")
 
 
+def _error_stream_ctx(status: int, body: bytes) -> MagicMock:
+    """A .stream(...) context manager yielding a real httpx error response."""
+    import httpx
+
+    resp = httpx.Response(
+        status, content=body, request=httpx.Request("GET", "https://cdn/x.png")
+    )
+    ctx = MagicMock()
+    ctx.__enter__.return_value = resp
+    ctx.__exit__.return_value = False
+    return ctx
+
+
+def _ok_stream_ctx(chunks: list[bytes]) -> MagicMock:
+    resp = MagicMock()
+    resp.raise_for_status.return_value = None
+    resp.headers = {"content-type": "image/png"}
+    resp.iter_bytes.return_value = chunks
+    ctx = MagicMock()
+    ctx.__enter__.return_value = resp
+    ctx.__exit__.return_value = False
+    return ctx
+
+
+class TestFetchUrlRetry(unittest.TestCase):
+    """The hosted-URL fetch retries CDN-visibility 404s and transient errors.
+
+    Z.ai's generations response can point at a file mfile.z.ai hasn't made
+    visible yet, so the immediate fetch 404s with "file not exist" even though
+    the image exists moments later. A 404 on a provider-returned URL is
+    therefore retried, not trusted.
+    """
+
+    def test_404_then_success_is_retried(self):
+        client = MagicMock()
+        client.stream.side_effect = [
+            _error_stream_ctx(404, b'{"RetCode":-148654, "ErrMsg":"file not exist"}'),
+            _ok_stream_ctx([b"hello"]),
+        ]
+        with (
+            patch.object(image_generation, "_image_fetch_client", client),
+            patch.object(image_generation.time, "sleep") as sleep,
+        ):
+            uri = image_generation._fetch_url_as_data_uri("https://cdn/x.png")
+
+        self.assertEqual(uri, "data:image/png;base64,aGVsbG8=")
+        self.assertEqual(client.stream.call_count, 2)
+        sleep.assert_called_once_with(image_generation._FETCH_RETRY_DELAYS_SECONDS[0])
+
+    def test_transport_error_then_success_is_retried(self):
+        import httpx
+
+        client = MagicMock()
+        client.stream.side_effect = [
+            httpx.ConnectError("connection reset"),
+            _ok_stream_ctx([b"hello"]),
+        ]
+        with (
+            patch.object(image_generation, "_image_fetch_client", client),
+            patch.object(image_generation.time, "sleep"),
+        ):
+            uri = image_generation._fetch_url_as_data_uri("https://cdn/x.png")
+
+        self.assertEqual(uri, "data:image/png;base64,aGVsbG8=")
+        self.assertEqual(client.stream.call_count, 2)
+
+    def test_non_retryable_status_fails_immediately(self):
+        import httpx
+
+        client = MagicMock()
+        client.stream.return_value = _error_stream_ctx(403, b"Access denied")
+        with (
+            patch.object(image_generation, "_image_fetch_client", client),
+            patch.object(image_generation.time, "sleep") as sleep,
+        ):
+            with self.assertRaises(httpx.HTTPStatusError):
+                image_generation._fetch_url_as_data_uri("https://cdn/x.png")
+
+        self.assertEqual(client.stream.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_persistent_404_exhausts_retries_and_raises(self):
+        import httpx
+
+        attempts = 1 + len(image_generation._FETCH_RETRY_DELAYS_SECONDS)
+        client = MagicMock()
+        client.stream.side_effect = [
+            _error_stream_ctx(404, b'{"ErrMsg":"file not exist"}')
+            for _ in range(attempts)
+        ]
+        with (
+            patch.object(image_generation, "_image_fetch_client", client),
+            patch.object(image_generation.time, "sleep") as sleep,
+        ):
+            with self.assertRaises(httpx.HTTPStatusError) as ctx:
+                image_generation._fetch_url_as_data_uri("https://cdn/x.png")
+
+        self.assertIn("file not exist", str(ctx.exception))
+        self.assertEqual(client.stream.call_count, attempts)
+        self.assertEqual(
+            [c.args[0] for c in sleep.call_args_list],
+            list(image_generation._FETCH_RETRY_DELAYS_SECONDS),
+        )
+
+    def test_size_cap_violation_is_not_retried(self):
+        # An oversized body is a hard failure, not a transient one.
+        client = MagicMock()
+        client.stream.return_value = _ok_stream_ctx([b"x" * 4, b"x" * 4])
+        with (
+            patch.object(image_generation, "_image_fetch_client", client),
+            patch.object(image_generation, "_MAX_IMAGE_BYTES", 5),
+            patch.object(image_generation.time, "sleep") as sleep,
+        ):
+            with self.assertRaises(ValueError):
+                image_generation._fetch_url_as_data_uri("https://cdn/big.png")
+
+        self.assertEqual(client.stream.call_count, 1)
+        sleep.assert_not_called()
+
+
 class TestExtractImageInputs(unittest.TestCase):
     """Prompt + reference-image extraction from the user turns."""
 
@@ -658,7 +806,7 @@ class TestPerImageBilling(unittest.TestCase):
         return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     def test_single_image_charged_flat_price(self):
-        for model in (GROK_IMAGE, SEEDREAM, SEEDANCE, GLM_IMAGE, GPT_IMAGE):
+        for model in (GROK_IMAGE, SEEDREAM, SEEDANCE, SEEDANCE_5, GLM_IMAGE, GPT_IMAGE):
             with self.subTest(model=model):
                 cfg = get_model_config(model)
                 cost = compute_session_cost(model, self._zero_usage(), image_count=1)

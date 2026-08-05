@@ -24,9 +24,10 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 - **Request integrity** - SHA256 hash of original request included in signed response
 - **Streaming support** - SSE streaming for chat completions
 - **Tool/function calling** - Full support for LLM tool use
-- **Native web search** - Opt-in `web_search` flag enables each provider's built-in
-  web search (OpenAI, Anthropic, Google, xAI); searches are billed per search on top
-  of token usage
+- **In-enclave web search** - Dedicated `/v1/web_search` endpoint (backed by
+  Exa) for clients running their own tool loop. The query never leaves the
+  enclave except to the search backend; every search is billed at one flat
+  per-search rate
 
 ## Supported Models
 
@@ -90,21 +91,29 @@ curl -X POST http://127.0.0.1:8000/v1/completions \
     "prompt": "Explain quantum computing in one sentence"
   }'
 
-# Native web search (set "web_search": true on any supported model)
-curl -X POST http://127.0.0.1:8000/v1/chat/completions \
+# Web search (dedicated endpoint; advertise a `web_search` tool to your model
+# and call this when the model invokes it)
+curl -X POST http://127.0.0.1:8000/v1/web_search \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-sonnet-4-5",
-    "messages": [{"role": "user", "content": "What happened in the news today?"}],
-    "web_search": true
+    "query": "What happened in the news today?",
+    "num_results": 6
   }'
 ```
 
-> **Web search & billing.** When `web_search` is `true`, the gateway enables the
-> provider's built-in web search (OpenAI, Anthropic, Google, xAI). Each search is
-> billed per search on top of token usage — at the provider's list price — and the
-> charge is reflected in the dynamically-settled x402 amount. Providers without
-> native web search (e.g. ByteDance/ModelArk) ignore the flag and are not charged.
+> **Web search & billing.** `/v1/web_search` runs the search inside the enclave
+> against Exa — it does not use any provider's built-in search, and the gateway
+> runs no tool loop: feed the returned `content` back to your model as the tool
+> result, and show `citations` to your user. The query never leaves the TEE
+> except to the search backend, and via OHTTP (inner `"endpoint":
+> "web_search"`) it is also invisible to the relay.
+>
+> Each search is one flat price, settled via x402 from the response's
+> `opengradient` block like any other paid endpoint; failed searches return no
+> cost block and are not charged. The response is signed with the same `tee_*`
+> fields as chat (request hash over the canonical JSON body, output hash over
+> `content`). Requires `EXA_API_KEY` to be injected; check `web_search_enabled`
+> on `/health`. The old chat-request `web_search` flag is a deprecated no-op.
 
 ## Deployment to Nitro Enclave
 

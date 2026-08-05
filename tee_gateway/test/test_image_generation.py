@@ -502,13 +502,15 @@ class TestFetchUrlAsDataUri(unittest.TestCase):
 
     def test_persistent_404_stops_after_bounded_retries(self):
         request = httpx.Request("GET", "https://cdn/x.png")
+        retry_delays = image_generation._FETCH_RETRY_DELAYS_SECONDS
+        attempts = 1 + len(retry_delays)
         responses = [
             httpx.Response(
                 404,
                 json={"RetCode": -148654, "ErrMsg": "file not exist"},
                 request=request,
             )
-            for _ in range(5)
+            for _ in range(attempts)
         ]
         client = MagicMock()
         client.stream.side_effect = [
@@ -522,10 +524,10 @@ class TestFetchUrlAsDataUri(unittest.TestCase):
                 image_generation._fetch_url_as_data_uri("https://cdn/x.png")
 
         self.assertIn("file not exist", str(ctx.exception))
-        self.assertEqual(client.stream.call_count, 5)
+        self.assertEqual(client.stream.call_count, attempts)
         self.assertEqual(
             [call.args[0] for call in sleep.call_args_list],
-            [1.0, 2.0, 4.0, 8.0],
+            list(retry_delays),
         )
 
     def test_rejects_non_http_scheme(self):

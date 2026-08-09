@@ -43,6 +43,16 @@ logger = logging.getLogger(__name__)
 # inputs without meaningfully reducing detection.
 _MAX_MODERATION_CHARS = 40_000
 
+# Outer-response headers the enclave emits on a policy hit. They ride the same
+# relay-visible channel as the cost headers (see
+# ``ohttp_controller._FORWARDED_HEADER_PREFIXES``), so the relay — which maps the
+# sealed request to the payer it bills — can ban or throttle that user without
+# any client content or identity ever entering the enclave. The gateway still
+# blocks the individual request; this flag is what enables persistent, per-user
+# enforcement at the layer that actually holds identity.
+MODERATION_FLAG_HEADER = "X-OG-Moderation-Flagged"
+MODERATION_CATEGORIES_HEADER = "X-OG-Moderation-Categories"
+
 
 class ModerationUnavailable(Exception):
     """The moderation backend could not produce a decision (network/provider error).
@@ -212,8 +222,8 @@ def enforce(
     image_data_uris: Optional[list[str]] = None,
     *,
     safety_identifier: Optional[str] = None,
-) -> Optional[tuple[dict, int]]:
-    """Run the gate. Return ``None`` to allow, or an ``(error_body, status)`` tuple to reject.
+) -> Optional[tuple[dict, int, dict[str, str]]]:
+    """Run the gate. Return ``None`` to allow, or a ``(body, status, headers)`` tuple to reject.
 
     Call sites use it as::
 
@@ -221,10 +231,17 @@ def enforce(
         if blocked:
             return blocked
 
-    - Policy hit -> ``(403 body)``.
-    - Backend unavailable and ``fail_closed`` -> ``(503 body)``; otherwise allow.
-    ``safety_identifier`` (a stable, non-reversible per-payer id) is logged so a
-    flagged source can be attributed and blocked without de-anonymizing content.
+    The tuple is a Flask/connexion response triple, so a controller returns it
+    directly. On a policy hit the ``headers`` carry ``X-OG-Moderation-Flagged``
+    (and the matched categories); in the OHTTP path these propagate to the relay
+    as outer headers so it can ban the payer it bills. On a screening *outage*
+    (fail-closed 503) **no** flag header is emitted — an unavailable classifier
+    is not evidence of abuse and must not trigger a ban.
+
+    - Policy hit -> ``403`` with flag headers.
+    - Backend unavailable and ``fail_closed`` -> ``503`` (no flag); otherwise allow.
+    ``safety_identifier`` is logged for enclave-side correlation only; the relay
+    uses its own billing identity to enforce.
     """
     if not _enabled:
         return None
@@ -245,6 +262,7 @@ def enforce(
                     "message": "Request could not be screened and was not processed.",
                 },
                 503,
+                {},
             )
         return None
 
@@ -257,12 +275,18 @@ def enforce(
         decision.backend,
         safety_identifier,
     )
+    headers = {MODERATION_FLAG_HEADER: "1"}
+    if decision.categories:
+        # A comma-joined list of policy-class labels (e.g. "sexual/minors") — a
+        # category name, never any client content — so the relay can prioritize.
+        headers[MODERATION_CATEGORIES_HEADER] = ",".join(decision.categories)
     return (
         {
             "error": "content_policy_violation",
             "message": "This request was rejected by content moderation.",
         },
         403,
+        headers,
     )
 
 

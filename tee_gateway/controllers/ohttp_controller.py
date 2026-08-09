@@ -114,7 +114,19 @@ _INNER_ENDPOINT_PATHS = {
 
 # Response headers we propagate from the inner /v1/chat/completions response
 # back through the relay to the client.
-_FORWARDED_HEADER_PREFIXES = ("x-payment", "x-upto", "x-settlement", "x-tee")
+#
+# ``x-og-moderation`` carries the moderation gate's flag (see moderation.py):
+# on a policy hit the inner handler returns 403 with ``X-OG-Moderation-Flagged``
+# (and matched categories), which we surface to the relay so it can ban the
+# payer it bills. Only a policy-class label ever rides here, never client
+# content, and a blocked request is already a non-2xx forwarded as plaintext.
+_FORWARDED_HEADER_PREFIXES = (
+    "x-payment",
+    "x-upto",
+    "x-settlement",
+    "x-tee",
+    "x-og-moderation",
+)
 _FORWARDED_HEADER_NAMES = ("www-authenticate",)
 
 

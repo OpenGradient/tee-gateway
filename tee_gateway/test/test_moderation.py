@@ -47,23 +47,31 @@ class ModerationEnforceTest(unittest.TestCase):
         moderation.configure_moderation(_AllowBackend(), enabled=True)
         self.assertIsNone(moderation.enforce(["hello"]))
 
-    def test_block_returns_403(self):
+    def test_block_returns_403_with_flag_header(self):
         moderation.configure_moderation(_BlockBackend(), enabled=True)
         result = moderation.enforce(["bad content"])
         self.assertIsNotNone(result)
         assert result is not None
-        _body, status = result
+        _body, status, headers = result
         self.assertEqual(status, 403)
+        # The relay bans off this header; the categories carry a policy-class
+        # label only, never client content.
+        self.assertEqual(headers.get(moderation.MODERATION_FLAG_HEADER), "1")
+        self.assertEqual(
+            headers.get(moderation.MODERATION_CATEGORIES_HEADER), "sexual/minors"
+        )
 
-    def test_fail_closed_returns_503(self):
+    def test_fail_closed_returns_503_without_flag(self):
         moderation.configure_moderation(
             _BrokenBackend(), enabled=True, fail_closed=True
         )
         result = moderation.enforce(["x"])
         self.assertIsNotNone(result)
         assert result is not None
-        _body, status = result
+        _body, status, headers = result
         self.assertEqual(status, 503)
+        # A screening outage is not a policy hit — must not flag the user.
+        self.assertNotIn(moderation.MODERATION_FLAG_HEADER, headers)
 
     def test_fail_open_allows_on_error(self):
         moderation.configure_moderation(
@@ -117,6 +125,14 @@ class ExtractionTest(unittest.TestCase):
     def test_payment_safety_identifier_no_context(self):
         # Outside a request/payment context this must not raise, just return None.
         self.assertIsNone(moderation.payment_safety_identifier())
+
+    def test_flag_header_is_forwarded_to_relay(self):
+        # The OHTTP layer must surface the moderation flag to the relay, or the
+        # per-user ban signal never leaves the enclave.
+        from tee_gateway.controllers.ohttp_controller import _should_forward_header
+
+        self.assertTrue(_should_forward_header(moderation.MODERATION_FLAG_HEADER))
+        self.assertTrue(_should_forward_header(moderation.MODERATION_CATEGORIES_HEADER))
 
 
 if __name__ == "__main__":

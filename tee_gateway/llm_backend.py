@@ -256,6 +256,10 @@ def get_chat_model_cached(
             api_key=SecretStr(config.openai_api_key),
             streaming=True,
             stream_usage=True,
+            # OpenAI retains request/response logs when `store` is unset (the
+            # Responses API defaults it to true). Explicitly opt out so
+            # prompts never persist outside the enclave.
+            store=False,
             **openai_kwargs,
         )  # type: ignore [call-arg]
 

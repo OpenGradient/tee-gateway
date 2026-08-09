@@ -39,6 +39,7 @@ from tee_gateway.image_generation import (
     create_image_generation_streaming_response,
 )
 from tee_gateway.model_registry import get_model_config
+from tee_gateway.moderation import ModerationOutcome, moderate_messages
 from tee_gateway.pricing import compute_session_cost
 
 logger = logging.getLogger(__name__)
@@ -97,10 +98,31 @@ def create_chat_completion(body):
     except AttachmentValidationError as e:
         return {"error": "Invalid attachment", "message": str(e)}, 400
 
+    # Score the newest user turn before any provider work. Fail-open: an
+    # unavailable moderation endpoint yields an unchecked outcome, never a
+    # refusal. Only BLOCKED_CATEGORIES verdicts stop the request here; other
+    # flags ride along on the response for the relay/client to act on.
+    moderation = moderate_messages(chat_request.messages)
+    if moderation.blocked:
+        return (
+            {
+                "error": "Content policy violation",
+                "message": (
+                    "This request was flagged by content moderation for a "
+                    "prohibited category and was not forwarded to the model "
+                    "provider."
+                ),
+                "code": "moderation_blocked",
+                "moderation": moderation.to_response_dict(),
+            },
+            451,
+            moderation.headers(),
+        )
+
     if chat_request.stream:
-        return _create_streaming_response(chat_request)
+        return _create_streaming_response(chat_request, moderation)
     else:
-        return _create_non_streaming_response(chat_request)
+        return _create_non_streaming_response(chat_request, moderation)
 
 
 def _build_tools_list(chat_request: CreateChatCompletionRequest) -> list:
@@ -222,7 +244,10 @@ def _messages_contain_json_word(messages: list) -> bool:
     return False
 
 
-def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
+def _create_non_streaming_response(
+    chat_request: CreateChatCompletionRequest,
+    moderation: ModerationOutcome | None = None,
+):
     """Handle non-streaming chat completion via direct LangChain call."""
     try:
         logger.info("=" * 80)
@@ -241,7 +266,9 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         # surfaced through this same endpoint, returning images out-of-band just
         # like Gemini's inline-image models.
         if cfg.image_generation:
-            return create_image_generation_response(chat_request, request_bytes)
+            return create_image_generation_response(
+                chat_request, request_bytes, moderation
+            )
 
         # Build the tools list first: some OpenAI models (gpt-5.6 family) must be
         # constructed against the Responses API when function tools are bound.
@@ -376,8 +403,16 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
                 provider,
             )
 
+        # The moderation verdict rides inside the (sealed) response body like
+        # images/usage — not part of the output hash. Flagged requests also get
+        # content-free X-Moderation-* headers for the relay's strike policy.
+        if moderation is not None and moderation.checked:
+            openai_response["moderation"] = moderation.to_response_dict()
+
         # Validate schema (the extra tee_* fields are preserved by returning dict directly)
         CreateChatCompletionResponse.from_dict(openai_response)
+        if moderation is not None and moderation.flagged:
+            return openai_response, 200, moderation.headers()
         return openai_response
 
     except Exception as e:
@@ -388,7 +423,10 @@ def _create_non_streaming_response(chat_request: CreateChatCompletionRequest):
         }, 500
 
 
-def _create_streaming_response(chat_request: CreateChatCompletionRequest):
+def _create_streaming_response(
+    chat_request: CreateChatCompletionRequest,
+    moderation: ModerationOutcome | None = None,
+):
     """Handle streaming chat completion via direct LangChain call."""
     try:
         provider = get_provider_from_model(chat_request.model)
@@ -407,7 +445,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
         # images endpoint; handle them without building a chat model.
         if get_model_config(chat_request.model).image_generation:
             return create_image_generation_streaming_response(
-                chat_request, request_bytes
+                chat_request, request_bytes, moderation
             )
 
         # Build the tools list first: some OpenAI models (gpt-5.6 family) must be
@@ -765,6 +803,10 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
                 # are not part of the signed output hash.
                 if generated_images:
                     final_data["images"] = generated_images
+                # Moderation verdict rides the final frame the same way (the
+                # flag headers were already flushed with the response headers).
+                if moderation is not None and moderation.checked:
+                    final_data["moderation"] = moderation.to_response_dict()
 
                 logger.debug(
                     f"Response Final\n\tTEE Signature: {tee_signature}\n\tTEE request hash: {input_hash_hex}\n\tTEE output hash: {output_hash_hex}\n\tTEE timestamp: {timestamp}\n\tTEE ID: 0x{tee_keys.get_tee_id()}"
@@ -825,6 +867,7 @@ def _create_streaming_response(chat_request: CreateChatCompletionRequest):
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
+                **(moderation.headers() if moderation is not None else {}),
             },
         )
 

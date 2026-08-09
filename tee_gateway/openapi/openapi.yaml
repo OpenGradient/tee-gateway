@@ -3397,6 +3397,36 @@ components:
           type: string
         usage:
           $ref: "#/components/schemas/CompletionUsage"
+        moderation:
+          description: |
+            Content-moderation verdict for the newest user turn, scored against
+            OpenAI's omni-moderation model before the request was forwarded to
+            any provider. Present when moderation ran (`checked: true`);
+            absent when no OpenAI key is configured or the moderation endpoint
+            was unavailable (fail-open). `categories` lists only the flagged
+            category names; `category_scores` includes flagged categories and
+            any score above a small floor. Requests flagged for a blocked
+            category (child sexual abuse material) are refused with HTTP 451
+            and never reach a provider.
+          title: moderation
+          type: object
+          properties:
+            model:
+              type: string
+            checked:
+              type: boolean
+            flagged:
+              type: boolean
+            blocked:
+              type: boolean
+            categories:
+              type: array
+              items:
+                type: string
+            category_scores:
+              type: object
+              additionalProperties:
+                type: number
       required:
       - choices
       - created

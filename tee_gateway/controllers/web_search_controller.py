@@ -36,6 +36,7 @@ from tee_gateway.web_search import (
     execute_web_search_call,
     web_search_available,
 )
+from tee_gateway import moderation
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,14 @@ def create_web_search():
     query = body.get("query")
     if not isinstance(query, str) or not query.strip():
         return {"error": "A non-empty `query` string is required"}, 400
+
+    # Screen the search query before it reaches Exa.
+    blocked = moderation.enforce(
+        [query],
+        safety_identifier=moderation.payment_safety_identifier(),
+    )
+    if blocked:
+        return blocked
 
     # Hash the body exactly as the client sent it (canonicalized), so the
     # client can recompute the request hash from what it built. The `endpoint`

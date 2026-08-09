@@ -18,8 +18,18 @@ from tee_gateway.llm_backend import (
     non_streaming_invoke_kwargs,
 )
 from tee_gateway.pricing import compute_session_cost
+from tee_gateway import moderation
 
 logger = logging.getLogger(__name__)
+
+
+def _prompt_texts(prompt: Any) -> list[str]:
+    """Flatten a completion ``prompt`` (str or list of str) into texts to screen."""
+    if isinstance(prompt, str):
+        return [prompt] if prompt else []
+    if isinstance(prompt, list):
+        return [p for p in prompt if isinstance(p, str) and p]
+    return []
 
 
 def create_completion(body):
@@ -28,6 +38,14 @@ def create_completion(body):
         body = CreateCompletionRequest.from_dict(connexion.request.get_json())
     else:
         return {"error": "Request must be application/json"}, 415
+
+    # Screen the prompt before any provider call.
+    blocked = moderation.enforce(
+        _prompt_texts(body.prompt),
+        safety_identifier=moderation.payment_safety_identifier(),
+    )
+    if blocked:
+        return blocked
 
     try:
         # The web_search flag is a deprecated no-op: search moved to the

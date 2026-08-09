@@ -22,6 +22,7 @@ from tee_gateway.config import (
     DEFAULT_HEARTBEAT_INTERVAL,
 )
 from tee_gateway.llm_backend import get_provider_config, set_provider_config
+from tee_gateway import moderation
 from tee_gateway.web_search import web_search_available
 from tee_gateway.heartbeat import create_heartbeat_service
 from tee_gateway.controllers.ohttp_controller import (
@@ -424,6 +425,25 @@ def set_provider_keys():
             exa_api_key=body.get("exa_api_key") or None,
         )
         set_provider_config(provider_config)
+
+        # Configure the in-enclave content-moderation gate. Defaults to ON when
+        # an OpenAI key is present (its free /moderations endpoint backs the
+        # gate) and fail-closed, so a screening outage rejects rather than leaks.
+        # Operators can override both via the key-injection body.
+        moderation_enabled = bool(
+            body.get("moderation_enabled", bool(provider_config.openai_api_key))
+        )
+        moderation_fail_closed = bool(body.get("moderation_fail_closed", True))
+        moderation_backend: moderation.ModerationBackend
+        if moderation_enabled and provider_config.openai_api_key:
+            moderation_backend = moderation.OpenAIModerationBackend()
+        else:
+            moderation_backend = moderation.StubBackend()
+        moderation.configure_moderation(
+            moderation_backend,
+            enabled=moderation_enabled,
+            fail_closed=moderation_fail_closed,
+        )
 
         facilitator_url = body.get("facilitator_url") or FACILITATOR_URL
 

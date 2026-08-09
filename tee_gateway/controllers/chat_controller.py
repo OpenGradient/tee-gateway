@@ -40,6 +40,7 @@ from tee_gateway.image_generation import (
 )
 from tee_gateway.model_registry import get_model_config
 from tee_gateway.pricing import compute_session_cost
+from tee_gateway import moderation
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,16 @@ def create_chat_completion(body):
         validate_attachments(chat_request.messages, chat_request.model)
     except AttachmentValidationError as e:
         return {"error": "Invalid attachment", "message": str(e)}, 400
+
+    # Screen client content before any provider call. Covers the chat and the
+    # image generation/edit paths alike (both dispatch below from here).
+    blocked = moderation.enforce(
+        moderation.texts_from_messages(chat_request.messages),
+        moderation.images_from_messages(chat_request.messages),
+        safety_identifier=moderation.payment_safety_identifier(),
+    )
+    if blocked:
+        return blocked
 
     if chat_request.stream:
         return _create_streaming_response(chat_request)

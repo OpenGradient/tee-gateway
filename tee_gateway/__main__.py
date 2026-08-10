@@ -22,6 +22,7 @@ from tee_gateway.config import (
     DEFAULT_HEARTBEAT_INTERVAL,
 )
 from tee_gateway.llm_backend import get_provider_config, set_provider_config
+from tee_gateway.moderation import moderation_available
 from tee_gateway.web_search import web_search_available
 from tee_gateway.heartbeat import create_heartbeat_service
 from tee_gateway.controllers.ohttp_controller import (
@@ -534,6 +535,7 @@ def set_provider_keys():
             "providers_initialized": providers_set,
             "heartbeat_enabled": heartbeat_config is not None,
             "web_search_enabled": bool(provider_config.exa_api_key),
+            "moderation_enabled": bool(provider_config.openai_api_key),
         }
     ), 200
 
@@ -552,6 +554,9 @@ def health():
         # Not a provider capability — the search endpoint has no model — so it
         # is reported separately from `providers`.
         "web_search_enabled": web_search_available(),
+        # Whether chat prompts are being scored against OpenAI's moderation
+        # endpoint (requires the OpenAI key; fail-open when unavailable).
+        "moderation_enabled": moderation_available(),
         "facilitator_url": _active_facilitator_url,
         "price_feed": _price_feed.get_status(),
     }, 200

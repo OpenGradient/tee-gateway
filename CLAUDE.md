@@ -182,6 +182,37 @@ to the relay or the gateway operator. Points to keep in mind:
 - Exa's self-reported `costDollars` is logged for margin reconciliation only;
   settlement never depends on it.
 
+### Content Moderation
+
+Image requests on `/v1/chat/completions` — image generation, image editing,
+and inline-image chat models — are scored against OpenAI's free
+`omni-moderation-latest` endpoint before any provider is called
+(`moderation.py`). The check covers the newest user turn: its prompt text plus
+any attached images. **Plain text chat is not moderated**; widening scope
+there is a deliberate future change (the `should_moderate_model` predicate is
+the one gate to widen — everything downstream keys off the flag headers).
+Points to keep in mind:
+
+- **Fail-open**: no OpenAI key or a moderation outage means requests proceed
+  unscored (`checked: false`); a positive verdict always comes from a real
+  moderation response. `/health` reports `moderation_enabled`.
+- **Blocking**: a request flagged for a category in
+  `moderation.BLOCKED_CATEGORIES` (default: `sexual/minors` only) is refused
+  with HTTP 451 + `code: "moderation_blocked"` and never reaches a provider.
+  All other flagged categories are reported but still served.
+- **Response surface**: the full verdict (flagged/blocked/categories/scores)
+  rides inside the sealed response body under the `moderation` key —
+  non-streaming responses and the final SSE frame alike — outside the signed
+  output hash, exactly like `images` and `usage`.
+- **Relay signal**: flagged requests additionally carry content-free
+  `X-Moderation-Flagged` / `X-Moderation-Categories` / `X-Moderation-Blocked`
+  outer headers (forwarded through the OHTTP path) so the relay can run its
+  per-user strike/blacklist policy. Clean traffic carries none of these — it
+  is byte-identical to before.
+- **Billing**: the moderation call is free and adds no cost block changes;
+  blocked (451) requests produce no `opengradient` block and are never
+  settled.
+
 ## Verification Examples
 
 - `examples/verify_attestation.py` — Validates AWS Nitro attestation documents against the root CA

@@ -35,6 +35,7 @@ import httpx
 from flask import Response
 
 from tee_gateway import llm_backend
+from tee_gateway.moderation import ModerationOutcome
 from tee_gateway.models.create_chat_completion_request import (
     CreateChatCompletionRequest,
 )
@@ -519,7 +520,9 @@ def _run_image_generation(
 
 
 def create_image_generation_response(
-    chat_request: CreateChatCompletionRequest, request_bytes: bytes
+    chat_request: CreateChatCompletionRequest,
+    request_bytes: bytes,
+    moderation: ModerationOutcome | None = None,
 ):
     """Non-streaming image generation via a provider's images endpoint.
 
@@ -547,13 +550,21 @@ def create_image_generation_response(
     }
     if result["opengradient"] is not None:
         openai_response["opengradient"] = result["opengradient"]
+    # Prompt moderation verdict (computed by the chat controller before the
+    # generation ran) rides inside the sealed body like the images themselves.
+    if moderation is not None and moderation.checked:
+        openai_response["moderation"] = moderation.to_response_dict()
 
     CreateChatCompletionResponse.from_dict(openai_response)
+    if moderation is not None and moderation.flagged:
+        return openai_response, 200, moderation.headers()
     return openai_response
 
 
 def create_image_generation_streaming_response(
-    chat_request: CreateChatCompletionRequest, request_bytes: bytes
+    chat_request: CreateChatCompletionRequest,
+    request_bytes: bytes,
+    moderation: ModerationOutcome | None = None,
 ):
     """Streaming image generation: image gen is not a token stream, so we invoke
     once and emit the result on the final SSE frame (mirrors the Gemini path)."""
@@ -577,6 +588,8 @@ def create_image_generation_streaming_response(
                 final_data["images"] = result["images"]
             if result["opengradient"] is not None:
                 final_data["opengradient"] = result["opengradient"]
+            if moderation is not None and moderation.checked:
+                final_data["moderation"] = moderation.to_response_dict()
 
             yield f"data: {json.dumps(final_data)}\n\n"
             yield "data: [DONE]\n\n"
@@ -594,5 +607,9 @@ def create_image_generation_streaming_response(
     return Response(
         generate(),
         mimetype="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            **(moderation.headers() if moderation is not None else {}),
+        },
     )

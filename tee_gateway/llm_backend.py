@@ -28,6 +28,7 @@ from langchain_xai import ChatXAI
 
 from tee_gateway.config import ProviderConfig
 from tee_gateway.model_registry import get_model_config
+from tee_gateway.moderation import configure_moderation_client
 from tee_gateway.web_search import configure_exa_client
 
 logger = logging.getLogger(__name__)
@@ -135,6 +136,10 @@ def set_provider_config(config: ProviderConfig) -> None:
     # Web search runs inside the enclave against Exa rather than through any
     # provider's native tool, so its client is built here alongside them.
     configure_exa_client(config.exa_api_key)
+
+    # Prompt moderation reuses the OpenAI key but gets its own client with a
+    # much tighter timeout — it runs synchronously in front of every chat call.
+    configure_moderation_client(config.openai_api_key)
 
     get_chat_model_cached.cache_clear()
     _provider_config = config

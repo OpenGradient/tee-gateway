@@ -113,8 +113,17 @@ _INNER_ENDPOINT_PATHS = {
 }
 
 # Response headers we propagate from the inner /v1/chat/completions response
-# back through the relay to the client.
-_FORWARDED_HEADER_PREFIXES = ("x-payment", "x-upto", "x-settlement", "x-tee")
+# back through the relay to the client. x-moderation-* is a deliberate, narrow
+# exception to "the relay learns nothing": a content-free flagged/blocked bit
+# (plus category names) the relay needs to run its per-user strike/blacklist
+# policy. It is only emitted on flagged requests — clean traffic carries none.
+_FORWARDED_HEADER_PREFIXES = (
+    "x-payment",
+    "x-upto",
+    "x-settlement",
+    "x-tee",
+    "x-moderation",
+)
 _FORWARDED_HEADER_NAMES = ("www-authenticate",)
 
 

@@ -11,6 +11,7 @@ class CreateChatCompletionResponse:
         system_fingerprint=None,
         object=None,
         usage=None,
+        moderation=None,
     ):
         self.id = id
         self.choices = choices
@@ -20,6 +21,7 @@ class CreateChatCompletionResponse:
         self.system_fingerprint = system_fingerprint
         self.object = object
         self.usage = usage
+        self.moderation = moderation
 
     @classmethod
     def from_dict(cls, dikt) -> "CreateChatCompletionResponse":
@@ -34,4 +36,5 @@ class CreateChatCompletionResponse:
             system_fingerprint=dikt.get("system_fingerprint"),
             object=dikt.get("object"),
             usage=dikt.get("usage"),
+            moderation=dikt.get("moderation"),
         )

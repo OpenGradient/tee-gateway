@@ -48,6 +48,8 @@ from typing import Any, Optional
 
 import httpx
 
+from tee_gateway.model_registry import get_model_config
+
 logger = logging.getLogger(__name__)
 
 MODERATION_BASE_URL = "https://api.openai.com/v1"
@@ -59,6 +61,15 @@ MODERATION_MODEL = "omni-moderation-latest"
 # category with essentially no legitimate-use false-positive cost, and the one
 # provider trust-and-safety teams act on.
 BLOCKED_CATEGORIES = frozenset({"sexual/minors"})
+
+# Initial rollout scope: moderate only image requests — image generation,
+# image editing (reference images ride the same image-generation request), and
+# the inline-image chat models — where the abuse being fought lives and where
+# the added pre-flight latency is invisible next to multi-second generation.
+# Flip to False to score every chat request; nothing else needs to change (the
+# relay's strike policy and the app's warning UI key off the flag headers,
+# which plain-text requests simply never carry while this is True).
+MODERATE_IMAGE_REQUESTS_ONLY = True
 
 # Bounds on what we send to the moderation endpoint. The newest user turn is
 # almost always far below these; they exist so a pathological request can't
@@ -109,6 +120,23 @@ def configure_moderation_client(api_key: Optional[str]) -> None:
 def moderation_available() -> bool:
     """Whether an OpenAI key was injected, i.e. whether prompts can be scored."""
     return _moderation_http_client is not None
+
+
+def should_moderate_model(model: str) -> bool:
+    """Whether requests for this model fall inside the moderation scope.
+
+    While ``MODERATE_IMAGE_REQUESTS_ONLY`` is set, only image requests are
+    scored: models served via a provider images endpoint (generation and
+    editing) and inline-image chat models. Unknown models are left to the
+    normal routing error path rather than moderated speculatively.
+    """
+    if not MODERATE_IMAGE_REQUESTS_ONLY:
+        return True
+    try:
+        cfg = get_model_config(model)
+    except Exception:
+        return False
+    return bool(cfg.image_generation or cfg.image_output)
 
 
 @dataclass(frozen=True)

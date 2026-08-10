@@ -152,6 +152,17 @@ class _WireTestCase(unittest.TestCase):
 
 
 class TestChatModerationWire(_WireTestCase):
+    """Full-chat moderation wiring. Text chat is currently outside the rollout
+    scope (MODERATE_IMAGE_REQUESTS_ONLY), so these tests open the scope gate —
+    they verify the wiring that flag enables, image-request scoping itself is
+    covered by TestImageModerationWire below."""
+
+    def setUp(self):
+        super().setUp()
+        flag = patch.object(mod, "MODERATE_IMAGE_REQUESTS_ONLY", False)
+        flag.start()
+        self.addCleanup(flag.stop)
+
     def test_clean_prompt_gets_verdict_in_body_and_no_flag_headers(self):
         with self._with_moderation(_moderation_response(200)):
             response = self._post_chat(self._chat_body())
@@ -264,6 +275,104 @@ class TestChatModerationWire(_WireTestCase):
 
 
 # ---------------------------------------------------------------------------
+# Image requests: the initial rollout scope, exercised without any scope patch
+# ---------------------------------------------------------------------------
+
+
+class TestImageModerationWire(_WireTestCase):
+    """Real rollout behavior: image generation/editing requests are moderated,
+    text chat is not. No scope flag is patched here."""
+
+    def setUp(self):
+        super().setUp()
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        self.generate_images = stack.enter_context(
+            patch(
+                "tee_gateway.image_generation.generate_images",
+                return_value=(["data:image/png;base64,QUJD"], 1),
+            )
+        )
+        stack.enter_context(
+            patch(
+                "tee_gateway.image_generation.get_tee_keys",
+                return_value=_fake_tee_keys(),
+            )
+        )
+        stack.enter_context(
+            patch(
+                "tee_gateway.image_generation.compute_session_cost",
+                return_value=SessionCost(
+                    cost_opg=99999,
+                    cost_usd=Decimal("0.04"),
+                    opg_price_usd=Decimal("0.5"),
+                ),
+            )
+        )
+
+    def _image_body(self, content="draw a castle"):
+        return {
+            "model": "grok-2-image",
+            "messages": [{"role": "user", "content": content}],
+            "stream": False,
+        }
+
+    def test_text_chat_is_not_moderated_during_image_only_rollout(self):
+        moderation_client = _ModerationClient([_FLAGGED])
+        with patch.object(mod, "_moderation_http_client", moderation_client):
+            response = self._post_chat(self._chat_body())
+
+        self.assertEqual(response.status_code, 200)
+        # The moderation endpoint was never consulted for a text model...
+        self.assertEqual(moderation_client.payloads, [])
+        # ...so the response carries no verdict and no flag headers.
+        self.assertNotIn("moderation", response.get_json())
+        self.assertNotIn("X-Moderation-Flagged", response.headers)
+
+    def test_flagged_image_prompt_is_served_with_verdict_and_headers(self):
+        with self._with_moderation(_FLAGGED):
+            response = self._post_chat(self._image_body())
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(
+            body["choices"][0]["message"]["images"],
+            ["data:image/png;base64,QUJD"],
+        )
+        self.assertTrue(body["moderation"]["flagged"])
+        self.assertEqual(body["moderation"]["categories"], ["violence"])
+        self.assertEqual(response.headers["X-Moderation-Flagged"], "true")
+        self.assertEqual(response.headers["X-Moderation-Categories"], "violence")
+
+    def test_blocked_image_prompt_is_refused_before_generation(self):
+        with self._with_moderation(_BLOCKED):
+            response = self._post_chat(self._image_body())
+
+        self.assertEqual(response.status_code, 451)
+        self.assertEqual(response.get_json()["code"], "moderation_blocked")
+        self.assertEqual(response.headers["X-Moderation-Blocked"], "true")
+        self.generate_images.assert_not_called()
+
+    def test_streaming_image_request_carries_verdict_on_final_frame(self):
+        body = self._image_body()
+        body["stream"] = True
+        with self._with_moderation(_FLAGGED):
+            response = self._post_chat(body)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "text/event-stream")
+        self.assertEqual(response.headers["X-Moderation-Flagged"], "true")
+        events = [
+            json.loads(line[len("data: ") :])
+            for line in response.get_data(as_text=True).splitlines()
+            if line.startswith("data: ") and line != "data: [DONE]"
+        ]
+        final_frame = events[-1]
+        self.assertTrue(final_frame["moderation"]["flagged"])
+        self.assertEqual(final_frame["images"], ["data:image/png;base64,QUJD"])
+
+
+# ---------------------------------------------------------------------------
 # Sealed OHTTP path: relay-visible headers, sealed verdict
 # ---------------------------------------------------------------------------
 
@@ -277,10 +386,14 @@ class _FakeDecap:
 
 class TestOhttpModerationForwarding(_WireTestCase):
     """Inner chat requests dispatched for real through the app's WSGI stack —
-    only the HPKE crypto at the boundary is faked."""
+    only the HPKE crypto at the boundary is faked. Scope gate opened like
+    TestChatModerationWire (forwarding mechanics, not rollout scope)."""
 
     def setUp(self):
         super().setUp()
+        flag = patch.object(mod, "MODERATE_IMAGE_REQUESTS_ONLY", False)
+        flag.start()
+        self.addCleanup(flag.stop)
         self.sealed_bodies: list[bytes] = []
 
         def _capture_seal(_key, _enc, body_bytes):

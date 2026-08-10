@@ -39,7 +39,11 @@ from tee_gateway.image_generation import (
     create_image_generation_streaming_response,
 )
 from tee_gateway.model_registry import get_model_config
-from tee_gateway.moderation import ModerationOutcome, moderate_messages
+from tee_gateway.moderation import (
+    ModerationOutcome,
+    moderate_messages,
+    should_moderate_model,
+)
 from tee_gateway.pricing import compute_session_cost
 
 logger = logging.getLogger(__name__)
@@ -98,12 +102,18 @@ def create_chat_completion(body):
     except AttachmentValidationError as e:
         return {"error": "Invalid attachment", "message": str(e)}, 400
 
-    # Score the newest user turn before any provider work. Fail-open: an
+    # Score the newest user turn before any provider work. Initial rollout
+    # scope: image requests only (see moderation.MODERATE_IMAGE_REQUESTS_ONLY);
+    # out-of-scope requests skip the pre-flight entirely. Fail-open: an
     # unavailable moderation endpoint yields an unchecked outcome, never a
     # refusal. Only BLOCKED_CATEGORIES verdicts stop the request here; other
     # flags ride along on the response for the relay/client to act on.
-    moderation = moderate_messages(chat_request.messages)
-    if moderation.blocked:
+    moderation = (
+        moderate_messages(chat_request.messages)
+        if should_moderate_model(chat_request.model)
+        else None
+    )
+    if moderation is not None and moderation.blocked:
         return (
             {
                 "error": "Content policy violation",

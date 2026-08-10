@@ -278,17 +278,41 @@ class TestFailureModes(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestControllerIntegration(unittest.TestCase):
-    """create_chat_completion refuses blocked requests before provider work."""
+class TestModerationScope(unittest.TestCase):
+    """Initial rollout: only image requests are inside the moderation scope."""
 
-    def _request_json(self, stream=False):
+    def test_image_models_are_in_scope(self):
+        for model in ("grok-2-image", "gpt-image-2", "gemini-2.5-flash-image"):
+            self.assertTrue(mod.should_moderate_model(model), model)
+
+    def test_text_models_are_out_of_scope(self):
+        for model in ("gpt-4.1", "gpt-5", "claude-sonnet-4-5"):
+            self.assertFalse(mod.should_moderate_model(model), model)
+
+    def test_unknown_models_are_out_of_scope(self):
+        self.assertFalse(mod.should_moderate_model("not-a-model"))
+
+    def test_flag_off_moderates_everything(self):
+        with patch.object(mod, "MODERATE_IMAGE_REQUESTS_ONLY", False):
+            self.assertTrue(mod.should_moderate_model("gpt-4.1"))
+            self.assertTrue(mod.should_moderate_model("not-a-model"))
+
+
+class TestControllerIntegration(unittest.TestCase):
+    """create_chat_completion refuses blocked requests before provider work.
+
+    The scope gate is patched open here (these tests exercise the verdict
+    handling, not the rollout scope — that's TestModerationScope's job).
+    """
+
+    def _request_json(self, stream=False, model="gpt-5"):
         return {
-            "model": "gpt-5",
+            "model": model,
             "messages": [{"role": "user", "content": "prompt"}],
             "stream": stream,
         }
 
-    def _call_controller(self, outcome, stream=False):
+    def _call_controller(self, outcome, stream=False, in_scope=True):
         from tee_gateway.controllers import chat_controller
 
         fake_request = Mock()
@@ -296,7 +320,12 @@ class TestControllerIntegration(unittest.TestCase):
         fake_request.get_json.return_value = self._request_json(stream)
         with (
             patch.object(chat_controller.connexion, "request", fake_request),
-            patch.object(chat_controller, "moderate_messages", return_value=outcome),
+            patch.object(
+                chat_controller, "should_moderate_model", return_value=in_scope
+            ),
+            patch.object(
+                chat_controller, "moderate_messages", return_value=outcome
+            ) as moderate,
             patch.object(
                 chat_controller,
                 "_create_streaming_response",
@@ -309,6 +338,7 @@ class TestControllerIntegration(unittest.TestCase):
             ) as non_streaming,
         ):
             result = chat_controller.create_chat_completion(None)
+        self._moderate = moderate
         return result, streaming, non_streaming
 
     def test_blocked_request_returns_451_and_never_reaches_a_provider(self):
@@ -343,6 +373,14 @@ class TestControllerIntegration(unittest.TestCase):
         )
         self.assertEqual(result, "streamed")
         streaming.assert_called_once()
+
+    def test_out_of_scope_request_skips_moderation_entirely(self):
+        outcome = ModerationOutcome(checked=True, flagged=True, blocked=True)
+        result, _, non_streaming = self._call_controller(outcome, in_scope=False)
+        # Even a blocked verdict queued on the fake client is never consulted.
+        self.assertEqual(result, "non-streamed")
+        self._moderate.assert_not_called()
+        self.assertIsNone(non_streaming.call_args.args[1])
 
 
 class TestOhttpHeaderForwarding(unittest.TestCase):

@@ -102,12 +102,12 @@ def create_chat_completion(body):
     except AttachmentValidationError as e:
         return {"error": "Invalid attachment", "message": str(e)}, 400
 
-    # Score the newest user turn before any provider work. Initial rollout
-    # scope: image requests only (see moderation.MODERATE_IMAGE_REQUESTS_ONLY);
-    # out-of-scope requests skip the pre-flight entirely. Fail-open: an
-    # unavailable moderation endpoint yields an unchecked outcome, never a
-    # refusal. Only BLOCKED_CATEGORIES verdicts stop the request here; other
-    # flags ride along on the response for the relay/client to act on.
+    # Score the newest user turn of image requests before any provider work
+    # (text chat is not moderated — see moderation.should_moderate_model).
+    # Fail-open: an unavailable moderation endpoint yields an unchecked
+    # outcome, never a refusal. Only BLOCKED_CATEGORIES verdicts stop the
+    # request here; other flags ride along on the response for the
+    # relay/client to act on.
     moderation = (
         moderate_messages(chat_request.messages)
         if should_moderate_model(chat_request.model)

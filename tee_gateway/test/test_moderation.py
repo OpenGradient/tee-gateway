@@ -279,7 +279,7 @@ class TestFailureModes(unittest.TestCase):
 
 
 class TestModerationScope(unittest.TestCase):
-    """Initial rollout: only image requests are inside the moderation scope."""
+    """Only image requests are inside the moderation scope."""
 
     def test_image_models_are_in_scope(self):
         for model in ("grok-2-image", "gpt-image-2", "gemini-2.5-flash-image"):
@@ -291,11 +291,6 @@ class TestModerationScope(unittest.TestCase):
 
     def test_unknown_models_are_out_of_scope(self):
         self.assertFalse(mod.should_moderate_model("not-a-model"))
-
-    def test_flag_off_moderates_everything(self):
-        with patch.object(mod, "MODERATE_IMAGE_REQUESTS_ONLY", False):
-            self.assertTrue(mod.should_moderate_model("gpt-4.1"))
-            self.assertTrue(mod.should_moderate_model("not-a-model"))
 
 
 class TestControllerIntegration(unittest.TestCase):

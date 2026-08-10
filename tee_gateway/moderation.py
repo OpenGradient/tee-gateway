@@ -1,12 +1,16 @@
-"""In-enclave prompt moderation, backed by OpenAI's moderation endpoint.
+"""In-enclave moderation of image requests, backed by OpenAI's moderation endpoint.
 
-Every /v1/chat/completions request is scored against OpenAI's
-``omni-moderation-latest`` model (https://platform.openai.com/docs/guides/moderation)
-before it is forwarded to any provider. The check covers the newest user turn —
-its text and any attached images (image editing / compositing inputs ride on
-that turn as ``data:`` URIs, so they are scored too). Earlier turns were scored
-by their own requests; re-scoring the whole transcript would double-count one
-offense on every subsequent message and on every round of a client tool loop.
+Image requests on /v1/chat/completions — image generation, image editing
+(reference images ride the same request), and the inline-image chat models —
+are scored against OpenAI's ``omni-moderation-latest`` model
+(https://platform.openai.com/docs/guides/moderation) before they are forwarded
+to any provider. Plain text chat is NOT moderated; extending scope there is a
+deliberate future change (``should_moderate_model`` is the one gate to widen).
+The check covers the newest user turn — its prompt text and any attached
+images (editing/compositing inputs arrive as ``data:`` URIs, so they are
+scored too). Earlier turns were scored by their own requests; re-scoring the
+whole transcript would double-count one offense on every subsequent message
+and on every round of a client tool loop.
 
 What the verdict does:
 
@@ -62,15 +66,6 @@ MODERATION_MODEL = "omni-moderation-latest"
 # provider trust-and-safety teams act on.
 BLOCKED_CATEGORIES = frozenset({"sexual/minors"})
 
-# Initial rollout scope: moderate only image requests — image generation,
-# image editing (reference images ride the same image-generation request), and
-# the inline-image chat models — where the abuse being fought lives and where
-# the added pre-flight latency is invisible next to multi-second generation.
-# Flip to False to score every chat request; nothing else needs to change (the
-# relay's strike policy and the app's warning UI key off the flag headers,
-# which plain-text requests simply never carry while this is True).
-MODERATE_IMAGE_REQUESTS_ONLY = True
-
 # Bounds on what we send to the moderation endpoint. The newest user turn is
 # almost always far below these; they exist so a pathological request can't
 # make the pre-flight check slower than the inference it guards.
@@ -82,7 +77,7 @@ MAX_IMAGE_PARTS = 5
 # readable instead of thirteen near-zero floats.
 SCORE_FLOOR = 0.01
 
-# Tight budget: this runs synchronously in front of every chat request, so it
+# Tight budget: this runs synchronously in front of every image request, so it
 # must degrade fast. Images push payloads into the megabytes, hence the write
 # allowance; the endpoint itself typically answers in well under a second.
 _MODERATION_TIMEOUT = httpx.Timeout(timeout=15.0, connect=5.0, read=10.0, write=10.0)
@@ -125,13 +120,13 @@ def moderation_available() -> bool:
 def should_moderate_model(model: str) -> bool:
     """Whether requests for this model fall inside the moderation scope.
 
-    While ``MODERATE_IMAGE_REQUESTS_ONLY`` is set, only image requests are
-    scored: models served via a provider images endpoint (generation and
-    editing) and inline-image chat models. Unknown models are left to the
-    normal routing error path rather than moderated speculatively.
+    Only image requests are scored: models served via a provider images
+    endpoint (generation and editing) and inline-image chat models. Widening
+    moderation to text chat means widening this predicate — everything
+    downstream (relay strike policy, app warnings) keys off the flag headers
+    and needs no change. Unknown models are left to the normal routing error
+    path rather than moderated speculatively.
     """
-    if not MODERATE_IMAGE_REQUESTS_ONLY:
-        return True
     try:
         cfg = get_model_config(model)
     except Exception:

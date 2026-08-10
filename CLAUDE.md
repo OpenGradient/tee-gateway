@@ -184,13 +184,14 @@ to the relay or the gateway operator. Points to keep in mind:
 
 ### Content Moderation
 
-`/v1/chat/completions` requests are scored against OpenAI's free
+Image requests on `/v1/chat/completions` — image generation, image editing,
+and inline-image chat models — are scored against OpenAI's free
 `omni-moderation-latest` endpoint before any provider is called
-(`moderation.py`). The check covers the newest user turn: its text plus any
-attached images. **Initial rollout scope** (`MODERATE_IMAGE_REQUESTS_ONLY`,
-default True): only image requests are scored — image generation, image
-editing, and inline-image chat models; text chat skips the pre-flight
-entirely. Flip that one flag to score every request. Points to keep in mind:
+(`moderation.py`). The check covers the newest user turn: its prompt text plus
+any attached images. **Plain text chat is not moderated**; widening scope
+there is a deliberate future change (the `should_moderate_model` predicate is
+the one gate to widen — everything downstream keys off the flag headers).
+Points to keep in mind:
 
 - **Fail-open**: no OpenAI key or a moderation outage means requests proceed
   unscored (`checked: false`); a positive verdict always comes from a real

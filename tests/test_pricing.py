@@ -289,6 +289,13 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.0000015"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.0000075"))
 
+    def test_gemini_3_7_flash_resolves(self):
+        cfg = get_model_config("gemini-3.7-flash")
+        self.assertEqual(cfg.provider, "google")
+        self.assertEqual(cfg.api_name, "gemini-3.7-flash")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00000075"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00000375"))
+
     def test_gemini_3_1_flash_image_resolves(self):
         cfg = get_model_config("gemini-3.1-flash-image")
         self.assertEqual(cfg.provider, "google")
@@ -300,6 +307,13 @@ class TestModelRegistry(unittest.TestCase):
         self.assertTrue(cfg.image_output)
 
     # ── xAI Grok ────────────────────────────────────────────────────────────
+
+    def test_grok_4_6_resolves(self):
+        cfg = get_model_config("grok-4.6")
+        self.assertEqual(cfg.provider, "x-ai")
+        self.assertEqual(cfg.api_name, "grok-4.6")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000006"))
 
     def test_grok_4_5_resolves(self):
         cfg = get_model_config("grok-4.5")
@@ -713,7 +727,17 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(cost, _expected_cost_opg("gemini-3.6-flash", 1000, 500))
         self.assertEqual(cost, 5_250_000_000_000_000)
 
+    def test_gemini_3_7_flash_cost(self):
+        cost = self._calc("gemini-3.7-flash", 1000, 500)
+        self.assertEqual(cost, _expected_cost_opg("gemini-3.7-flash", 1000, 500))
+        self.assertEqual(cost, 2_625_000_000_000_000)
+
     # ── xAI Grok ────────────────────────────────────────────────────────────
+
+    def test_grok_4_6_cost(self):
+        cost = self._calc("grok-4.6", 1000, 500)
+        self.assertEqual(cost, _expected_cost_opg("grok-4.6", 1000, 500))
+        self.assertEqual(cost, 5_000_000_000_000_000)
 
     def test_grok_4_5_cost(self):
         cost = self._calc("grok-4.5", 1000, 500)

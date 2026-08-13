@@ -122,8 +122,8 @@ Server configuration:
 Model name prefixes determine routing:
 - **OpenAI**: gpt-4.1, gpt-5, gpt-5-mini, gpt-5.2, gpt-5.6-sol/terra/luna, o4-mini; image generation: gpt-image-2
 - **Anthropic**: claude-sonnet-4-0/4-5/4-6, claude-sonnet-5, claude-haiku-4-5, claude-opus-4-5/4-6/4-7/4-8, claude-opus-5, claude-fable-5, claude-3-7-sonnet, claude-3-5-haiku
-- **Google**: gemini-3.6-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview, gemini-3.1-pro-preview, gemini-3.5-flash; image generation: gemini-2.5-flash-image, gemini-3.1-flash-image
-- **xAI**: grok-2, grok-3, grok-3-mini, grok-4, grok-4.3, grok-4.5, grok-4-fast, grok-4-1-fast; image generation: grok-2-image
+- **Google**: gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview, gemini-3.1-pro-preview, gemini-3.5-flash; image generation: gemini-2.5-flash-image, gemini-3.1-flash-image
+- **xAI**: grok-2, grok-3, grok-3-mini, grok-4, grok-4.3, grok-4.5, grok-4.6, grok-4-fast, grok-4-1-fast; image generation: grok-2-image
 - **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro, glm-5.2 (Z.ai's model served via a ModelArk deployment endpoint); image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0
 - **Nous Research** (Nous Portal, OpenAI-compatible): hermes-4-405b, hermes-4-70b
 - **Z.ai** (Model API, OpenAI-compatible): image generation: glm-image (glm-5.2 chat is routed through BytePlus ModelArk, see ByteDance above)

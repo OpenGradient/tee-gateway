@@ -392,8 +392,21 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000015"),
         output_price_usd=Decimal("0.0000075"),
     )
+    # Promotional standard pricing through December 31, 2026.
+    GEMINI_3_7_FLASH = ModelConfig(
+        provider="google",
+        api_name="gemini-3.7-flash",
+        input_price_usd=Decimal("0.00000075"),
+        output_price_usd=Decimal("0.00000375"),
+    )
 
     # ── xAI Grok ────────────────────────────────────────────────────────
+    GROK_4_6 = ModelConfig(
+        provider="x-ai",
+        api_name="grok-4.6",
+        input_price_usd=Decimal("0.000002"),
+        output_price_usd=Decimal("0.000006"),
+    )
     GROK_4_5 = ModelConfig(
         provider="x-ai",
         api_name="grok-4.5",
@@ -671,7 +684,9 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-3.5-flash": SupportedModel.GEMINI_3_5_FLASH,
     "gemini-3.5-flash-lite": SupportedModel.GEMINI_3_5_FLASH_LITE,
     "gemini-3.6-flash": SupportedModel.GEMINI_3_6_FLASH,
+    "gemini-3.7-flash": SupportedModel.GEMINI_3_7_FLASH,
     # xAI
+    "grok-4.6": SupportedModel.GROK_4_6,
     "grok-4.5": SupportedModel.GROK_4_5,
     "grok-4.5-latest": SupportedModel.GROK_4_5,
     "grok-4.3": SupportedModel.GROK_4_3,

@@ -429,12 +429,19 @@ def set_provider_keys():
         )
         try:
             set_provider_config(provider_config)
-        except ValueError as e:
+        except ValueError:
             # Malformed GCP service-account key: reject the injection outright
             # (keys can be re-injected) instead of silently running without
-            # Vertex routing.
-            logger.error("Provider config rejected: %s", e)
-            return jsonify({"error": str(e)}), 400
+            # Vertex routing. The exception text can carry parser internals,
+            # so it goes to the enclave log only — never the HTTP response.
+            logger.exception("Provider config rejected")
+            return jsonify(
+                {
+                    "error": "Invalid GCP configuration "
+                    "(gcp_service_account_json / gcp_project_id); "
+                    "see enclave logs for details"
+                }
+            ), 400
 
         facilitator_url = body.get("facilitator_url") or FACILITATOR_URL
 

@@ -74,8 +74,8 @@ API keys (injected at runtime via POST /v1/keys — do NOT bake into the image):
   `/v1/web_search` endpoint, not an LLM provider. Without it the endpoint
   returns 503 and `/health` reports `web_search_enabled: false`.
 - `GCP_SERVICE_ACCOUNT_JSON_B64` (base64-encoded GCP service-account key JSON;
-  injected as `gcp_service_account_json`) — when set, Anthropic and Google
-  models are routed through GCP Vertex AI instead of the vendors' direct APIs
+  injected as `gcp_service_account_json`) — when set, Anthropic (Claude)
+  models are routed through GCP Vertex AI instead of Anthropic's direct API
   (see "GCP Vertex AI routing" below). Optional companions: `GCP_PROJECT_ID`
   (defaults to the service account's own project) and `GCP_LOCATION` (defaults
   to Vertex's `global` endpoint).
@@ -126,23 +126,24 @@ Server configuration:
 ### GCP Vertex AI routing
 
 When a GCP service-account key is injected (`gcp_service_account_json`, plus
-optional `gcp_project_id`/`gcp_location`), **Anthropic (Claude) and Google
-(Gemini) models are served through GCP Vertex AI** so usage draws on GCP
-credits/commitments; without it, both fall back to the vendors' direct APIs
-via their per-vendor keys. Key points:
+optional `gcp_project_id`/`gcp_location`), **Anthropic (Claude) models are
+served through GCP Vertex AI** so their usage draws on GCP
+credits/commitments; without it, Claude falls back to Anthropic's direct API
+via `anthropic_api_key`. Key points:
 
-- **Same model names, same billing**: user-facing model names, providers
-  (`anthropic`/`google`), pricing, request hashing, and signing are all
+- **Same model names, same billing**: user-facing model names, the
+  `anthropic` provider, pricing, request hashing, and signing are all
   unchanged — Vertex is a transport, not a new provider. Claude's dated
   snapshots use Vertex's `@`-form IDs (`vertex_api_name` in
-  `model_registry.py`, e.g. `claude-opus-4-5@20251101`); every other ID is
-  identical on both surfaces.
+  `model_registry.py`, e.g. `claude-opus-4-5@20251101`); current-generation
+  IDs are identical on both surfaces.
 - **How it's wired** (`llm_backend.py`): Claude runs through
   `ChatAnthropicVertex`, a thin `ChatAnthropic` subclass that swaps the SDK
   client for `anthropic.AnthropicVertex` (OAuth via the injected service
-  account, `/v1/messages` rewritten to Vertex `rawPredict`). Gemini uses the
-  same `ChatGoogleGenerativeAI` class with `vertexai=True` — the google-genai
-  SDK serves both backends natively.
+  account, `/v1/messages` rewritten to Vertex `rawPredict`).
+- **Gemini stays on the direct API**: a paid-tier Gemini API key already
+  bills to the GCP project it belongs to, so Vertex routing buys nothing —
+  keep `GOOGLE_API_KEY` on a project under the credited billing account.
 - **Location**: defaults to Vertex's `global` endpoint (recommended: dynamic
   capacity routing, no 10% regional premium, and the only endpoint type
   serving the newest Claude models). Inject `gcp_location` (`us`, `eu`, or a

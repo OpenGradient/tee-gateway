@@ -543,9 +543,9 @@ def set_provider_keys():
             "heartbeat_enabled": heartbeat_config is not None,
             "web_search_enabled": bool(provider_config.exa_api_key),
             "moderation_enabled": bool(provider_config.openai_api_key),
-            # Whether Anthropic/Google models are routed through GCP Vertex AI
-            # (a GCP service-account key was injected) instead of the vendors'
-            # direct APIs.
+            # Whether Anthropic (Claude) models are routed through GCP Vertex
+            # AI (a GCP service-account key was injected) instead of
+            # Anthropic's direct API.
             "vertex_enabled": provider_config.vertex_enabled(),
         }
     ), 200
@@ -568,7 +568,7 @@ def health():
         # Whether chat prompts are being scored against OpenAI's moderation
         # endpoint (requires the OpenAI key; fail-open when unavailable).
         "moderation_enabled": moderation_available(),
-        # Whether Anthropic/Google models are routed through GCP Vertex AI.
+        # Whether Anthropic (Claude) models are routed through GCP Vertex AI.
         "vertex_enabled": cfg.vertex_enabled() if cfg else False,
         "facilitator_url": _active_facilitator_url,
         "price_feed": _price_feed.get_status(),

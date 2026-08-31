@@ -407,7 +407,7 @@ Clients use an x402-compatible client (e.g., the [x402 SDK](https://github.com/o
 | `ARK_API_KEY` | - | BytePlus / ByteDance ModelArk API key (injected as `bytedance_api_key`) |
 | `NOUS_API_KEY` | - | Nous Research / Nous Portal API key (injected as `nous_api_key`) |
 | `ZAI_API_KEY` | - | Z.ai Model API key (injected as `zai_api_key`) |
-| `GCP_SERVICE_ACCOUNT_JSON_B64` | - | Base64-encoded GCP service-account key JSON (injected as `gcp_service_account_json`). When set, Anthropic and Google models are served through GCP Vertex AI instead of the vendors' direct APIs |
+| `GCP_SERVICE_ACCOUNT_JSON_B64` | - | Base64-encoded GCP service-account key JSON (injected as `gcp_service_account_json`). When set, Anthropic (Claude) models are served through GCP Vertex AI instead of Anthropic's direct API |
 | `GCP_PROJECT_ID` | service account's own project | GCP project for Vertex AI (injected as `gcp_project_id`) |
 | `GCP_LOCATION` | `global` | Vertex AI endpoint: `global` (recommended, no regional premium), a multi-region (`us`/`eu`), or a specific region (injected as `gcp_location`) |
 | `EVM_PAYMENT_ADDRESS` | - | Wallet address to receive x402 payments |

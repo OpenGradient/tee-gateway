@@ -1,10 +1,10 @@
-"""Unit tests for GCP Vertex AI routing of Anthropic and Google models.
+"""Unit tests for GCP Vertex AI routing of Anthropic (Claude) models.
 
 When a GCP service-account key is injected via /v1/keys, Claude models are
-served through ``AnthropicVertex`` and Gemini models through the google-genai
-SDK's Vertex backend; without it, both fall back to the vendors' direct APIs.
-No network calls are made — the tests only exercise client construction and
-provider routing.
+served through ``AnthropicVertex``; without it, they fall back to Anthropic's
+direct API. Gemini deliberately stays on the direct Gemini API either way (a
+paid-tier Gemini key already bills to its GCP project). No network calls are
+made — the tests only exercise client construction and provider routing.
 """
 
 import json
@@ -108,21 +108,21 @@ class VertexRoutingTestCase(unittest.TestCase):
                 self.assertIsInstance(model, ChatAnthropicVertex)
                 self.assertEqual(model.model, name)
 
-    def test_gemini_routed_through_vertex_when_gcp_configured(self) -> None:
-        self._configure(gcp_service_account_json=_FAKE_SA_JSON)
-
+    def test_gemini_stays_direct_even_with_gcp_configured(self) -> None:
+        # Gemini keeps the direct API: its paid-tier key already bills to a
+        # GCP project, so only Claude moves to Vertex.
+        self._configure(
+            google_api_key="AIza-test", gcp_service_account_json=_FAKE_SA_JSON
+        )
         model = get_chat_model_cached("gemini-2.5-flash", 0.7, 256)
-        self.assertTrue(model.vertexai)
-        self.assertEqual(model.project, "test-project")
-        self.assertEqual(model.location, "global")
-        # The google-genai client must actually be in Vertex mode.
-        self.assertTrue(model.client._api_client.vertexai)
+        self.assertFalse(model.vertexai)
+        self.assertFalse(model.client._api_client.vertexai)
 
-    def test_gemini_image_output_model_on_vertex(self) -> None:
+        # And GCP credentials are no substitute for the Gemini key.
+        self.tearDown()
         self._configure(gcp_service_account_json=_FAKE_SA_JSON)
-        model = get_chat_model_cached("gemini-2.5-flash-image", 0.7, 256)
-        self.assertTrue(model.vertexai)
-        self.assertEqual(len(model.response_modalities), 2)
+        with self.assertRaises(ValueError):
+            get_chat_model_cached("gemini-2.5-flash", 0.7, 256)
 
     def test_project_and_location_overrides(self) -> None:
         self._configure(
@@ -137,13 +137,11 @@ class VertexRoutingTestCase(unittest.TestCase):
     def test_vertex_preferred_over_direct_anthropic_key(self) -> None:
         self._configure(
             anthropic_api_key="sk-ant-test",
-            google_api_key="AIza-test",
             gcp_service_account_json=_FAKE_SA_JSON,
         )
         self.assertIsInstance(
             get_chat_model_cached("claude-opus-5", 0.7, 256), ChatAnthropicVertex
         )
-        self.assertTrue(get_chat_model_cached("gemini-2.5-flash", 0.7, 256).vertexai)
 
     # ── fallback without GCP credentials ─────────────────────────────────
 
@@ -188,7 +186,8 @@ class VertexRoutingTestCase(unittest.TestCase):
         self.assertTrue(cfg.vertex_enabled())
         providers = cfg.initialized_providers()
         self.assertIn("anthropic", providers)
-        self.assertIn("google", providers)
+        # Gemini is not served by Vertex routing — it still needs its own key.
+        self.assertNotIn("google", providers)
         self.assertNotIn("openai", providers)
 
     def test_registry_vertex_ids_only_set_for_anthropic_snapshots(self) -> None:

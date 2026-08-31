@@ -87,8 +87,9 @@ zai_http_client: Optional[httpx.Client] = None
 _provider_config: Optional[ProviderConfig] = None
 
 # GCP Vertex AI routing state, derived from the injected service-account key.
-# When populated, Anthropic and Google models are served through Vertex; the
+# When populated, Anthropic (Claude) models are served through Vertex; the
 # credentials object self-refreshes its OAuth token, so it is built once here.
+# (Gemini stays on the direct API — its key already bills to a GCP project.)
 _vertex_credentials: Optional[service_account.Credentials] = None
 _vertex_project_id: Optional[str] = None
 _vertex_location: str = VERTEX_DEFAULT_LOCATION
@@ -125,7 +126,7 @@ def _build_vertex_state(
 
 
 def vertex_enabled() -> bool:
-    """Whether Anthropic/Google models are currently routed through Vertex AI."""
+    """Whether Anthropic (Claude) models are currently routed through Vertex AI."""
     return _vertex_credentials is not None
 
 
@@ -319,24 +320,11 @@ def get_chat_model_cached(
     logger.info(f"Creating cached chat model - Provider: {provider}, Model: {api_name}")
 
     if provider == "google":
-        # Vertex AI and the direct Gemini API serve the same models under the
-        # same IDs through the same google-genai SDK; only the endpoint and
-        # auth differ. When a GCP service account was injected, route through
-        # Vertex so usage draws on GCP credits/commitments.
-        google_kwargs: dict[str, Any]
-        if vertex_enabled():
-            google_kwargs = {
-                "vertexai": True,
-                "project": _vertex_project_id,
-                "location": _vertex_location,
-                "credentials": _vertex_credentials,
-            }
-        elif config.google_api_key:
-            google_kwargs = {"google_api_key": config.google_api_key}
-        else:
-            raise ValueError(
-                "Neither google_api_key nor GCP credentials set in ProviderConfig"
-            )
+        # Gemini deliberately stays on the direct API: a paid-tier Gemini API
+        # key already bills to its GCP project, so Vertex routing would buy
+        # nothing here. Only Claude moves to Vertex (see the anthropic branch).
+        if not config.google_api_key:
+            raise ValueError("google_api_key not set in ProviderConfig")
 
         # Image-generation models return images inline and do not support the
         # thinking budget; ask for both TEXT and IMAGE modalities so the model
@@ -344,19 +332,19 @@ def get_chat_model_cached(
         if cfg.image_output:
             return ChatGoogleGenerativeAI(
                 model=api_name,
+                google_api_key=config.google_api_key,
                 temperature=effective_temp,
                 max_output_tokens=max_tokens,
                 response_modalities=[Modality.TEXT, Modality.IMAGE],
-                **google_kwargs,
             )
 
         return ChatGoogleGenerativeAI(
             model=api_name,
+            google_api_key=config.google_api_key,
             temperature=effective_temp,
             max_output_tokens=max_tokens,
             thinking_budget=cfg.thinking_budget,
             include_thoughts=False if cfg.thinking_budget is not None else None,
-            **google_kwargs,
         )
 
     elif provider == "openai":

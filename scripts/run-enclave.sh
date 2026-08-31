@@ -94,8 +94,8 @@ if [ -f "$ENV_FILE" ]; then
         ZAI_API_KEY="$(grep -E '^ZAI_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         # Backs the in-enclave `web_search` tool (Exa), not an LLM provider.
         EXA_API_KEY="$(grep -E '^EXA_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
-        # GCP service-account key for Vertex AI routing (Anthropic + Google
-        # models). Base64-encoded in the .env so the multi-line JSON key
+        # GCP service-account key for Vertex AI routing of Anthropic (Claude)
+        # models. Base64-encoded in the .env so the multi-line JSON key
         # survives the one-line KEY=VALUE format; decoded before injection.
         GCP_SERVICE_ACCOUNT_JSON_B64="$(grep -E '^GCP_SERVICE_ACCOUNT_JSON_B64=' "$ENV_FILE" | cut -d'=' -f2-)"
         GCP_SERVICE_ACCOUNT_JSON=""

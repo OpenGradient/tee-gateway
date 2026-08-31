@@ -73,6 +73,12 @@ API keys (injected at runtime via POST /v1/keys — do NOT bake into the image):
 - `EXA_API_KEY` (Exa search; injected as `exa_api_key`) — backs the in-enclave
   `/v1/web_search` endpoint, not an LLM provider. Without it the endpoint
   returns 503 and `/health` reports `web_search_enabled: false`.
+- `GCP_SERVICE_ACCOUNT_JSON_B64` (base64-encoded GCP service-account key JSON;
+  injected as `gcp_service_account_json`) — when set, Anthropic and Google
+  models are routed through GCP Vertex AI instead of the vendors' direct APIs
+  (see "GCP Vertex AI routing" below). Optional companions: `GCP_PROJECT_ID`
+  (defaults to the service account's own project) and `GCP_LOCATION` (defaults
+  to Vertex's `global` endpoint).
 
 Server configuration:
 - `API_SERVER_PORT` (default: 8000)
@@ -116,6 +122,35 @@ Server configuration:
 - **Nitriding daemon** runs on localhost:8080, provides TLS termination (port 443 externally)
 - Endpoints `/enclave/ready` and `/enclave/hash` used for nitriding registration
 - PCR measurements in `measurements.txt` fingerprint the exact enclave image
+
+### GCP Vertex AI routing
+
+When a GCP service-account key is injected (`gcp_service_account_json`, plus
+optional `gcp_project_id`/`gcp_location`), **Anthropic (Claude) and Google
+(Gemini) models are served through GCP Vertex AI** so usage draws on GCP
+credits/commitments; without it, both fall back to the vendors' direct APIs
+via their per-vendor keys. Key points:
+
+- **Same model names, same billing**: user-facing model names, providers
+  (`anthropic`/`google`), pricing, request hashing, and signing are all
+  unchanged — Vertex is a transport, not a new provider. Claude's dated
+  snapshots use Vertex's `@`-form IDs (`vertex_api_name` in
+  `model_registry.py`, e.g. `claude-opus-4-5@20251101`); every other ID is
+  identical on both surfaces.
+- **How it's wired** (`llm_backend.py`): Claude runs through
+  `ChatAnthropicVertex`, a thin `ChatAnthropic` subclass that swaps the SDK
+  client for `anthropic.AnthropicVertex` (OAuth via the injected service
+  account, `/v1/messages` rewritten to Vertex `rawPredict`). Gemini uses the
+  same `ChatGoogleGenerativeAI` class with `vertexai=True` — the google-genai
+  SDK serves both backends natively.
+- **Location**: defaults to Vertex's `global` endpoint (recommended: dynamic
+  capacity routing, no 10% regional premium, and the only endpoint type
+  serving the newest Claude models). Inject `gcp_location` (`us`, `eu`, or a
+  specific region) only for data-residency needs.
+- **Non-migratable providers**: OpenAI, xAI, ByteDance, Nous, and Z.ai have no
+  Vertex presence and always use their direct APIs. Moderation also stays on
+  OpenAI's free endpoint.
+- `/health` and the `/v1/keys` response report `vertex_enabled`.
 
 ### Supported Providers
 

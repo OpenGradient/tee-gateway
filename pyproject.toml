@@ -24,7 +24,8 @@ dependencies = [
     "langchain-google-genai>=4.2.1",
     "langchain-xai>=1.2.2",
     "openai>=2.15.0",
-    "anthropic>=0.76.0",
+    # [vertex] pulls google-auth for AnthropicVertex (Claude via GCP Vertex AI)
+    "anthropic[vertex]>=0.76.0",
     "google-generativeai>=0.8.6",
     "cryptography>=46.0.5",
     "eth-hash[pycryptodome]>=0.7.0",

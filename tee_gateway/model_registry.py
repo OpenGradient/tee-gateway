@@ -18,6 +18,13 @@ class ModelConfig:
     api_name: str  # model name sent to provider API
     input_price_usd: Decimal  # USD per token
     output_price_usd: Decimal  # USD per token
+    # Model ID on GCP Vertex AI, when it differs from ``api_name``. Vertex
+    # serves current-generation Claude models under their bare first-party IDs
+    # but dated snapshots under an ``@`` separator (claude-opus-4-5@20251101,
+    # not claude-opus-4-5-20251101); Gemini IDs are identical on both surfaces.
+    # ``None`` means api_name is already the Vertex ID. Only consulted when the
+    # gateway is configured to route the provider through Vertex.
+    vertex_api_name: Optional[str] = None
     force_temperature: Optional[float] = None
     thinking_budget: Optional[int] = None
     # Anthropic deprecated `temperature` for Opus 4.7 — the API returns 400 if
@@ -242,6 +249,7 @@ class SupportedModel(Enum):
         api_name="claude-sonnet-4-5",
         input_price_usd=Decimal("0.000003"),
         output_price_usd=Decimal("0.000015"),
+        vertex_api_name="claude-sonnet-4-5@20250929",
     )
     CLAUDE_SONNET_4_6 = ModelConfig(
         provider="anthropic",
@@ -265,12 +273,14 @@ class SupportedModel(Enum):
         api_name="claude-haiku-4-5-20251001",
         input_price_usd=Decimal("0.000001"),
         output_price_usd=Decimal("0.000005"),
+        vertex_api_name="claude-haiku-4-5@20251001",
     )
     CLAUDE_OPUS_4_5 = ModelConfig(
         provider="anthropic",
         api_name="claude-opus-4-5-20251101",
         input_price_usd=Decimal("0.000005"),
         output_price_usd=Decimal("0.000025"),
+        vertex_api_name="claude-opus-4-5@20251101",
     )
     CLAUDE_OPUS_4_6 = ModelConfig(
         provider="anthropic",

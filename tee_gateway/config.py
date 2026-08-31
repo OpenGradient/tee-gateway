@@ -35,15 +35,27 @@ class ProviderConfig:
     # deliberately absent from initialized_providers() — /health reports it
     # separately as `web_search_enabled`.
     exa_api_key: Optional[str] = None
+    # GCP service-account key (full JSON, as a string). When set, Anthropic and
+    # Google models are served through Vertex AI instead of the vendors' direct
+    # APIs — the per-vendor API keys above then act as an optional fallback for
+    # operators that don't route through GCP. project defaults to the service
+    # account's own project_id; location defaults to Vertex's "global" endpoint.
+    gcp_service_account_json: Optional[str] = None
+    gcp_project_id: Optional[str] = None
+    gcp_location: Optional[str] = None
+
+    def vertex_enabled(self) -> bool:
+        """Whether Anthropic/Google traffic is routed through GCP Vertex AI."""
+        return bool(self.gcp_service_account_json)
 
     def initialized_providers(self) -> list[str]:
-        """Return provider names whose API key is set (non-empty)."""
+        """Return provider names the gateway can serve (API key or Vertex)."""
         providers = []
         if self.openai_api_key:
             providers.append("openai")
-        if self.anthropic_api_key:
+        if self.anthropic_api_key or self.vertex_enabled():
             providers.append("anthropic")
-        if self.google_api_key:
+        if self.google_api_key or self.vertex_enabled():
             providers.append("google")
         if self.xai_api_key:
             providers.append("xai")

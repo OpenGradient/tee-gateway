@@ -94,6 +94,16 @@ if [ -f "$ENV_FILE" ]; then
         ZAI_API_KEY="$(grep -E '^ZAI_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         # Backs the in-enclave `web_search` tool (Exa), not an LLM provider.
         EXA_API_KEY="$(grep -E '^EXA_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
+        # GCP service-account key for Vertex AI routing (Anthropic + Google
+        # models). Base64-encoded in the .env so the multi-line JSON key
+        # survives the one-line KEY=VALUE format; decoded before injection.
+        GCP_SERVICE_ACCOUNT_JSON_B64="$(grep -E '^GCP_SERVICE_ACCOUNT_JSON_B64=' "$ENV_FILE" | cut -d'=' -f2-)"
+        GCP_SERVICE_ACCOUNT_JSON=""
+        if [ -n "$GCP_SERVICE_ACCOUNT_JSON_B64" ]; then
+            GCP_SERVICE_ACCOUNT_JSON="$(printf '%s' "$GCP_SERVICE_ACCOUNT_JSON_B64" | base64 -d)"
+        fi
+        GCP_PROJECT_ID="$(grep -E '^GCP_PROJECT_ID=' "$ENV_FILE" | cut -d'=' -f2-)"
+        GCP_LOCATION="$(grep -E '^GCP_LOCATION=' "$ENV_FILE" | cut -d'=' -f2-)"
 
         # FACILITATOR_URL is used for both x402 payment verification and the heartbeat relay.
         # HEARTBEAT_CONTRACT_ADDRESS and TEE_HEARTBEAT_INTERVAL are optional heartbeat parameters.
@@ -113,6 +123,9 @@ if [ -f "$ENV_FILE" ]; then
             --arg nous "$NOUS_API_KEY" \
             --arg zai "$ZAI_API_KEY" \
             --arg exa "$EXA_API_KEY" \
+            --arg gcp_sa "$GCP_SERVICE_ACCOUNT_JSON" \
+            --arg gcp_project "$GCP_PROJECT_ID" \
+            --arg gcp_location "$GCP_LOCATION" \
             --arg hb_contract "$HEARTBEAT_CONTRACT_ADDRESS" \
             --arg facilitator "$FACILITATOR_URL" \
             --arg hb_interval "$TEE_HEARTBEAT_INTERVAL" \
@@ -126,6 +139,9 @@ if [ -f "$ENV_FILE" ]; then
                 zai_api_key: $zai,
                 exa_api_key: $exa
             }
+            + if $gcp_sa != "" then {gcp_service_account_json: $gcp_sa} else {} end
+            + if $gcp_project != "" then {gcp_project_id: $gcp_project} else {} end
+            + if $gcp_location != "" then {gcp_location: $gcp_location} else {} end
             + if $hb_contract != "" then {heartbeat_contract_address: $hb_contract} else {} end
             + if $facilitator != "" then {facilitator_url: $facilitator} else {} end
             + if $hb_interval != "" then {tee_heartbeat_interval: $hb_interval} else {} end
@@ -156,6 +172,7 @@ if [ -f "$ENV_FILE" ]; then
         # Clear key variables from this shell immediately after use
         unset OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY XAI_API_KEY ARK_API_KEY
         unset NOUS_API_KEY ZAI_API_KEY EXA_API_KEY
+        unset GCP_SERVICE_ACCOUNT_JSON_B64 GCP_SERVICE_ACCOUNT_JSON GCP_PROJECT_ID GCP_LOCATION
         unset HEARTBEAT_CONTRACT_ADDRESS FACILITATOR_URL TEE_HEARTBEAT_INTERVAL
     fi
 else

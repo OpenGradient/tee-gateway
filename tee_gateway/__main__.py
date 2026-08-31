@@ -423,8 +423,18 @@ def set_provider_keys():
             nous_api_key=body.get("nous_api_key") or None,
             zai_api_key=body.get("zai_api_key") or None,
             exa_api_key=body.get("exa_api_key") or None,
+            gcp_service_account_json=body.get("gcp_service_account_json") or None,
+            gcp_project_id=body.get("gcp_project_id") or None,
+            gcp_location=body.get("gcp_location") or None,
         )
-        set_provider_config(provider_config)
+        try:
+            set_provider_config(provider_config)
+        except ValueError as e:
+            # Malformed GCP service-account key: reject the injection outright
+            # (keys can be re-injected) instead of silently running without
+            # Vertex routing.
+            logger.error("Provider config rejected: %s", e)
+            return jsonify({"error": str(e)}), 400
 
         facilitator_url = body.get("facilitator_url") or FACILITATOR_URL
 
@@ -491,6 +501,10 @@ def set_provider_keys():
         logger.info(
             "  exa_api_key (web search)    : %s", _set(provider_config.exa_api_key)
         )
+        logger.info(
+            "  gcp_service_account (vertex): %s",
+            _set(provider_config.gcp_service_account_json),
+        )
         logger.info("  facilitator_url             : %s", facilitator_url)
         logger.info(
             "  heartbeat_contract_address  : %s",
@@ -515,27 +529,17 @@ def set_provider_keys():
         _active_facilitator_url = facilitator_url
         _keys_initialized = True
 
-    providers_set = [
-        p
-        for p, k in {
-            "openai": provider_config.openai_api_key,
-            "google": provider_config.google_api_key,
-            "anthropic": provider_config.anthropic_api_key,
-            "xai": provider_config.xai_api_key,
-            "bytedance": provider_config.bytedance_api_key,
-            "nous": provider_config.nous_api_key,
-            "zai": provider_config.zai_api_key,
-        }.items()
-        if k
-    ]
-
     return jsonify(
         {
             "status": "ok",
-            "providers_initialized": providers_set,
+            "providers_initialized": provider_config.initialized_providers(),
             "heartbeat_enabled": heartbeat_config is not None,
             "web_search_enabled": bool(provider_config.exa_api_key),
             "moderation_enabled": bool(provider_config.openai_api_key),
+            # Whether Anthropic/Google models are routed through GCP Vertex AI
+            # (a GCP service-account key was injected) instead of the vendors'
+            # direct APIs.
+            "vertex_enabled": provider_config.vertex_enabled(),
         }
     ), 200
 
@@ -557,6 +561,8 @@ def health():
         # Whether chat prompts are being scored against OpenAI's moderation
         # endpoint (requires the OpenAI key; fail-open when unavailable).
         "moderation_enabled": moderation_available(),
+        # Whether Anthropic/Google models are routed through GCP Vertex AI.
+        "vertex_enabled": cfg.vertex_enabled() if cfg else False,
         "facilitator_url": _active_facilitator_url,
         "price_feed": _price_feed.get_status(),
     }, 200

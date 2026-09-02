@@ -26,11 +26,9 @@ amount):
     model name, no token counts: those would be a fingerprint of the
     inner request and have no role in billing.
   * stream=true: outer response headers are flushed before any body chunk
-    is yielded, so cost isn't known at header-write time. The relay reads
-    the settled amount from x402: either by querying the facilitator with
-    its X-Upto-Session, or via X-Payment-Response on its next request. The
-    client still sees cost in the final SSE event inside the encrypted
-    stream (the ``opengradient`` block written by the chat controller).
+    is yielded, so final cost and the batch voucher receipt are carried in a
+    private plaintext billing frame immediately before the final sealed OHTTP
+    chunk. The relay strips that frame before forwarding bytes to the client.
 
 Trust / payment model:
   * The CLIENT encrypts only an LLM chat-completion request. It does not see,
@@ -87,6 +85,10 @@ logger = logging.getLogger(__name__)
 OHTTP_RESPONSE_MEDIA_TYPE = "message/ohttp-res"
 OHTTP_CHUNKED_RESPONSE_MEDIA_TYPE = "message/ohttp-chunked-res"
 OHTTP_BILLING_FRAME_MAGIC = b"\n--opengradient-ohttp-billing-v1--\n"
+# This marker is never sent on the wire. The x402 Flask middleware consumes it
+# after the final cost is known, settles the batch voucher, and replaces it
+# with the billing frame above before the final sealed OHTTP chunk is yielded.
+OHTTP_BATCH_SETTLEMENT_BOUNDARY = b"\n--opengradient-ohttp-batch-settlement-boundary-v1--\n"
 _SSE_CONTENT_TYPE = "text/event-stream"
 
 # Cap on the encapsulated request size. The inner payload is a chat-completion
@@ -311,9 +313,12 @@ def _build_streaming_response(
                 response_json=response_json,
                 status_code=status,
             )
-            billing_frame = _build_billing_frame(response_json)
-            if billing_frame:
-                yield billing_frame
+            # The outer x402 middleware consumes this internal boundary,
+            # settles the batch voucher using the cost context above, and
+            # injects the private billing/receipt frame in its place. This
+            # must remain before the final OHTTP chunk so the relay can strip
+            # it while preserving valid chunked-OHTTP framing for the browser.
+            yield OHTTP_BATCH_SETTLEMENT_BOUNDARY
 
             # Always emit exactly one final chunk so the AAD=b"final"
             # marker is present — that's what protects clients from
@@ -380,17 +385,28 @@ def _extract_cost_headers(body_bytes: bytes) -> dict[str, str]:
     }
 
 
-def _build_billing_frame(response_json: dict[str, Any] | None) -> bytes:
-    """Build the private gateway-to-relay billing frame for streaming OHTTP.
+def build_ohttp_batch_settlement_frame(
+    receipt: dict[str, Any],
+    streaming_cost_context: dict[str, Any] | None,
+) -> bytes:
+    """Build the private gateway-to-relay batch settlement frame.
 
-    This plaintext frame carries only the same billing fields projected as
-    outer headers for non-streaming OHTTP. The relay strips it before forwarding
-    bytes to the browser.
+    This plaintext frame carries the same billing fields projected as outer
+    headers for non-streaming OHTTP plus the encoded x402 payment response.
+    The relay strips it before forwarding bytes to the browser and persists
+    the voucher receipt in its SDK channel storage.
     """
-    if not isinstance(response_json, dict):
-        return b""
+    response_json = (
+        streaming_cost_context.get("inner_response_json")
+        if isinstance(streaming_cost_context, dict)
+        else None
+    )
+    payload: dict[str, str] = {}
     try:
+        if not isinstance(response_json, dict):
+            raise ValueError("streaming response cost context is missing")
         cost = SessionCost.model_validate(response_json.get("opengradient"))
+        payload.update(cost.model_dump(mode="json"))
     except Exception as exc:
         logger.warning(
             "OHTTP billing frame skipped — cost block missing/invalid on "
@@ -398,9 +414,20 @@ def _build_billing_frame(response_json: dict[str, Any] | None) -> bytes:
             type(exc).__name__,
             exc,
         )
+    if receipt.get("success"):
+        payment_response = receipt.get("paymentResponse")
+        if isinstance(payment_response, str) and payment_response:
+            payload["payment_response"] = payment_response
+        else:
+            payload["payment_error"] = "batch settlement response is missing"
+    else:
+        payload["payment_error"] = str(
+            receipt.get("error") or "batch settlement failed"
+        )
+    if not payload:
         return b""
     payload = json.dumps(
-        cost.model_dump(mode="json"),
+        payload,
         separators=(",", ":"),
     ).encode("utf-8")
     return OHTTP_BILLING_FRAME_MAGIC + len(payload).to_bytes(4, "big") + payload

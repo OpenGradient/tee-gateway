@@ -54,16 +54,17 @@ PROVIDER_SMOKE_MODELS = (
     _ProviderCase("Google", "gemini-3.5-flash-lite", "GOOGLE_API_KEY"),
     _ProviderCase("xAI", "grok-4-fast", "XAI_API_KEY"),
     _ProviderCase("ByteDance", "deepseek-v4-flash", "ARK_API_KEY"),
-    _ProviderCase("Nous", "hermes-4-70b", "NOUS_API_KEY"),
+    _ProviderCase("OpenRouter", "hermes-4-70b", "OPENROUTER_API_KEY"),
     _ProviderCase("Z.ai", "glm-5.2", "ZAI_API_KEY"),
 )
 
 NEW_CHAT_MODELS = (
     _ProviderCase("OpenAI", "gpt-5.6-luna", "OPENAI_API_KEY"),
     _ProviderCase("Anthropic", "claude-sonnet-5", "ANTHROPIC_API_KEY"),
-    _ProviderCase("Google", "gemini-3.6-flash", "GOOGLE_API_KEY"),
+    _ProviderCase("Google", "gemini-3.8-flash", "GOOGLE_API_KEY"),
     _ProviderCase("xAI", "grok-4.5", "XAI_API_KEY"),
     _ProviderCase("ByteDance", "seed-2.0-lite", "ARK_API_KEY"),
+    _ProviderCase("OpenRouter", "hy3", "OPENROUTER_API_KEY"),
 )
 
 IMAGE_MODELS = (
@@ -252,7 +253,7 @@ class TestLiveProviderUsageBilling(unittest.TestCase):
                 google_api_key=os.environ["GOOGLE_API_KEY"],
                 xai_api_key=os.environ["XAI_API_KEY"],
                 bytedance_api_key=os.environ["ARK_API_KEY"],
-                nous_api_key=os.environ["NOUS_API_KEY"],
+                openrouter_api_key=os.environ["OPENROUTER_API_KEY"],
                 zai_api_key=os.environ["ZAI_API_KEY"],
             )
         )

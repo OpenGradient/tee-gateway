@@ -6,7 +6,7 @@ Anthropic's ``web_search_20250305``, Gemini's ``google_search`` grounding, and
 xAI's Responses-API ``web_search``). Those differed in every dimension that
 matters: which models could use them, what the results looked like, what the
 response reported back, and what a "search" cost ($0.01–$0.035, with xAI billing
-per *citation*). Models on providers without one (ByteDance, Nous, Z.ai) simply
+per *citation*). Models on providers without one (ByteDance, OpenRouter, Z.ai) simply
 could not search at all.
 
 Search is now a dedicated, model-free endpoint — ``POST /v1/web_search``, served

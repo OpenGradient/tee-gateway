@@ -13,7 +13,8 @@ from typing import Any, Mapping, Optional
 
 @dataclass(frozen=True)
 class ModelConfig:
-    # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" | "nous" | "zai"
+    # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" |
+    # "openrouter" | "zai"
     provider: str
     api_name: str  # model name sent to provider API
     input_price_usd: Decimal  # USD per token
@@ -399,6 +400,12 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.00000075"),
         output_price_usd=Decimal("0.00000375"),
     )
+    GEMINI_3_8_FLASH = ModelConfig(
+        provider="google",
+        api_name="gemini-3.8-flash",
+        input_price_usd=Decimal("0.00000075"),
+        output_price_usd=Decimal("0.00000375"),
+    )
 
     # ── xAI Grok ────────────────────────────────────────────────────────
     GROK_4_6 = ModelConfig(
@@ -576,25 +583,26 @@ class SupportedModel(Enum):
         image_extra_params=_SEEDANCE_5_IMAGE_PARAMS,
     )
 
-    # ── Nous Research (Nous Portal, OpenAI-compatible) ──────────────────
-    # Hermes 4 family, served via Nous's OpenAI-compatible inference API.
-    # Pricing mirrors Nous Portal's published per-token rates.
-    #
-    # The Nous inference API is an OpenRouter-style aggregator with case-sensitive
-    # model-id matching. The bare lowercase "hermes-4-70b" is NOT an accepted
-    # alias and is rejected with HTTP 400; the accepted form is the capitalized
-    # "Hermes-4-70B" (the canonical id "nousresearch/hermes-4-70b" also works).
+    # ── OpenRouter (OpenAI-compatible) ──────────────────────────────────
+    # Nous no longer serves Hermes 4 through Nous Portal, so both models route
+    # through their canonical OpenRouter slugs and use OpenRouter list pricing.
     HERMES_4_405B = ModelConfig(
-        provider="nous",
-        api_name="Hermes-4-405B",
-        input_price_usd=Decimal("0.00000009"),
-        output_price_usd=Decimal("0.00000037"),
+        provider="openrouter",
+        api_name="nousresearch/hermes-4-405b",
+        input_price_usd=Decimal("0.000001"),
+        output_price_usd=Decimal("0.000003"),
     )
     HERMES_4_70B = ModelConfig(
-        provider="nous",
-        api_name="Hermes-4-70B",
+        provider="openrouter",
+        api_name="nousresearch/hermes-4-70b",
         input_price_usd=Decimal("0.00000013"),
         output_price_usd=Decimal("0.0000004"),
+    )
+    HY3 = ModelConfig(
+        provider="openrouter",
+        api_name="tencent/hy3",
+        input_price_usd=Decimal("0.0000000825"),
+        output_price_usd=Decimal("0.00000033"),
     )
 
     # ── Z.ai (Model API, OpenAI-compatible) ─────────────────────────────
@@ -685,6 +693,7 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-3.5-flash-lite": SupportedModel.GEMINI_3_5_FLASH_LITE,
     "gemini-3.6-flash": SupportedModel.GEMINI_3_6_FLASH,
     "gemini-3.7-flash": SupportedModel.GEMINI_3_7_FLASH,
+    "gemini-3.8-flash": SupportedModel.GEMINI_3_8_FLASH,
     # xAI
     "grok-4.6": SupportedModel.GROK_4_6,
     "grok-4.5": SupportedModel.GROK_4_5,
@@ -727,9 +736,14 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "ep-20260803211347-hq9k8": SupportedModel.SEEDANCE_5_0,
     "seedance-5.0": SupportedModel.SEEDANCE_5_0,
     "seedance-5-0": SupportedModel.SEEDANCE_5_0,
-    # Nous Research
+    # Nous Research models routed through OpenRouter
     "hermes-4-405b": SupportedModel.HERMES_4_405B,
+    "nousresearch/hermes-4-405b": SupportedModel.HERMES_4_405B,
     "hermes-4-70b": SupportedModel.HERMES_4_70B,
+    "nousresearch/hermes-4-70b": SupportedModel.HERMES_4_70B,
+    "hy3": SupportedModel.HY3,
+    "tencent/hy3": SupportedModel.HY3,
+    "tencent/hy3:floor": SupportedModel.HY3,
     # Z.ai
     "glm-5.2": SupportedModel.GLM_5_2,
     "ep-20260803211658-fwpzs": SupportedModel.GLM_5_2,

@@ -296,6 +296,13 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.00000075"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.00000375"))
 
+    def test_gemini_3_8_flash_resolves(self):
+        cfg = get_model_config("gemini-3.8-flash")
+        self.assertEqual(cfg.provider, "google")
+        self.assertEqual(cfg.api_name, "gemini-3.8-flash")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00000075"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00000375"))
+
     def test_gemini_3_1_flash_image_resolves(self):
         cfg = get_model_config("gemini-3.1-flash-image")
         self.assertEqual(cfg.provider, "google")
@@ -476,21 +483,40 @@ class TestModelRegistry(unittest.TestCase):
             get_model_config("seedance-5.0"),
         )
 
-    # ── Nous Research (Nous Portal) ─────────────────────────────────────────
+    # ── Nous Research models (OpenRouter) ───────────────────────────────────
 
     def test_hermes_4_405b_resolves(self):
         cfg = get_model_config("hermes-4-405b")
-        self.assertEqual(cfg.provider, "nous")
-        self.assertEqual(cfg.api_name, "Hermes-4-405B")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.00000009"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.00000037"))
+        self.assertEqual(cfg.provider, "openrouter")
+        self.assertEqual(cfg.api_name, "nousresearch/hermes-4-405b")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000001"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000003"))
 
     def test_hermes_4_70b_resolves(self):
         cfg = get_model_config("hermes-4-70b")
-        self.assertEqual(cfg.provider, "nous")
-        self.assertEqual(cfg.api_name, "Hermes-4-70B")
+        self.assertEqual(cfg.provider, "openrouter")
+        self.assertEqual(cfg.api_name, "nousresearch/hermes-4-70b")
         self.assertEqual(cfg.input_price_usd, Decimal("0.00000013"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.0000004"))
+
+    def test_openrouter_canonical_hermes_aliases_resolve(self):
+        self.assertEqual(
+            get_model_config("nousresearch/hermes-4-405b"),
+            get_model_config("hermes-4-405b"),
+        )
+        self.assertEqual(
+            get_model_config("nousresearch/hermes-4-70b"),
+            get_model_config("hermes-4-70b"),
+        )
+
+    def test_hy3_resolves(self):
+        cfg = get_model_config("hy3")
+        self.assertEqual(cfg.provider, "openrouter")
+        self.assertEqual(cfg.api_name, "tencent/hy3")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000000825"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00000033"))
+        self.assertEqual(cfg, get_model_config("tencent/hy3"))
+        self.assertEqual(cfg, get_model_config("tencent/hy3:floor"))
 
     # ── Z.ai (Model API) ───────────────────────────────────────────────────
 
@@ -732,6 +758,11 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(cost, _expected_cost_opg("gemini-3.7-flash", 1000, 500))
         self.assertEqual(cost, 2_625_000_000_000_000)
 
+    def test_gemini_3_8_flash_cost(self):
+        cost = self._calc("gemini-3.8-flash", 1000, 500)
+        self.assertEqual(cost, _expected_cost_opg("gemini-3.8-flash", 1000, 500))
+        self.assertEqual(cost, 2_625_000_000_000_000)
+
     # ── xAI Grok ────────────────────────────────────────────────────────────
 
     def test_grok_4_6_cost(self):
@@ -837,6 +868,14 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(cost, expected)
         # 1000*0.00000174 + 500*0.00000348 = 0.00174 + 0.00174 = 0.00348 USD
         self.assertEqual(cost, 3_480_000_000_000_000)
+
+    # ── OpenRouter ─────────────────────────────────────────────────────────
+
+    def test_hy3_cost(self):
+        self.assertEqual(
+            self._calc("hy3", 1000, 500),
+            247_500_000_000_000,
+        )
 
     # ── Haiku is cheaper than Sonnet ────────────────────────────────────────
 

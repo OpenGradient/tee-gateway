@@ -28,7 +28,7 @@ class ProviderConfig:
     google_api_key: Optional[str] = None
     xai_api_key: Optional[str] = None
     bytedance_api_key: Optional[str] = None
-    nous_api_key: Optional[str] = None
+    openrouter_api_key: Optional[str] = None
     zai_api_key: Optional[str] = None
     # Exa, which backs the `web_search` tool the gateway executes inside the
     # enclave for every model (see web_search.py). Not an LLM provider, so it is
@@ -49,8 +49,8 @@ class ProviderConfig:
             providers.append("xai")
         if self.bytedance_api_key:
             providers.append("bytedance")
-        if self.nous_api_key:
-            providers.append("nous")
+        if self.openrouter_api_key:
+            providers.append("openrouter")
         if self.zai_api_key:
             providers.append("zai")
         return providers

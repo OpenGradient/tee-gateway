@@ -420,7 +420,7 @@ def set_provider_keys():
             google_api_key=body.get("google_api_key") or None,
             xai_api_key=body.get("xai_api_key") or None,
             bytedance_api_key=body.get("bytedance_api_key") or None,
-            nous_api_key=body.get("nous_api_key") or None,
+            openrouter_api_key=body.get("openrouter_api_key") or None,
             zai_api_key=body.get("zai_api_key") or None,
             exa_api_key=body.get("exa_api_key") or None,
         )
@@ -483,7 +483,8 @@ def set_provider_keys():
             _set(provider_config.bytedance_api_key),
         )
         logger.info(
-            "  nous_api_key                : %s", _set(provider_config.nous_api_key)
+            "  openrouter_api_key          : %s",
+            _set(provider_config.openrouter_api_key),
         )
         logger.info(
             "  zai_api_key                 : %s", _set(provider_config.zai_api_key)
@@ -523,7 +524,7 @@ def set_provider_keys():
             "anthropic": provider_config.anthropic_api_key,
             "xai": provider_config.xai_api_key,
             "bytedance": provider_config.bytedance_api_key,
-            "nous": provider_config.nous_api_key,
+            "openrouter": provider_config.openrouter_api_key,
             "zai": provider_config.zai_api_key,
         }.items()
         if k

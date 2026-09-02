@@ -90,7 +90,7 @@ if [ -f "$ENV_FILE" ]; then
         ANTHROPIC_API_KEY="$(grep -E '^ANTHROPIC_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         XAI_API_KEY="$(grep -E '^XAI_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         ARK_API_KEY="$(grep -E '^ARK_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
-        NOUS_API_KEY="$(grep -E '^NOUS_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
+        OPENROUTER_API_KEY="$(grep -E '^OPENROUTER_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         ZAI_API_KEY="$(grep -E '^ZAI_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         # Backs the in-enclave `web_search` tool (Exa), not an LLM provider.
         EXA_API_KEY="$(grep -E '^EXA_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
@@ -110,7 +110,7 @@ if [ -f "$ENV_FILE" ]; then
             --arg anthropic "$ANTHROPIC_API_KEY" \
             --arg xai "$XAI_API_KEY" \
             --arg bytedance "$ARK_API_KEY" \
-            --arg nous "$NOUS_API_KEY" \
+            --arg openrouter "$OPENROUTER_API_KEY" \
             --arg zai "$ZAI_API_KEY" \
             --arg exa "$EXA_API_KEY" \
             --arg hb_contract "$HEARTBEAT_CONTRACT_ADDRESS" \
@@ -122,7 +122,7 @@ if [ -f "$ENV_FILE" ]; then
                 anthropic_api_key: $anthropic,
                 xai_api_key: $xai,
                 bytedance_api_key: $bytedance,
-                nous_api_key: $nous,
+                openrouter_api_key: $openrouter,
                 zai_api_key: $zai,
                 exa_api_key: $exa
             }
@@ -155,7 +155,7 @@ if [ -f "$ENV_FILE" ]; then
 
         # Clear key variables from this shell immediately after use
         unset OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY XAI_API_KEY ARK_API_KEY
-        unset NOUS_API_KEY ZAI_API_KEY EXA_API_KEY
+        unset OPENROUTER_API_KEY ZAI_API_KEY EXA_API_KEY
         unset HEARTBEAT_CONTRACT_ADDRESS FACILITATOR_URL TEE_HEARTBEAT_INTERVAL
     fi
 else

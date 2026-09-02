@@ -53,8 +53,8 @@ _LIMITS = httpx.Limits(
 # BytePlus ModelArk OpenAI-compatible endpoint (ap-southeast)
 BYTEDANCE_BASE_URL = "https://ark.ap-southeast.bytepluses.com/api/v3"
 
-# Nous Research OpenAI-compatible inference endpoint (Nous Portal).
-NOUS_BASE_URL = "https://inference-api.nousresearch.com/v1"
+# OpenRouter's OpenAI-compatible endpoint.
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Z.ai Model API OpenAI-compatible endpoint. The full chat URL is
 # https://api.z.ai/api/paas/v4/chat/completions; ChatOpenAI appends
@@ -67,7 +67,7 @@ ZAI_BASE_URL = "https://api.z.ai/api/paas/v4"
 openai_http_client: Optional[httpx.Client] = None
 xai_http_client: Optional[httpx.Client] = None
 bytedance_http_client: Optional[httpx.Client] = None
-nous_http_client: Optional[httpx.Client] = None
+openrouter_http_client: Optional[httpx.Client] = None
 zai_http_client: Optional[httpx.Client] = None
 
 
@@ -77,12 +77,12 @@ _provider_config: Optional[ProviderConfig] = None
 def set_provider_config(config: ProviderConfig) -> None:
     """Store the provider config and rebuild HTTP clients. Called once after key injection."""
     global _provider_config, openai_http_client, xai_http_client, bytedance_http_client
-    global nous_http_client, zai_http_client
+    global openrouter_http_client, zai_http_client
 
     old_openai = openai_http_client
     old_xai = xai_http_client
     old_bytedance = bytedance_http_client
-    old_nous = nous_http_client
+    old_openrouter = openrouter_http_client
     old_zai = zai_http_client
 
     openai_http_client = httpx.Client(
@@ -116,9 +116,9 @@ def set_provider_config(config: ProviderConfig) -> None:
         http2=False,
         follow_redirects=False,
     )
-    nous_http_client = httpx.Client(
-        base_url=NOUS_BASE_URL,
-        headers={"Authorization": f"Bearer {config.nous_api_key or ''}"},
+    openrouter_http_client = httpx.Client(
+        base_url=OPENROUTER_BASE_URL,
+        headers={"Authorization": f"Bearer {config.openrouter_api_key or ''}"},
         timeout=_TIMEOUT,
         limits=_LIMITS,
         http2=True,
@@ -150,8 +150,8 @@ def set_provider_config(config: ProviderConfig) -> None:
         old_xai.close()
     if old_bytedance is not None:
         old_bytedance.close()
-    if old_nous is not None:
-        old_nous.close()
+    if old_openrouter is not None:
+        old_openrouter.close()
     if old_zai is not None:
         old_zai.close()
 
@@ -323,20 +323,21 @@ def get_chat_model_cached(
             stream_usage=True,
         )  # type: ignore [call-arg]
 
-    elif provider == "nous":
-        if not config.nous_api_key:
-            raise ValueError("nous_api_key not set in ProviderConfig")
+    elif provider == "openrouter":
+        if not config.openrouter_api_key:
+            raise ValueError("openrouter_api_key not set in ProviderConfig")
 
-        if nous_http_client is None:
-            raise RuntimeError("Nous HTTP client has not been initialized")
+        if openrouter_http_client is None:
+            raise RuntimeError("OpenRouter HTTP client has not been initialized")
 
         return ChatOpenAI(
             model=api_name,
             temperature=effective_temp,
             max_tokens=max_tokens,
-            http_client=nous_http_client,
-            api_key=SecretStr(config.nous_api_key),
-            base_url=NOUS_BASE_URL,
+            http_client=openrouter_http_client,
+            api_key=SecretStr(config.openrouter_api_key),
+            base_url=OPENROUTER_BASE_URL,
+            extra_body={"provider": {"sort": "price"}},
             streaming=True,
             stream_usage=True,
         )  # type: ignore [call-arg]

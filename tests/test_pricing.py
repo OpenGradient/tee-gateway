@@ -476,21 +476,40 @@ class TestModelRegistry(unittest.TestCase):
             get_model_config("seedance-5.0"),
         )
 
-    # ── Nous Research (Nous Portal) ─────────────────────────────────────────
+    # ── Nous Research models (OpenRouter) ───────────────────────────────────
 
     def test_hermes_4_405b_resolves(self):
         cfg = get_model_config("hermes-4-405b")
-        self.assertEqual(cfg.provider, "nous")
-        self.assertEqual(cfg.api_name, "Hermes-4-405B")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.00000009"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.00000037"))
+        self.assertEqual(cfg.provider, "openrouter")
+        self.assertEqual(cfg.api_name, "nousresearch/hermes-4-405b")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000001"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000003"))
 
     def test_hermes_4_70b_resolves(self):
         cfg = get_model_config("hermes-4-70b")
-        self.assertEqual(cfg.provider, "nous")
-        self.assertEqual(cfg.api_name, "Hermes-4-70B")
+        self.assertEqual(cfg.provider, "openrouter")
+        self.assertEqual(cfg.api_name, "nousresearch/hermes-4-70b")
         self.assertEqual(cfg.input_price_usd, Decimal("0.00000013"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.0000004"))
+
+    def test_openrouter_canonical_hermes_aliases_resolve(self):
+        self.assertEqual(
+            get_model_config("nousresearch/hermes-4-405b"),
+            get_model_config("hermes-4-405b"),
+        )
+        self.assertEqual(
+            get_model_config("nousresearch/hermes-4-70b"),
+            get_model_config("hermes-4-70b"),
+        )
+
+    def test_hy3_resolves(self):
+        cfg = get_model_config("hy3")
+        self.assertEqual(cfg.provider, "openrouter")
+        self.assertEqual(cfg.api_name, "tencent/hy3")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000000825"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00000033"))
+        self.assertEqual(cfg, get_model_config("tencent/hy3"))
+        self.assertEqual(cfg, get_model_config("tencent/hy3:floor"))
 
     # ── Z.ai (Model API) ───────────────────────────────────────────────────
 
@@ -837,6 +856,14 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(cost, expected)
         # 1000*0.00000174 + 500*0.00000348 = 0.00174 + 0.00174 = 0.00348 USD
         self.assertEqual(cost, 3_480_000_000_000_000)
+
+    # ── OpenRouter ─────────────────────────────────────────────────────────
+
+    def test_hy3_cost(self):
+        self.assertEqual(
+            self._calc("hy3", 1000, 500),
+            247_500_000_000_000,
+        )
 
     # ── Haiku is cheaper than Sonnet ────────────────────────────────────────
 

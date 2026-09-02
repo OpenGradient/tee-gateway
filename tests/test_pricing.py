@@ -296,6 +296,13 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.00000075"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.00000375"))
 
+    def test_gemini_3_8_flash_resolves(self):
+        cfg = get_model_config("gemini-3.8-flash")
+        self.assertEqual(cfg.provider, "google")
+        self.assertEqual(cfg.api_name, "gemini-3.8-flash")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00000075"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00000375"))
+
     def test_gemini_3_1_flash_image_resolves(self):
         cfg = get_model_config("gemini-3.1-flash-image")
         self.assertEqual(cfg.provider, "google")
@@ -749,6 +756,11 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
     def test_gemini_3_7_flash_cost(self):
         cost = self._calc("gemini-3.7-flash", 1000, 500)
         self.assertEqual(cost, _expected_cost_opg("gemini-3.7-flash", 1000, 500))
+        self.assertEqual(cost, 2_625_000_000_000_000)
+
+    def test_gemini_3_8_flash_cost(self):
+        cost = self._calc("gemini-3.8-flash", 1000, 500)
+        self.assertEqual(cost, _expected_cost_opg("gemini-3.8-flash", 1000, 500))
         self.assertEqual(cost, 2_625_000_000_000_000)
 
     # ── xAI Grok ────────────────────────────────────────────────────────────

@@ -145,6 +145,15 @@ class TestModelRegistry(unittest.TestCase):
         # Adaptive-thinking-only; rejects the `temperature` field (HTTP 400)
         self.assertFalse(cfg.supports_temperature)
 
+    def test_claude_fable_5_1_resolves(self):
+        cfg = get_model_config("claude-fable-5-1")
+        self.assertEqual(cfg.provider, "anthropic")
+        self.assertEqual(cfg.api_name, "claude-fable-5-1")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00001"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00005"))
+        # Adaptive-thinking-only; rejects the `temperature` field (HTTP 400)
+        self.assertFalse(cfg.supports_temperature)
+
     # ── OpenAI ──────────────────────────────────────────────────────────────
 
     def test_gpt_4_1_resolves(self):
@@ -535,6 +544,22 @@ class TestModelRegistry(unittest.TestCase):
             get_model_config("glm-5.2"),
         )
 
+    def test_glm_5_3_resolves(self):
+        # Unlike GLM-5.2, no ModelArk deployment endpoint exists yet, so this
+        # routes directly through Z.ai's own API.
+        cfg = get_model_config("glm-5.3")
+        self.assertEqual(cfg.provider, "zai")
+        self.assertEqual(cfg.api_name, "glm-5.3")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000014"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000044"))
+
+    def test_glm_5_3_flash_resolves(self):
+        cfg = get_model_config("glm-5.3-flash")
+        self.assertEqual(cfg.provider, "zai")
+        self.assertEqual(cfg.api_name, "glm-5.3-flash")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00000015"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000005"))
+
     def test_glm_image_resolves(self):
         cfg = get_model_config("glm-image")
         self.assertEqual(cfg.provider, "zai")
@@ -710,6 +735,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         # Same price tier as opus-4-5/4-6/4-7/4-8: 1000*0.000005 + 500*0.000025 = 0.0175 USD
         self.assertEqual(cost, 17_500_000_000_000_000)
 
+    def test_claude_fable_5_1_cost(self):
+        cost = self._calc("claude-fable-5-1", 1000, 500)
+        expected = _expected_cost_opg("claude-fable-5-1", 1000, 500)
+        self.assertEqual(cost, expected)
+        # Same price tier as fable-5: 1000*0.00001 + 500*0.00005 = 0.035 USD
+        self.assertEqual(cost, 35_000_000_000_000_000)
+
     # ── Google Gemini ────────────────────────────────────────────────────────
 
     def test_gemini_2_5_flash_cost(self):
@@ -876,6 +908,22 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
             self._calc("hy3", 1000, 500),
             247_500_000_000_000,
         )
+
+    # ── Z.ai ───────────────────────────────────────────────────────────────
+
+    def test_glm_5_3_cost(self):
+        cost = self._calc("glm-5.3", 1000, 500)
+        expected = _expected_cost_opg("glm-5.3", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.0000014 + 500*0.0000044 = 0.0014 + 0.0022 = 0.0036 USD
+        self.assertEqual(cost, 3_600_000_000_000_000)
+
+    def test_glm_5_3_flash_cost(self):
+        cost = self._calc("glm-5.3-flash", 1000, 500)
+        expected = _expected_cost_opg("glm-5.3-flash", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.00000015 + 500*0.0000005 = 0.00015 + 0.00025 = 0.0004 USD
+        self.assertEqual(cost, 400_000_000_000_000)
 
     # ── Haiku is cheaper than Sonnet ────────────────────────────────────────
 

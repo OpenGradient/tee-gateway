@@ -14,7 +14,7 @@ Google, xAI, ByteDance/ModelArk, OpenRouter, Z.ai) touches only the files
 below. `llm_backend.py` routes off `ModelConfig.provider`, so it needs no
 change. A model from a *new* provider is a different, larger job: it needs a
 client, an API key path in `__main__.py` and `/v1/keys`, and is out of scope
-for a routine model addition.
+for a routine model addition. Always use the same provider as the existing model/family uses.
 
 ## Register only what will actually be offered
 

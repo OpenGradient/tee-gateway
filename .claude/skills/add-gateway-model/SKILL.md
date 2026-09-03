@@ -16,6 +16,22 @@ change. A model from a *new* provider is a different, larger job: it needs a
 client, an API key path in `__main__.py` and `/v1/keys`, and is out of scope
 for a routine model addition.
 
+## Register only what will actually be offered
+
+The registry is cheap to append to, which is exactly why it grows without
+anyone deciding to. Do not register a model speculatively: routing exists so
+chat-api's catalog can offer the model, and that catalog holds a real curation
+bar (`.claude/skills/add-catalog-model/SKILL.md` there — a new model earns a
+picker row only if it gives users something no current row does, and a better
+model replaces the one it supersedes rather than joining it). Apply the same
+judgement here first. If the model would not clear that bar, do not register
+it; if it supersedes a model already registered, expect the catalog change to
+hide the old one, and say which in your PR.
+
+Registered-but-unoffered ids are not free: every one of them is a name the
+gateway must keep routing, price correctly and test, for a model no user can
+select.
+
 ## Steps
 
 1. **Check it isn't already there.** Grep `_MODEL_LOOKUP` for the api name and

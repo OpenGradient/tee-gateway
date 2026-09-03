@@ -544,22 +544,6 @@ class TestModelRegistry(unittest.TestCase):
             get_model_config("glm-5.2"),
         )
 
-    def test_glm_5_3_resolves(self):
-        # Unlike GLM-5.2, no ModelArk deployment endpoint exists yet, so this
-        # routes directly through Z.ai's own API.
-        cfg = get_model_config("glm-5.3")
-        self.assertEqual(cfg.provider, "zai")
-        self.assertEqual(cfg.api_name, "glm-5.3")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.0000014"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.0000044"))
-
-    def test_glm_5_3_flash_resolves(self):
-        cfg = get_model_config("glm-5.3-flash")
-        self.assertEqual(cfg.provider, "zai")
-        self.assertEqual(cfg.api_name, "glm-5.3-flash")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.00000015"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.0000005"))
-
     def test_glm_image_resolves(self):
         cfg = get_model_config("glm-image")
         self.assertEqual(cfg.provider, "zai")
@@ -908,22 +892,6 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
             self._calc("hy3", 1000, 500),
             247_500_000_000_000,
         )
-
-    # ── Z.ai ───────────────────────────────────────────────────────────────
-
-    def test_glm_5_3_cost(self):
-        cost = self._calc("glm-5.3", 1000, 500)
-        expected = _expected_cost_opg("glm-5.3", 1000, 500)
-        self.assertEqual(cost, expected)
-        # 1000*0.0000014 + 500*0.0000044 = 0.0014 + 0.0022 = 0.0036 USD
-        self.assertEqual(cost, 3_600_000_000_000_000)
-
-    def test_glm_5_3_flash_cost(self):
-        cost = self._calc("glm-5.3-flash", 1000, 500)
-        expected = _expected_cost_opg("glm-5.3-flash", 1000, 500)
-        self.assertEqual(cost, expected)
-        # 1000*0.00000015 + 500*0.0000005 = 0.00015 + 0.00025 = 0.0004 USD
-        self.assertEqual(cost, 400_000_000_000_000)
 
     # ── Haiku is cheaper than Sonnet ────────────────────────────────────────
 

@@ -627,31 +627,6 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000014"),
         output_price_usd=Decimal("0.0000044"),
     )
-    # GLM-5.3 supersedes GLM-5.2 as Z.ai's flagship reasoning/coding model
-    # (released 2026-08-18), on a new base with a 1M-token context window.
-    # Unlike GLM-5.2 there is no BytePlus ModelArk deployment endpoint for this
-    # model yet (that requires provisioning one on OpenGradient's BytePlus
-    # account), so this routes directly through Z.ai's own OpenAI-compatible
-    # API (provider="zai") instead — the same client already used for
-    # GLM_IMAGE below, just not previously used for a chat/text model. Same
-    # sticker price as GLM-5.2 per Z.ai's own pricing page.
-    GLM_5_3 = ModelConfig(
-        provider="zai",
-        api_name="glm-5.3",
-        input_price_usd=Decimal("0.0000014"),
-        output_price_usd=Decimal("0.0000044"),
-    )
-    # GLM-5.3-Flash — Z.ai's fast/cheap native-multimodal tier (released
-    # 2026-08-26), 1M-token context window. Priced at Z.ai's standard list
-    # rate; a 50%-off launch promo runs only through 2026-09-09, so the
-    # promotional rate isn't used here. Same ModelArk-endpoint caveat as
-    # GLM-5.3 above: routed directly through Z.ai's own API.
-    GLM_5_3_FLASH = ModelConfig(
-        provider="zai",
-        api_name="glm-5.3-flash",
-        input_price_usd=Decimal("0.00000015"),
-        output_price_usd=Decimal("0.0000005"),
-    )
     # GLM-Image uses Z.ai's image endpoint and is billed per generated image.
     # Z.ai returns hosted URLs only (fetched and inlined by the gateway) and
     # documents neither ``n`` nor ``response_format``, so both are omitted.
@@ -785,8 +760,6 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     # Z.ai
     "glm-5.2": SupportedModel.GLM_5_2,
     "ep-20260803211658-fwpzs": SupportedModel.GLM_5_2,
-    "glm-5.3": SupportedModel.GLM_5_3,
-    "glm-5.3-flash": SupportedModel.GLM_5_3_FLASH,
     "glm-image": SupportedModel.GLM_IMAGE,
     # Legacy — not in current SDK, retained for older SDK versions
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias

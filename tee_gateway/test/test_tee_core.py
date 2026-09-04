@@ -13,6 +13,7 @@ None of these tests require a running server, API keys, or nitriding.
 import base64
 import json
 import unittest
+from typing import Optional
 from unittest import mock
 
 from cryptography.hazmat.primitives import hashes
@@ -21,14 +22,18 @@ from eth_hash.auto import keccak
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from tee_gateway import ohttp
+from tee_gateway.config import ProviderConfig
 from tee_gateway.llm_backend import (
     AttachmentValidationError,
     canonical_user_content,
     convert_messages,
     extract_usage,
+    get_chat_model_cached,
+    get_provider_config,
+    set_provider_config,
     validate_attachments,
 )
-from tee_gateway.model_registry import get_model_config, get_rate_card
+from tee_gateway.model_registry import SupportedModel, get_model_config, get_rate_card
 from tee_gateway.tee_manager import (
     TEEKeyManager,
     compute_ohttp_config_hash,
@@ -958,3 +963,75 @@ class TestExtractUsage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# temperature omission (supports_temperature=False)
+# ---------------------------------------------------------------------------
+
+
+class TestTemperatureOmission(unittest.TestCase):
+    """Models flagged ``supports_temperature=False`` must be constructed with no
+    temperature at all.
+
+    Clients always send a temperature (chat-app pins 0.0, and it is part of the
+    signed request hash), so a model whose API rejects the field — Anthropic
+    from Opus 4.7 on, OpenAI from GPT-6 Astra on — fails every single request
+    with HTTP 400 "Unsupported parameter: 'temperature' is not supported with
+    this model" unless the backend drops it. ``None`` is what makes each
+    langchain-<provider> package omit the key from the outgoing payload.
+    """
+
+    _saved_config: Optional[ProviderConfig] = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._saved_config = get_provider_config()
+        set_provider_config(
+            ProviderConfig(
+                openai_api_key="test-openai-key",
+                anthropic_api_key="test-anthropic-key",
+                google_api_key="test-google-key",
+                xai_api_key="test-xai-key",
+            )
+        )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._saved_config is not None:
+            set_provider_config(cls._saved_config)
+        get_chat_model_cached.cache_clear()
+
+    def test_gpt_6_astra_omits_temperature(self):
+        model = get_chat_model_cached("gpt-6-astra", 0.0, 1024)
+        self.assertIsNone(model.temperature)
+        self.assertNotIn("temperature", model._default_params)
+
+    def test_gpt_6_astra_omits_temperature_on_responses_api(self):
+        """The Responses API path (used when tools are bound) must drop it too."""
+        model = get_chat_model_cached("gpt-6-astra", 0.0, 1024, True)
+        self.assertIsNone(model.temperature)
+        self.assertNotIn("temperature", model._default_params)
+
+    def test_opus_omits_temperature(self):
+        model = get_chat_model_cached("claude-opus-5", 0.0, 1024)
+        self.assertIsNone(model.temperature)
+
+    def test_temperature_supporting_model_keeps_it(self):
+        model = get_chat_model_cached("gpt-4.1", 0.0, 1024)
+        self.assertEqual(model.temperature, 0.0)
+        self.assertEqual(model._default_params.get("temperature"), 0.0)
+
+    def test_forced_temperature_still_applied(self):
+        model = get_chat_model_cached("o4-mini", 0.0, 1024)
+        self.assertEqual(model.temperature, 1.0)
+
+    def test_every_supports_temperature_false_model_builds_without_it(self):
+        """Registry-wide: nothing flagged False may reach a provider with a value."""
+        for supported in SupportedModel:
+            cfg = supported.value
+            if cfg.supports_temperature or cfg.image_generation:
+                continue
+            with self.subTest(model=cfg.api_name):
+                model = get_chat_model_cached(cfg.api_name, 0.0, 1024)
+                self.assertIsNone(model.temperature)

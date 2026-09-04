@@ -207,9 +207,15 @@ def get_chat_model_cached(
     cfg = get_model_config(model)
     provider = cfg.provider
     api_name = cfg.api_name
-    effective_temp = (
-        cfg.force_temperature if cfg.force_temperature is not None else temperature
-    )
+    # Models that reject `temperature` outright (HTTP 400) get None, which every
+    # langchain-<provider> package treats as "omit the field" rather than
+    # "send null". This is provider-agnostic on purpose: the same restriction
+    # exists on Anthropic (Opus 4.7+, Fable 5) and OpenAI (GPT-6 Astra).
+    effective_temp: Optional[float] = None
+    if cfg.supports_temperature:
+        effective_temp = (
+            cfg.force_temperature if cfg.force_temperature is not None else temperature
+        )
 
     logger.info(f"Creating cached chat model - Provider: {provider}, Model: {api_name}")
 
@@ -272,16 +278,10 @@ def get_chat_model_cached(
         if not config.anthropic_api_key:
             raise ValueError("anthropic_api_key not set in ProviderConfig")
 
-        # Opus 4.7+ rejects `temperature` outright (HTTP 400). Pass None so
-        # langchain-anthropic strips the field from the outgoing payload.
-        anthropic_temperature: Optional[float] = (
-            effective_temp if cfg.supports_temperature else None
-        )
-
         return ChatAnthropic(
             model=api_name,
             api_key=SecretStr(config.anthropic_api_key),
-            temperature=anthropic_temperature,
+            temperature=effective_temp,
             max_tokens=max_tokens,
             timeout=READ_TIMEOUT,
             streaming=True,

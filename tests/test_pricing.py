@@ -145,6 +145,19 @@ class TestModelRegistry(unittest.TestCase):
         # Adaptive-thinking-only; rejects the `temperature` field (HTTP 400)
         self.assertFalse(cfg.supports_temperature)
 
+    def test_claude_fable_5_1_resolves(self):
+        cfg = get_model_config("claude-fable-5-1")
+        self.assertEqual(cfg.provider, "anthropic")
+        self.assertEqual(cfg.api_name, "claude-fable-5-1")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00001"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00005"))
+        # Adaptive-thinking-only; rejects the `temperature` field (HTTP 400)
+        self.assertFalse(cfg.supports_temperature)
+
+    def test_claude_fable_5_1_dotted_alias_resolves(self):
+        cfg = get_model_config("claude-fable-5.1")
+        self.assertEqual(cfg, get_model_config("claude-fable-5-1"))
+
     # ── OpenAI ──────────────────────────────────────────────────────────────
 
     def test_gpt_4_1_resolves(self):
@@ -244,6 +257,14 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.provider, "openai")
         self.assertEqual(cfg.input_price_usd, Decimal("0.000001"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000006"))
+
+    def test_gpt_6_astra_resolves(self):
+        cfg = get_model_config("gpt-6-astra")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.api_name, "gpt-6-astra")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00001"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00005"))
+        self.assertTrue(cfg.responses_api_for_tools)
 
     # ── Google ──────────────────────────────────────────────────────────────
 
@@ -661,6 +682,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         # 1000*0.000001 + 500*0.000006 = 0.001 + 0.003 = 0.004 USD = 4e15 wei
         self.assertEqual(cost, 4_000_000_000_000_000)
 
+    def test_gpt_6_astra_cost(self):
+        cost = self._calc("gpt-6-astra", 1000, 500)
+        expected = _expected_cost_opg("gpt-6-astra", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.00001 + 500*0.00005 = 0.01 + 0.025 = 0.035 USD = 3.5e16 wei
+        self.assertEqual(cost, 35_000_000_000_000_000)
+
     # ── Anthropic Sonnet ────────────────────────────────────────────────────
 
     def test_claude_sonnet_4_5_cost(self):
@@ -709,6 +737,15 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(cost, expected)
         # Same price tier as opus-4-5/4-6/4-7/4-8: 1000*0.000005 + 500*0.000025 = 0.0175 USD
         self.assertEqual(cost, 17_500_000_000_000_000)
+
+    # ── Anthropic Fable ─────────────────────────────────────────────────────
+
+    def test_claude_fable_5_1_cost(self):
+        cost = self._calc("claude-fable-5-1", 1000, 500)
+        expected = _expected_cost_opg("claude-fable-5-1", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.00001 + 500*0.00005 = 0.01 + 0.025 = 0.035 USD = 3.5e16 wei
+        self.assertEqual(cost, 35_000_000_000_000_000)
 
     # ── Google Gemini ────────────────────────────────────────────────────────
 

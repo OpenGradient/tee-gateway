@@ -60,8 +60,8 @@ select.
    comment saying why:
    - `supports_temperature=False` — the API 400s if `temperature` is present
      at all. Read the section below before deciding this one: getting it wrong
-     breaks 100% of the model's requests, and nothing short of a live call
-     tells you.
+     breaks 100% of the model's requests, and the only place it is written
+     down is the provider's own docs.
    - `force_temperature=1.0` — reasoning models that accept only one value.
    - `responses_api_for_tools=True` — OpenAI reasoning models that reject
      `reasoning_effort` alongside function tools on Chat Completions.
@@ -94,17 +94,18 @@ select.
 7. **Run `make lint` and `uv run pytest tests/test_pricing.py`.** Do not touch
    `uv.lock` — it is baked into the image and changes the PCR measurements.
 
-8. **Send one real request to the model before you call it done** (see below).
-   The unit suite constructs models but never calls a provider, so it cannot
-   tell a working registration from one that 400s every time.
+8. **Read the provider's API docs for the model's supported parameters** and
+   set the matching flags (see below). You are already on the pricing page in
+   step 2 — the parameter list is the other thing that page's siblings tell you
+   and nothing else does.
 
 ## Parameter restrictions are the thing that bites
 
-Pricing is checkable on a web page. Which request fields a model *accepts* is
-not, and the registry's optional flags exist because providers keep removing
-fields from their newest models — `temperature` first among them. A model whose
-API rejects a field the gateway sends fails **every** request, immediately,
-with nothing partial about it:
+Pricing gets looked up as a matter of course. Which request fields a model
+*accepts* is on the same docs and nobody reads it — and the registry's optional
+flags exist because providers keep removing fields from their newest models,
+`temperature` first among them. A model whose API rejects a field the gateway
+sends fails **every** request, immediately, with nothing partial about it:
 
 ```
 400 Unsupported parameter: 'temperature' is not supported with this model.
@@ -127,42 +128,43 @@ client-side workaround. Three things make this easy to miss:
 - **Reasoning-first models are the usual suspects.** Anthropic dropped
   `temperature` at Opus 4.7 and kept it dropped (Fable 5, Fable 5.1); OpenAI
   dropped it for the o-series, then constrained it for gpt-5, then dropped it
-  for GPT-6. Treat a new flagship reasoning model as rejecting it until a live
-  call says otherwise, and read the provider's API changelog for the release,
-  not just its pricing page.
+  for GPT-6. Treat a new flagship reasoning model as rejecting it until the
+  docs say otherwise — and read the API reference and the release changelog,
+  not just the pricing page.
 
-### Proving it
+### Where the docs say it
 
-`tee_gateway/test/test_provider_usage_integration.py` makes real, billable
-requests through the actual chat-controller path, with `temperature=0` and
-`max_tokens` set, in both streaming and non-streaming modes. Point its
-`NEW_CHAT_MODELS` tuple (or `IMAGE_MODELS`) at the model you just registered —
-it holds the newest model per provider, so replace that provider's entry rather
-than growing the list — and run it:
+Check these, for the specific model, before you set or omit the flags:
 
-```sh
-RUN_PROVIDER_INTEGRATION_TESTS=1 \
-  OPENAI_API_KEY=... ANTHROPIC_API_KEY=... GOOGLE_API_KEY=... XAI_API_KEY=... \
-  ARK_API_KEY=... OPENROUTER_API_KEY=... ZAI_API_KEY=... \
-  uv run --group test pytest \
-  tee_gateway/test/test_provider_usage_integration.py -v
-```
+- **The model's own reference page.** OpenAI's model pages carry a supported-
+  parameters list; Anthropic's model docs and its migration pages call out
+  fields that were removed. This is the authoritative answer and usually a
+  30-second read.
+- **The reasoning-model guide for the provider.** OpenAI documents the
+  unsupported sampling parameters for reasoning models in one place rather
+  than per model — `temperature`, `top_p` and friends — and a new flagship
+  usually inherits that list rather than the chat models'.
+- **The release changelog / announcement post for that model.** Removals
+  arrive here first, and often only here for the first weeks after launch.
 
-No local keys? The same suite is a manual CI job — GitHub Actions → **Test** →
-*Run workflow* runs `live-provider-usage` with the repo's provider secrets
-(`workflow_dispatch` only, so it never fires on a PR).
+Cite what you found in the PR body next to the pricing citation, in one line:
+which fields the model rejects, and where it says so. If the docs genuinely do
+not say — the model is days old and the reference page is still a stub —
+register it with `supports_temperature=False` rather than without: the gateway
+omitting a field the model would have accepted costs a sampling knob nothing
+currently varies (every client pins `temperature: 0.0`), while sending one it
+rejects costs 100% of its requests.
 
-It needs every provider key (the module refuses to run without them) and costs
-real money, which is why it is not part of `make test`. Run it anyway for a new
-model: a few cents here against a model that answers nothing in production. If
-the keys are genuinely not available to you, say so in the PR body — plainly,
-as an unverified registration — rather than letting silence imply it was
-checked.
+There is also a live suite for the rare case where the docs are contradictory
+and it matters: `tee_gateway/test/test_provider_usage_integration.py` runs real
+billable requests through the chat-controller path, locally with every provider
+key set, or via GitHub Actions → **Test** → *Run workflow* (the
+`live-provider-usage` job, `workflow_dispatch` only). It is not part of a
+routine model addition — the docs are.
 
-A 400 from this test is the finding. Read the `param` field in the error, set
-the matching flag, and re-run until the model actually answers; `llm_backend`
-passes `None` for a flagged field, which every `langchain-<provider>` package
-turns into "omit the key" rather than "send null".
+When a flag is right, `llm_backend` passes `None` for that field, which every
+`langchain-<provider>` package turns into "omit the key" rather than "send
+null".
 
 ## What this does *not* cover
 

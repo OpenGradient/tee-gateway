@@ -58,9 +58,13 @@ PROVIDER_SMOKE_MODELS = (
     _ProviderCase("Z.ai", "glm-5.2", "ZAI_API_KEY"),
 )
 
+# The newest model per provider — one each, so the run stays cheap. When a
+# model is added to the registry, replace its provider's entry here and run
+# this suite: it is the only check that catches a request field the model's
+# API rejects (see .claude/skills/add-gateway-model/SKILL.md).
 NEW_CHAT_MODELS = (
-    _ProviderCase("OpenAI", "gpt-5.6-luna", "OPENAI_API_KEY"),
-    _ProviderCase("Anthropic", "claude-sonnet-5", "ANTHROPIC_API_KEY"),
+    _ProviderCase("OpenAI", "gpt-6-astra", "OPENAI_API_KEY"),
+    _ProviderCase("Anthropic", "claude-fable-5-1", "ANTHROPIC_API_KEY"),
     _ProviderCase("Google", "gemini-3.8-flash", "GOOGLE_API_KEY"),
     _ProviderCase("xAI", "grok-4.5", "XAI_API_KEY"),
     _ProviderCase("ByteDance", "seed-2.0-lite", "ARK_API_KEY"),

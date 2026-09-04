@@ -58,7 +58,10 @@ select.
 
    Reach for the optional fields only when the model needs them, and leave a
    comment saying why:
-   - `supports_temperature=False` — the API 400s if `temperature` is present.
+   - `supports_temperature=False` — the API 400s if `temperature` is present
+     at all. Read the section below before deciding this one: getting it wrong
+     breaks 100% of the model's requests, and nothing short of a live call
+     tells you.
    - `force_temperature=1.0` — reasoning models that accept only one value.
    - `responses_api_for_tools=True` — OpenAI reasoning models that reject
      `reasoning_effort` alongside function tools on Chat Completions.
@@ -90,6 +93,76 @@ select.
 
 7. **Run `make lint` and `uv run pytest tests/test_pricing.py`.** Do not touch
    `uv.lock` — it is baked into the image and changes the PCR measurements.
+
+8. **Send one real request to the model before you call it done** (see below).
+   The unit suite constructs models but never calls a provider, so it cannot
+   tell a working registration from one that 400s every time.
+
+## Parameter restrictions are the thing that bites
+
+Pricing is checkable on a web page. Which request fields a model *accepts* is
+not, and the registry's optional flags exist because providers keep removing
+fields from their newest models — `temperature` first among them. A model whose
+API rejects a field the gateway sends fails **every** request, immediately,
+with nothing partial about it:
+
+```
+400 Unsupported parameter: 'temperature' is not supported with this model.
+```
+
+Every client sends a temperature (chat-app pins `0.0`, and it is inside the
+signed request hash), so there is no traffic that avoids the bad path and no
+client-side workaround. Three things make this easy to miss:
+
+- **Restrictions do not travel down a family.** GPT-6 Astra rejects
+  `temperature`; every gpt-5.x model in the registry is registered without the
+  flag. Copying the closest sibling's `ModelConfig` — right for pricing shape,
+  request shaping and `responses_api_for_tools` — is exactly wrong here.
+- **langchain hides it for some names and not others.** `langchain-openai`
+  strips `temperature` itself for model names starting with `gpt-5`, and only
+  those, so the whole gpt-5.6 family worked without the flag and the first
+  `gpt-6-*` model did not. Never conclude "the sibling works, so the field is
+  fine" — the sibling may be surviving on a provider-package special case
+  keyed to its *name*.
+- **Reasoning-first models are the usual suspects.** Anthropic dropped
+  `temperature` at Opus 4.7 and kept it dropped (Fable 5, Fable 5.1); OpenAI
+  dropped it for the o-series, then constrained it for gpt-5, then dropped it
+  for GPT-6. Treat a new flagship reasoning model as rejecting it until a live
+  call says otherwise, and read the provider's API changelog for the release,
+  not just its pricing page.
+
+### Proving it
+
+`tee_gateway/test/test_provider_usage_integration.py` makes real, billable
+requests through the actual chat-controller path, with `temperature=0` and
+`max_tokens` set, in both streaming and non-streaming modes. Point its
+`NEW_CHAT_MODELS` tuple (or `IMAGE_MODELS`) at the model you just registered —
+it holds the newest model per provider, so replace that provider's entry rather
+than growing the list — and run it:
+
+```sh
+RUN_PROVIDER_INTEGRATION_TESTS=1 \
+  OPENAI_API_KEY=... ANTHROPIC_API_KEY=... GOOGLE_API_KEY=... XAI_API_KEY=... \
+  ARK_API_KEY=... OPENROUTER_API_KEY=... ZAI_API_KEY=... \
+  uv run --group test pytest \
+  tee_gateway/test/test_provider_usage_integration.py -v
+```
+
+No local keys? The same suite is a manual CI job — GitHub Actions → **Test** →
+*Run workflow* runs `live-provider-usage` with the repo's provider secrets
+(`workflow_dispatch` only, so it never fires on a PR).
+
+It needs every provider key (the module refuses to run without them) and costs
+real money, which is why it is not part of `make test`. Run it anyway for a new
+model: a few cents here against a model that answers nothing in production. If
+the keys are genuinely not available to you, say so in the PR body — plainly,
+as an unverified registration — rather than letting silence imply it was
+checked.
+
+A 400 from this test is the finding. Read the `param` field in the error, set
+the matching flag, and re-run until the model actually answers; `llm_backend`
+passes `None` for a flagged field, which every `langchain-<provider>` package
+turns into "omit the key" rather than "send null".
 
 ## What this does *not* cover
 

@@ -214,6 +214,18 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.000006"),
         responses_api_for_tools=True,
     )
+    # GPT-6 Astra — OpenAI's flagship successor to the gpt-5.6 family (GA
+    # 2026-09-03). Ships with native web search, code interpreter, hosted
+    # shell, apply-patch, computer use and MCP. Priced at $10/$50 per MTok.
+    # Same reasoning_effort/function-tools conflict on Chat Completions as the
+    # gpt-5.6 family, so it also routes through the Responses API for tools.
+    GPT_6_ASTRA = ModelConfig(
+        provider="openai",
+        api_name="gpt-6-astra",
+        input_price_usd=Decimal("0.00001"),
+        output_price_usd=Decimal("0.00005"),
+        responses_api_for_tools=True,
+    )
     # Image generation via OpenAI's /images/generations endpoint (gpt-image).
     # Unlike DALL·E, gpt-image models always return base64 (``b64_json``) and
     # reject the ``response_format`` field, so it's omitted. Image-to-image
@@ -309,6 +321,17 @@ class SupportedModel(Enum):
     CLAUDE_FABLE_5 = ModelConfig(
         provider="anthropic",
         api_name="claude-fable-5",
+        input_price_usd=Decimal("0.00001"),
+        output_price_usd=Decimal("0.00005"),
+        supports_temperature=False,
+    )
+    # Claude Fable 5.1 — successor to Fable 5, GA on the first-party API from
+    # 2026-09-01. Same $10/$50 per MTok sticker as Fable 5. Adaptive-
+    # thinking-only; like Fable 5 and Opus 4.7+ it rejects the `temperature`
+    # field (HTTP 400), so supports_temperature=False.
+    CLAUDE_FABLE_5_1 = ModelConfig(
+        provider="anthropic",
+        api_name="claude-fable-5-1",
         input_price_usd=Decimal("0.00001"),
         output_price_usd=Decimal("0.00005"),
         supports_temperature=False,
@@ -669,6 +692,7 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gpt-5.6-sol": SupportedModel.GPT_5_6_SOL,
     "gpt-5.6-terra": SupportedModel.GPT_5_6_TERRA,
     "gpt-5.6-luna": SupportedModel.GPT_5_6_LUNA,
+    "gpt-6-astra": SupportedModel.GPT_6_ASTRA,
     "gpt-image-2": SupportedModel.GPT_IMAGE_2,
     # Anthropic
     "claude-sonnet-4-5": SupportedModel.CLAUDE_SONNET_4_5,
@@ -681,6 +705,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "claude-opus-4-8": SupportedModel.CLAUDE_OPUS_4_8,
     "claude-opus-5": SupportedModel.CLAUDE_OPUS_5,
     "claude-fable-5": SupportedModel.CLAUDE_FABLE_5,
+    "claude-fable-5-1": SupportedModel.CLAUDE_FABLE_5_1,
+    "claude-fable-5.1": SupportedModel.CLAUDE_FABLE_5_1,
     # Google
     "gemini-2.5-flash": SupportedModel.GEMINI_2_5_FLASH,
     "gemini-2.5-pro": SupportedModel.GEMINI_2_5_PRO,

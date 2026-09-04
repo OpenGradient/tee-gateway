@@ -58,9 +58,12 @@ PROVIDER_SMOKE_MODELS = (
     _ProviderCase("Z.ai", "glm-5.2", "ZAI_API_KEY"),
 )
 
+# The newest model per provider — one each, so the run stays cheap. Replace a
+# provider's entry when a newer model is registered, so a dispatch of this
+# suite exercises what actually shipped rather than last quarter's flagship.
 NEW_CHAT_MODELS = (
-    _ProviderCase("OpenAI", "gpt-5.6-luna", "OPENAI_API_KEY"),
-    _ProviderCase("Anthropic", "claude-sonnet-5", "ANTHROPIC_API_KEY"),
+    _ProviderCase("OpenAI", "gpt-6-astra", "OPENAI_API_KEY"),
+    _ProviderCase("Anthropic", "claude-fable-5-1", "ANTHROPIC_API_KEY"),
     _ProviderCase("Google", "gemini-3.8-flash", "GOOGLE_API_KEY"),
     _ProviderCase("xAI", "grok-4.5", "XAI_API_KEY"),
     _ProviderCase("ByteDance", "seed-2.0-lite", "ARK_API_KEY"),

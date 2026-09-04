@@ -21,8 +21,10 @@ class ModelConfig:
     output_price_usd: Decimal  # USD per token
     force_temperature: Optional[float] = None
     thinking_budget: Optional[int] = None
-    # Anthropic deprecated `temperature` for Opus 4.7 — the API returns 400 if
-    # the field is present at all. Set False on models that reject it.
+    # Some models reject `temperature` outright — the API returns 400 if the
+    # field is present at all (Anthropic from Opus 4.7 on, OpenAI from GPT-6
+    # Astra on). Set False on those; the backend then omits the field entirely
+    # instead of sending a value.
     supports_temperature: bool = True
     # Image-output models (e.g. Gemini "nano banana") return generated images as
     # inline content blocks of a chat response. The backend requests the IMAGE
@@ -219,12 +221,17 @@ class SupportedModel(Enum):
     # shell, apply-patch, computer use and MCP. Priced at $10/$50 per MTok.
     # Same reasoning_effort/function-tools conflict on Chat Completions as the
     # gpt-5.6 family, so it also routes through the Responses API for tools.
+    # Reasoning-only sampling: the API rejects `temperature` with HTTP 400
+    # ("Unsupported parameter"), so supports_temperature=False. langchain's own
+    # workaround only strips temperature for model names starting with "gpt-5",
+    # which is why this model needs the registry flag.
     GPT_6_ASTRA = ModelConfig(
         provider="openai",
         api_name="gpt-6-astra",
         input_price_usd=Decimal("0.00001"),
         output_price_usd=Decimal("0.00005"),
         responses_api_for_tools=True,
+        supports_temperature=False,
     )
     # Image generation via OpenAI's /images/generations endpoint (gpt-image).
     # Unlike DALL·E, gpt-image models always return base64 (``b64_json``) and

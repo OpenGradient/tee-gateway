@@ -55,7 +55,7 @@ PROVIDER_SMOKE_MODELS = (
     _ProviderCase("xAI", "grok-4-fast", "XAI_API_KEY"),
     _ProviderCase("ByteDance", "deepseek-v4-flash", "ARK_API_KEY"),
     _ProviderCase("OpenRouter", "hermes-4-70b", "OPENROUTER_API_KEY"),
-    _ProviderCase("Z.ai", "glm-5.2", "ZAI_API_KEY"),
+    _ProviderCase("Z.ai via ModelArk", "glm-5.2", "ARK_API_KEY"),
 )
 
 # The newest model per provider — one each, so the run stays cheap. Replace a
@@ -75,7 +75,6 @@ IMAGE_MODELS = (
     _ProviderCase("Google", "gemini-3.1-flash-image", "GOOGLE_API_KEY"),
     _ProviderCase("xAI", "grok-imagine-image", "XAI_API_KEY"),
     _ProviderCase("ByteDance", "seedream-5.0-lite", "ARK_API_KEY"),
-    _ProviderCase("Z.ai", "glm-image", "ZAI_API_KEY"),
 )
 
 CHAT_MODELS = PROVIDER_SMOKE_MODELS + NEW_CHAT_MODELS
@@ -257,7 +256,6 @@ class TestLiveProviderUsageBilling(unittest.TestCase):
                 xai_api_key=os.environ["XAI_API_KEY"],
                 bytedance_api_key=os.environ["ARK_API_KEY"],
                 openrouter_api_key=os.environ["OPENROUTER_API_KEY"],
-                zai_api_key=os.environ["ZAI_API_KEY"],
             )
         )
         set_price_feed(_FixedPriceFeed())  # type: ignore[arg-type]

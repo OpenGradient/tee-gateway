@@ -55,7 +55,6 @@ export GOOGLE_API_KEY=...
 export XAI_API_KEY=...
 export ARK_API_KEY=...   # BytePlus / ByteDance ModelArk
 export OPENROUTER_API_KEY=...  # OpenRouter
-export ZAI_API_KEY=...   # Z.ai Model API
 
 # Run server (starts the Flask/connexion app on port 8000)
 make test-local
@@ -407,7 +406,6 @@ Clients use an x402-compatible client (e.g., the [x402 SDK](https://github.com/o
 | `XAI_API_KEY` | - | xAI API key |
 | `ARK_API_KEY` | - | BytePlus / ByteDance ModelArk API key (injected as `bytedance_api_key`) |
 | `OPENROUTER_API_KEY` | - | OpenRouter API key (injected as `openrouter_api_key`) |
-| `ZAI_API_KEY` | - | Z.ai Model API key (injected as `zai_api_key`) |
 | `EVM_PAYMENT_ADDRESS` | - | Wallet address to receive x402 payments |
 | `FACILITATOR_URL` | see `tee_gateway/__main__.py` | x402 payment facilitator endpoint |
 

@@ -13,8 +13,7 @@ from typing import Any, Mapping, Optional
 
 @dataclass(frozen=True)
 class ModelConfig:
-    # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" |
-    # "openrouter" | "zai"
+    # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" | "openrouter"
     provider: str
     api_name: str  # model name sent to provider API
     input_price_usd: Decimal  # USD per token
@@ -42,10 +41,10 @@ class ModelConfig:
     # The ``response_format`` to request. ``"b64_json"`` returns inline bytes;
     # ``"url"`` returns a hosted link the gateway fetches and inlines (so the
     # client always receives bytes). ``None`` omits the field for endpoints that
-    # don't document it (Z.ai GLM-Image).
+    # don't document it.
     image_response_format: Optional[str] = "b64_json"
-    # Whether to send the OpenAI-style ``n`` count. Some endpoints (Z.ai
-    # GLM-Image, ByteDance Seedance) don't document it and reject/ignore it.
+    # Whether to send the OpenAI-style ``n`` count. Some endpoints (e.g.
+    # ByteDance Seedance) don't document it and reject/ignore it.
     image_send_n: bool = True
     # Whether the endpoint accepts reference images for image-to-image editing.
     # Text-to-image-only endpoints reject it. HOW the references are delivered
@@ -635,7 +634,7 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.00000033"),
     )
 
-    # ── Z.ai (Model API, OpenAI-compatible) ─────────────────────────────
+    # ── Z.ai models (served through BytePlus ModelArk) ──────────────────
     # GLM-5.2 is served via a BytePlus ModelArk deployment endpoint (api_name
     # "ep-…") rather than Z.ai's own API — same model, same per-1M-token
     # pricing ($1.40 input, $4.40 output), routed through the bytedance client.
@@ -645,21 +644,6 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000014"),
         output_price_usd=Decimal("0.0000044"),
     )
-    # GLM-Image uses Z.ai's image endpoint and is billed per generated image.
-    # Z.ai returns hosted URLs only (fetched and inlined by the gateway) and
-    # documents neither ``n`` nor ``response_format``, so both are omitted.
-    GLM_IMAGE = ModelConfig(
-        provider="zai",
-        api_name="glm-image",
-        input_price_usd=Decimal("0"),
-        output_price_usd=Decimal("0"),
-        image_generation=True,
-        per_image_price_usd=Decimal("0.015"),
-        image_response_format=None,
-        image_send_n=False,
-        image_extra_params={"size": "1280x1280"},
-    )
-
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──
     GROK_3_MINI = ModelConfig(
         provider="x-ai",
@@ -777,10 +761,9 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "hy3": SupportedModel.HY3,
     "tencent/hy3": SupportedModel.HY3,
     "tencent/hy3:floor": SupportedModel.HY3,
-    # Z.ai
+    # Z.ai models (served through BytePlus ModelArk)
     "glm-5.2": SupportedModel.GLM_5_2,
     "ep-20260803211658-fwpzs": SupportedModel.GLM_5_2,
-    "glm-image": SupportedModel.GLM_IMAGE,
     # Legacy — not in current SDK, retained for older SDK versions
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
     "grok-3-mini": SupportedModel.GROK_3_MINI,

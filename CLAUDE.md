@@ -69,7 +69,6 @@ API keys (injected at runtime via POST /v1/keys — do NOT bake into the image):
 - `XAI_API_KEY`
 - `ARK_API_KEY` (BytePlus / ByteDance ModelArk; injected as `bytedance_api_key`)
 - `OPENROUTER_API_KEY` (OpenRouter; injected as `openrouter_api_key`)
-- `ZAI_API_KEY` (Z.ai Model API; injected as `zai_api_key`)
 - `EXA_API_KEY` (Exa search; injected as `exa_api_key`) — backs the in-enclave
   `/v1/web_search` endpoint, not an LLM provider. Without it the endpoint
   returns 503 and `/health` reports `web_search_enabled: false`.
@@ -126,15 +125,14 @@ Model name prefixes determine routing:
 - **xAI**: grok-2, grok-3, grok-3-mini, grok-4, grok-4.3, grok-4.5, grok-4.6, grok-4-fast, grok-4-1-fast; image generation: grok-2-image
 - **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro, glm-5.2 (Z.ai's model served via a ModelArk deployment endpoint); image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0
 - **OpenRouter** (OpenAI-compatible): hermes-4-405b, hermes-4-70b, hy3
-- **Z.ai** (Model API, OpenAI-compatible): image generation: glm-image (glm-5.2 chat is routed through BytePlus ModelArk, see ByteDance above)
 
-Image generation via OpenAI (gpt-image-2), xAI (grok-2-image), ByteDance
-(seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0), and Z.ai (glm-image) is served
+Image generation via OpenAI (gpt-image-2), xAI (grok-2-image) and ByteDance
+(seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0) is served
 through a provider `/images/generations` endpoint rather than the chat path (see
 `image_generation.py`), but is surfaced on `/v1/chat/completions` exactly like
 Gemini's inline-image models (images returned out-of-band under the message
 `images` key). The client always receives inline bytes: providers that hand back
-a hosted URL (Z.ai, Seedance, Seedream 5.0 Lite) are fetched inside the enclave
+a hosted URL (Seedance, Seedream 5.0 Lite) are fetched inside the enclave
 and inlined as `data:` URIs (the fetch is guarded: http(s) only, non-public IP
 hosts rejected, redirects + size capped, and only ever called on provider-
 response URLs, never client input). Image-to-image editing and multi-image

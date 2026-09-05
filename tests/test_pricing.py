@@ -539,7 +539,7 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg, get_model_config("tencent/hy3"))
         self.assertEqual(cfg, get_model_config("tencent/hy3:floor"))
 
-    # ── Z.ai (Model API) ───────────────────────────────────────────────────
+    # ── Z.ai models (served through BytePlus ModelArk) ─────────────────────
 
     def test_glm_5_2_resolves(self):
         # GLM-5.2 is served via a BytePlus ModelArk deployment endpoint, not
@@ -555,13 +555,6 @@ class TestModelRegistry(unittest.TestCase):
             get_model_config("ep-20260803211658-fwpzs"),
             get_model_config("glm-5.2"),
         )
-
-    def test_glm_image_resolves(self):
-        cfg = get_model_config("glm-image")
-        self.assertEqual(cfg.provider, "zai")
-        self.assertEqual(cfg.api_name, "glm-image")
-        self.assertTrue(cfg.image_generation)
-        self.assertEqual(cfg.per_image_price_usd, Decimal("0.015"))
 
     # ── Errors ───────────────────────────────────────────────────────────────
 

@@ -1,9 +1,9 @@
 """Endpoint-based image generation.
 
-OpenAI (gpt-image), xAI (Aurora), ByteDance (Seedream/Seedance) and Z.ai
-(GLM-Image) expose image generation through a dedicated OpenAI-compatible
-``POST /images/generations`` endpoint rather than the chat path. This module
-owns everything specific to that flow:
+OpenAI (gpt-image), xAI (Aurora) and ByteDance (Seedream/Seedance) expose image
+generation through a dedicated OpenAI-compatible ``POST /images/generations``
+endpoint rather than the chat path. This module owns everything specific to
+that flow:
 
   * ``generate_images`` — shape and send the provider request, always returning
     inline ``data:`` URIs (a provider-hosted URL is fetched into the enclave so
@@ -57,7 +57,6 @@ _IMAGE_CLIENT_ATTRS = {
     "openai": "openai_http_client",
     "x-ai": "xai_http_client",
     "bytedance": "bytedance_http_client",
-    "zai": "zai_http_client",
 }
 
 # Bounds on the URL fetch (egress hardening). Provider images are well under the
@@ -69,12 +68,11 @@ _ALLOWED_FETCH_SCHEMES = {"http", "https"}
 # Shared keyless client for fetching provider-hosted image URLs into the enclave.
 _image_fetch_client: Optional[httpx.Client] = None
 
-# Retry policy for the hosted-URL fetch. Some providers (notably Z.ai, whose
-# generations response points at mfile.z.ai) return the URL before the file is
-# visible on their CDN, so an immediate GET can 404 with "file not exist" even
-# though the image was generated — retrying shortly after succeeds. 404 covers
-# that visibility race; 5xx and transport errors are ordinary transient CDN
-# failures. Anything else (403, size-cap ValueError, …) fails fast.
+# Retry policy for the hosted-URL fetch. Some providers return the URL before
+# the file is visible on their CDN, so an immediate GET can 404 with "file not
+# exist" even though the image was generated — retrying shortly after succeeds.
+# 404 covers that visibility race; 5xx and transport errors are ordinary
+# transient CDN failures. Anything else (403, size-cap ValueError, …) fails fast.
 _FETCH_RETRY_STATUS_CODES = frozenset({404, 500, 502, 503, 504})
 _FETCH_RETRY_DELAYS_SECONDS = (1.0, 2.0, 4.0)
 

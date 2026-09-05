@@ -40,7 +40,6 @@ jobs:
       # The suite reads OPENROUTER_API_KEY (the provider was renamed from Nous);
       # accept either secret name so the job runs whichever the repo still holds.
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || secrets.NOUS_API_KEY }}
-      ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -49,7 +48,7 @@ jobs:
         run: |
           for name in \
             OPENAI_API_KEY ANTHROPIC_API_KEY GOOGLE_API_KEY XAI_API_KEY \
-            ARK_API_KEY OPENROUTER_API_KEY ZAI_API_KEY
+            ARK_API_KEY OPENROUTER_API_KEY
           do
             if [[ -z "${!name}" ]]; then
               echo "Missing required repository secret: $name" >&2

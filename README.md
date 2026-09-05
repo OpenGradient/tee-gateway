@@ -37,8 +37,9 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 | Anthropic | claude-fable-5-1, claude-sonnet-4-5, claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-5, claude-opus-4-6 |
 | Google | gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview |
 | xAI | grok-4.6, grok-4.5, grok-4.3, grok-4, grok-4-fast, grok-4-1-fast, grok-4-1-fast-non-reasoning |
-| ByteDance | seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro |
+| ByteDance | seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro, glm-5.2 |
 | OpenRouter | hermes-4-405b, hermes-4-70b, hy3 |
+| Z.ai | glm-5.3, glm-5.3-flash |
 
 ## Quick Start
 

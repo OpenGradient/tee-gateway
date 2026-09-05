@@ -636,6 +636,30 @@ class SupportedModel(Enum):
     )
 
     # ── Z.ai (Model API, OpenAI-compatible) ─────────────────────────────
+    # GLM-5.3 (released 2026-08-14) is a post-training-only refresh of GLM-5.2
+    # — Z.ai states it keeps the same base model — with the same $1.40/$4.40
+    # per-MTok sticker, so unlike GLM-5.2 there is no matching BytePlus
+    # ModelArk deployment endpoint to route it through yet. It's added
+    # directly against Z.ai's own already-integrated API instead. Thinking is
+    # mandatory on this model (the `thinking.type: "disabled"` request no
+    # longer works) but `temperature` is still accepted (Z.ai's documented
+    # default is 1.0), so no registry flags are needed.
+    GLM_5_3 = ModelConfig(
+        provider="zai",
+        api_name="glm-5.3",
+        input_price_usd=Decimal("0.0000014"),
+        output_price_usd=Decimal("0.0000044"),
+    )
+    # GLM-5.3-Flash (released 2026-08-26) is Z.ai's low-cost, natively
+    # multimodal (vision-capable) sibling — priced separately from GLM-5.3 at
+    # $0.15/$0.50 per MTok. Same mandatory-thinking / temperature-accepted
+    # behavior as GLM-5.3 above.
+    GLM_5_3_FLASH = ModelConfig(
+        provider="zai",
+        api_name="glm-5.3-flash",
+        input_price_usd=Decimal("0.00000015"),
+        output_price_usd=Decimal("0.0000005"),
+    )
     # GLM-5.2 is served via a BytePlus ModelArk deployment endpoint (api_name
     # "ep-…") rather than Z.ai's own API — same model, same per-1M-token
     # pricing ($1.40 input, $4.40 output), routed through the bytedance client.
@@ -778,6 +802,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "tencent/hy3": SupportedModel.HY3,
     "tencent/hy3:floor": SupportedModel.HY3,
     # Z.ai
+    "glm-5.3": SupportedModel.GLM_5_3,
+    "glm-5.3-flash": SupportedModel.GLM_5_3_FLASH,
     "glm-5.2": SupportedModel.GLM_5_2,
     "ep-20260803211658-fwpzs": SupportedModel.GLM_5_2,
     "glm-image": SupportedModel.GLM_IMAGE,

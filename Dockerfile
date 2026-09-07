@@ -16,7 +16,7 @@ RUN chown root:root /bin/start.sh
 RUN chmod 0755 /bin/start.sh
 
 # ---------- Final image ----------
-FROM python:3.12.10-slim-bullseye
+FROM python:3.12.10-slim-bookworm
 
 # API keys are NOT set here — they are injected at runtime via POST /v1/keys
 # after the enclave starts, keeping PCR measurements stable across deployments.
@@ -27,7 +27,9 @@ RUN echo 'Dir::Log "/dev/null";' > /etc/apt/apt.conf.d/00no-log \
     && echo 'Dir::Log::History "";' >> /etc/apt/apt.conf.d/00no-log \
     && ln -sf /dev/null /var/log/dpkg.log \
     && ln -sf /dev/null /var/log/alternatives.log \
-    && apt-get update -qq && apt-get install -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get -o Acquire::Retries=5 update -qq \
+    && apt-get install -y --no-install-recommends \
     wget \
     tar \
     build-essential \
@@ -37,8 +39,8 @@ RUN echo 'Dir::Log "/dev/null";' > /etc/apt/apt.conf.d/00no-log \
     curl \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /var/cache/ldconfig/aux-cache \
-    && find /usr/lib/python3.9 -name "*.pyc" -delete \
-    && find /usr/lib/python3.9 -name "__pycache__" -type d -delete
+    && find /usr/lib/python3* -type f -name "*.pyc" -delete \
+    && find /usr/lib/python3* -depth -type d -name "__pycache__" -delete
 
 # Copy nitriding and startup script from builder
 COPY --from=builder /nitriding-daemon/nitriding /bin/nitriding

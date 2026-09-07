@@ -511,6 +511,23 @@ class SupportedModel(Enum):
         per_image_price_usd=Decimal("0.02"),
         image_response_format="url",
     )
+    # Grok Imagine Image 2.0 — xAI's newer, higher-quality image model
+    # (released ~2026-08-11), offered alongside grok-imagine-image rather than
+    # replacing it (xAI's own pricing page lists both with no deprecation
+    # notice on the older one). Same hosted-URL response shape as
+    # grok-imagine-image. xAI bills two quality tiers, $0.04/image at low/1K
+    # and $0.08/image at medium/2K (docs.x.ai pricing page); the gateway has
+    # no per-request quality selector yet, so this is registered at the
+    # low/1K (default) tier price.
+    GROK_IMAGINE_IMAGE_2_0 = ModelConfig(
+        provider="x-ai",
+        api_name="grok-imagine-image-2.0",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.04"),
+        image_response_format="url",
+    )
 
     # ── ByteDance (BytePlus ModelArk, OpenAI-compatible) ────────────────
     SEED_1_6 = ModelConfig(
@@ -745,6 +762,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "grok-2-image-latest": SupportedModel.GROK_2_IMAGE,
     "grok-imagine-image": SupportedModel.GROK_2_IMAGE,
     "grok-imagine-image-2026-03-02": SupportedModel.GROK_2_IMAGE,
+    "grok-imagine-image-2.0": SupportedModel.GROK_IMAGINE_IMAGE_2_0,
+    "grok-imagine-image-2-0": SupportedModel.GROK_IMAGINE_IMAGE_2_0,
     # ByteDance
     "seed-1-6-250615": SupportedModel.SEED_1_6,
     "seed-1.6": SupportedModel.SEED_1_6,

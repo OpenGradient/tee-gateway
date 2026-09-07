@@ -396,6 +396,19 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.0000002"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.0000015"))
 
+    def test_grok_imagine_image_2_0_resolves(self):
+        cfg = get_model_config("grok-imagine-image-2.0")
+        self.assertEqual(cfg.provider, "x-ai")
+        self.assertEqual(cfg.api_name, "grok-imagine-image-2.0")
+        self.assertTrue(cfg.image_generation)
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.04"))
+
+    def test_grok_imagine_image_2_0_dash_alias_resolves(self):
+        self.assertEqual(
+            get_model_config("grok-imagine-image-2-0"),
+            get_model_config("grok-imagine-image-2.0"),
+        )
+
     def test_claude_opus_4_7_resolves(self):
         cfg = get_model_config("claude-opus-4-7")
         self.assertEqual(cfg.provider, "anthropic")

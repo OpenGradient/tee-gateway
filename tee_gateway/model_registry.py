@@ -631,6 +631,19 @@ class SupportedModel(Enum):
     )
 
     # ── OpenRouter (OpenAI-compatible) ──────────────────────────────────
+    # Tencent Hy4 Preview — 770B-parameter (49B active) open-weight MoE,
+    # open-sourced 2026-08-28, aimed at coding agents and long-horizon
+    # tool-use with a 1,048,576-token context window. Routed through
+    # OpenRouter like hy3, using OpenRouter's list pricing. Tencent
+    # recommends temperature=0.9 for inference; the model accepts the
+    # standard sampling params (OpenRouter model page), so no
+    # supports_temperature/force_temperature override is needed.
+    HY4_PREVIEW = ModelConfig(
+        provider="openrouter",
+        api_name="tencent/hy4-preview",
+        input_price_usd=Decimal("0.000000834"),
+        output_price_usd=Decimal("0.000002501"),
+    )
     # Nous no longer serves Hermes 4 through Nous Portal, so both models route
     # through their canonical OpenRouter slugs and use OpenRouter list pricing.
     HERMES_4_405B = ModelConfig(
@@ -796,6 +809,9 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "hy3": SupportedModel.HY3,
     "tencent/hy3": SupportedModel.HY3,
     "tencent/hy3:floor": SupportedModel.HY3,
+    "hy4-preview": SupportedModel.HY4_PREVIEW,
+    "hy4": SupportedModel.HY4_PREVIEW,
+    "tencent/hy4-preview": SupportedModel.HY4_PREVIEW,
     # Z.ai
     "glm-5.2": SupportedModel.GLM_5_2,
     "ep-20260803211658-fwpzs": SupportedModel.GLM_5_2,

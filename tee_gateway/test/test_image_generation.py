@@ -108,15 +108,15 @@ class TestGenerateImages(unittest.TestCase):
         payload = kwargs["json"]
         self.assertEqual(payload["model"], "glm-image")
         self.assertEqual(payload["prompt"], "a poster")
-        self.assertEqual(payload["size"], "1280x1280")
+        self.assertNotIn("size", payload)
         self.assertNotIn("n", payload)
         self.assertNotIn("response_format", payload)
 
-    def test_openai_gpt_image_omits_response_format_and_pins_size_quality(self):
+    def test_openai_gpt_image_defaults_size_to_auto_and_pins_quality(self):
         # gpt-image models always return base64 and reject `response_format`, so
-        # the field must be omitted; size/quality are pinned for predictable
-        # billing. The shared openai_http_client is reused (base_url ends in /v1,
-        # so the request lands on OpenAI's /v1/images/generations).
+        # the field must be omitted. Quality stays pinned while size is absent
+        # on the automatic path. The shared openai_http_client is reused
+        # (base_url ends in /v1, so this lands on /v1/images/generations).
         client = MagicMock()
         client.post.return_value = _mock_response([{"b64_json": "aGVsbG8="}])
         with patch.object(llm_backend, "openai_http_client", client):
@@ -129,9 +129,45 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(payload["model"], get_model_config(GPT_IMAGE).api_name)
         self.assertEqual(payload["prompt"], "a red cube")
         self.assertEqual(payload["n"], 1)
-        self.assertEqual(payload["size"], "1024x1024")
+        self.assertNotIn("size", payload)
         self.assertEqual(payload["quality"], "medium")
         self.assertNotIn("response_format", payload)
+
+    def test_gpt_image_translates_aspect_ratio_to_supported_size(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "aGVsbG8="}])
+        with patch.object(llm_backend, "openai_http_client", client):
+            generate_images(GPT_IMAGE, "a landscape", aspect_ratio="3:2")
+
+        payload = client.post.call_args.kwargs["json"]
+        self.assertEqual(payload["size"], "1536x1024")
+        self.assertEqual(payload["quality"], "medium")
+
+    def test_grok_forwards_aspect_ratio_and_auto_omits_it(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([])
+        with patch.object(llm_backend, "xai_http_client", client):
+            generate_images(GROK_IMAGE, "a banner", aspect_ratio="21:9")
+            selected = client.post.call_args.kwargs["json"]
+            generate_images(GROK_IMAGE, "surprise me", aspect_ratio="auto")
+            automatic = client.post.call_args.kwargs["json"]
+
+        self.assertEqual(selected["aspect_ratio"], "21:9")
+        self.assertNotIn("aspect_ratio", automatic)
+
+    def test_invalid_aspect_ratio_is_rejected_before_provider_call(self):
+        client = MagicMock()
+        with patch.object(llm_backend, "openai_http_client", client):
+            with self.assertRaisesRegex(ValueError, "Unsupported aspect_ratio"):
+                generate_images(GPT_IMAGE, "a banner", aspect_ratio="7:3")
+        client.post.assert_not_called()
+
+    def test_gemini_aspect_ratio_uses_image_config_shape(self):
+        cfg = get_model_config("gemini-3.1-flash-image")
+        self.assertEqual(
+            image_generation.aspect_ratio_params(cfg, "16:9"),
+            {"aspect_ratio": "16:9"},
+        )
 
     def test_seedance_uses_url_format_and_extra_params(self):
         client = MagicMock()
@@ -283,7 +319,7 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(form["model"], get_model_config(GPT_IMAGE).api_name)
         self.assertEqual(form["prompt"], "add the logo to the photo")
         self.assertEqual(form["n"], "1")
-        self.assertEqual(form["size"], "1024x1024")
+        self.assertNotIn("size", form)
         self.assertEqual(form["quality"], "medium")
         self.assertNotIn("response_format", form)
         # Both references are uploaded under the repeated image[] field, decoded
@@ -295,6 +331,20 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(uploads[0][1][2], "image/png")
         self.assertEqual(uploads[1][1][0], "image_1.jpg")
         self.assertEqual(uploads[1][1][1], b"DEF")
+
+    def test_gpt_image_edit_translates_aspect_ratio_to_form_size(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "aGVsbG8="}])
+        refs = ["data:image/png;base64,QUJD"]
+        with patch.object(llm_backend, "openai_http_client", client):
+            generate_images(
+                GPT_IMAGE,
+                "make it portrait",
+                reference_images=refs,
+                aspect_ratio="2:3",
+            )
+
+        self.assertEqual(client.post.call_args.kwargs["data"]["size"], "1024x1536")
 
     def test_gpt_image_without_references_uses_generations(self):
         # No references -> plain text-to-image on the JSON generations endpoint.
@@ -784,6 +834,105 @@ class TestExtractImageInputs(unittest.TestCase):
         prompt, refs = image_generation._extract_image_inputs(msgs)
         self.assertEqual(prompt, "p")
         self.assertEqual(refs, [])
+
+
+class TestAspectRatioSupport(unittest.TestCase):
+    """The public ratio -> provider-request translation, and the size tables.
+
+    The tables are checked against each provider's documented size rules so a
+    new entry that a provider would reject fails here rather than in
+    production, where it would 400 the whole generation.
+    """
+
+    def test_auto_and_unset_take_the_provider_default(self):
+        cfg = get_model_config(GPT_IMAGE)
+        for value in (None, "auto", "", "  "):
+            with self.subTest(value=value):
+                self.assertEqual(image_generation.aspect_ratio_params(cfg, value), {})
+
+    def test_ratio_is_trimmed_before_lookup(self):
+        cfg = get_model_config(GPT_IMAGE)
+        self.assertEqual(
+            image_generation.aspect_ratio_params(cfg, " 16:9 "), {"size": "1536x864"}
+        )
+
+    def test_validate_rejects_unsupported_ratio_for_an_image_model(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported aspect_ratio"):
+            image_generation.validate_aspect_ratio(GPT_IMAGE, "7:3")
+
+    def test_validate_ignores_the_field_for_models_that_cannot_use_it(self):
+        # Text models have no output shape to set; the field is a no-op there
+        # rather than a rejection (old clients may send it unconditionally).
+        image_generation.validate_aspect_ratio("gpt-4.1", "16:9")
+        # An unknown model is reported by the normal request path, not here.
+        image_generation.validate_aspect_ratio("not-a-model", "16:9")
+
+    def test_gpt_image_sizes_satisfy_openai_size_constraints(self):
+        # https://developers.openai.com/api/docs/guides/image-generation:
+        # edges must be multiples of 16, the long:short ratio at most 3:1,
+        # neither edge over 3840px, and total pixels within [655360, 8294400].
+        sizes = get_model_config(GPT_IMAGE).image_aspect_ratios or {}
+        self.assertIn("16:9", sizes)
+        for ratio, size in sizes.items():
+            with self.subTest(ratio=ratio):
+                width, height = (int(part) for part in size.split("x"))
+                self.assertEqual((width % 16, height % 16), (0, 0))
+                self.assertLessEqual(max(width, height), 3840)
+                self.assertLessEqual(max(width, height) / min(width, height), 3.0)
+                self.assertGreaterEqual(width * height, 655_360)
+                self.assertLessEqual(width * height, 8_294_400)
+                # Pixel count stays in the band the flat per-image price
+                # assumes (gpt-image-2 bills by output tokens, which scale
+                # with area), and the size really is the advertised shape.
+                self.assertLessEqual(width * height, 1_600_000)
+                self._assert_matches_ratio(ratio, width, height)
+
+    def test_bytedance_sizes_satisfy_modelark_size_constraints(self):
+        # Every ModelArk image model in the registry shares one size table, so
+        # it has to satisfy the tightest documented window across them:
+        # pixels >= 2560x1440 (Seedream 4.5 / 5.0 lite) and <= 2048x2048x1.1025
+        # (Seedream 5.0 pro), with the ratio inside [1/16, 16].
+        sizes = get_model_config(SEEDREAM).image_aspect_ratios or {}
+        self.assertEqual(sizes, get_model_config(SEEDANCE_5).image_aspect_ratios)
+        for ratio, size in sizes.items():
+            with self.subTest(ratio=ratio):
+                width, height = (int(part) for part in size.split("x"))
+                self.assertGreaterEqual(width * height, 3_686_400)
+                self.assertLessEqual(width * height, 4_624_220)
+                self.assertLessEqual(max(width, height) / min(width, height), 16)
+                self._assert_matches_ratio(ratio, width, height)
+
+    def test_glm_sizes_are_zai_recommended_resolutions(self):
+        # Z.ai documents these seven resolutions for glm-image and requires
+        # both edges to be multiples of 32, within 512-2048px.
+        sizes = get_model_config(GLM_IMAGE).image_aspect_ratios or {}
+        self.assertEqual(
+            set(sizes.values()),
+            {
+                "1280x1280",
+                "1568x1056",
+                "1056x1568",
+                "1472x1088",
+                "1088x1472",
+                "1728x960",
+                "960x1728",
+            },
+        )
+        for ratio, size in sizes.items():
+            with self.subTest(ratio=ratio):
+                width, height = (int(part) for part in size.split("x"))
+                self.assertEqual((width % 32, height % 32), (0, 0))
+                self.assertGreaterEqual(min(width, height), 512)
+                self.assertLessEqual(max(width, height), 2048)
+                # Z.ai's own recommendations only approximate their labels.
+                self._assert_matches_ratio(ratio, width, height, tolerance=0.03)
+
+    def _assert_matches_ratio(self, ratio, width, height, tolerance=0.001):
+        """Assert WxH is the shape its public ``aspect_ratio`` label claims."""
+        left, right = (float(part) for part in ratio.split(":"))
+        self.assertAlmostEqual(
+            width / height, left / right, delta=(left / right) * tolerance
+        )
 
 
 class TestPerImageBilling(unittest.TestCase):

@@ -35,8 +35,10 @@ from tee_gateway.llm_backend import (
     canonical_user_content,
 )
 from tee_gateway.image_generation import (
+    aspect_ratio_params,
     create_image_generation_response,
     create_image_generation_streaming_response,
+    validate_aspect_ratio,
 )
 from tee_gateway.model_registry import get_model_config
 from tee_gateway.moderation import (
@@ -101,6 +103,13 @@ def create_chat_completion(body):
         validate_attachments(chat_request.messages, chat_request.model)
     except AttachmentValidationError as e:
         return {"error": "Invalid attachment", "message": str(e)}, 400
+
+    # A ratio the target model can't produce is a client error, so it is caught
+    # here rather than surfacing from the provider call as a 500.
+    try:
+        validate_aspect_ratio(chat_request.model, chat_request.aspect_ratio)
+    except ValueError as e:
+        return {"error": "Invalid aspect_ratio", "message": str(e)}, 400
 
     # Score the newest user turn of image requests before any provider work
     # (text chat is not moderated — see moderation.should_moderate_model).
@@ -299,6 +308,16 @@ def _create_non_streaming_response(
         if tools_list:
             model = model.bind_tools(tools_list)
 
+        # Aspect ratio for Gemini's inline-image models rides in Gemini's
+        # image_config (these models leave image_aspect_ratio_param at its
+        # default, which is ImageConfig's own field name). Bound after
+        # bind_tools, which re-binds the base model and drops kwargs bound
+        # before it. Empty params mean the automatic path: bind nothing.
+        if cfg.image_output:
+            image_config = aspect_ratio_params(cfg, chat_request.aspect_ratio)
+            if image_config:
+                model = model.bind(image_config=image_config)
+
         # Bind response_format if provided (json_object or json_schema).
         # Anthropic does not support response_format via bind(); use
         # with_structured_output() for json_schema instead (json_object has no
@@ -476,6 +495,13 @@ def _create_streaming_response(
         # Bind user tools and/or the native web search tool if requested.
         if tools_list:
             model = model.bind_tools(tools_list)
+
+        # Aspect ratio for the inline-image models (see the non-streaming path
+        # for why this is bound after bind_tools).
+        if image_output_model:
+            image_config = aspect_ratio_params(cfg, chat_request.aspect_ratio)
+            if image_config:
+                model = model.bind(image_config=image_config)
 
         # Bind response_format if provided (json_object or json_schema).
         # Anthropic does not support response_format via bind(); use
@@ -956,6 +982,8 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
         d["response_format"] = _normalize_response_format(chat_request.response_format)
     if chat_request.web_search:
         d["web_search"] = True
+    if chat_request.aspect_ratio:
+        d["aspect_ratio"] = chat_request.aspect_ratio
     return d
 
 
@@ -979,6 +1007,7 @@ def _parse_chat_request(chat_request_dict: dict) -> CreateChatCompletionRequest:
         tool_choice=chat_request_dict.get("tool_choice"),
         user=chat_request_dict.get("user"),
         web_search=chat_request_dict.get("web_search", False),
+        aspect_ratio=chat_request_dict.get("aspect_ratio"),
     )
 
 

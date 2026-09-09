@@ -35,6 +35,7 @@ from tee_gateway.llm_backend import (
     canonical_user_content,
 )
 from tee_gateway.image_generation import (
+    _aspect_ratio_params,
     create_image_generation_response,
     create_image_generation_streaming_response,
 )
@@ -295,6 +296,10 @@ def _create_non_streaming_response(
             ),
         )
 
+        if cfg.image_output and chat_request.aspect_ratio:
+            aspect = _aspect_ratio_params(cfg, chat_request.aspect_ratio)
+            model = model.bind(image_config={"aspect_ratio": aspect["aspect_ratio"]})
+
         # Bind user tools and/or the native web search tool if requested.
         if tools_list:
             model = model.bind_tools(tools_list)
@@ -472,6 +477,10 @@ def _create_streaming_response(
                 provider, cfg, tools_list
             ),
         )
+
+        if image_output_model and chat_request.aspect_ratio:
+            aspect = _aspect_ratio_params(cfg, chat_request.aspect_ratio)
+            model = model.bind(image_config={"aspect_ratio": aspect["aspect_ratio"]})
 
         # Bind user tools and/or the native web search tool if requested.
         if tools_list:
@@ -956,6 +965,8 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
         d["response_format"] = _normalize_response_format(chat_request.response_format)
     if chat_request.web_search:
         d["web_search"] = True
+    if chat_request.aspect_ratio:
+        d["aspect_ratio"] = chat_request.aspect_ratio
     return d
 
 
@@ -979,6 +990,7 @@ def _parse_chat_request(chat_request_dict: dict) -> CreateChatCompletionRequest:
         tool_choice=chat_request_dict.get("tool_choice"),
         user=chat_request_dict.get("user"),
         web_search=chat_request_dict.get("web_search", False),
+        aspect_ratio=chat_request_dict.get("aspect_ratio"),
     )
 
 

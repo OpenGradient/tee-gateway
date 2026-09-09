@@ -108,15 +108,15 @@ class TestGenerateImages(unittest.TestCase):
         payload = kwargs["json"]
         self.assertEqual(payload["model"], "glm-image")
         self.assertEqual(payload["prompt"], "a poster")
-        self.assertEqual(payload["size"], "1280x1280")
+        self.assertNotIn("size", payload)
         self.assertNotIn("n", payload)
         self.assertNotIn("response_format", payload)
 
-    def test_openai_gpt_image_omits_response_format_and_pins_size_quality(self):
+    def test_openai_gpt_image_defaults_size_to_auto_and_pins_quality(self):
         # gpt-image models always return base64 and reject `response_format`, so
-        # the field must be omitted; size/quality are pinned for predictable
-        # billing. The shared openai_http_client is reused (base_url ends in /v1,
-        # so the request lands on OpenAI's /v1/images/generations).
+        # the field must be omitted. Quality stays pinned while size is absent
+        # on the automatic path. The shared openai_http_client is reused
+        # (base_url ends in /v1, so this lands on /v1/images/generations).
         client = MagicMock()
         client.post.return_value = _mock_response([{"b64_json": "aGVsbG8="}])
         with patch.object(llm_backend, "openai_http_client", client):
@@ -129,9 +129,45 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(payload["model"], get_model_config(GPT_IMAGE).api_name)
         self.assertEqual(payload["prompt"], "a red cube")
         self.assertEqual(payload["n"], 1)
-        self.assertEqual(payload["size"], "1024x1024")
+        self.assertNotIn("size", payload)
         self.assertEqual(payload["quality"], "medium")
         self.assertNotIn("response_format", payload)
+
+    def test_gpt_image_translates_aspect_ratio_to_supported_size(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "aGVsbG8="}])
+        with patch.object(llm_backend, "openai_http_client", client):
+            generate_images(GPT_IMAGE, "a landscape", aspect_ratio="3:2")
+
+        payload = client.post.call_args.kwargs["json"]
+        self.assertEqual(payload["size"], "1536x1024")
+        self.assertEqual(payload["quality"], "medium")
+
+    def test_grok_forwards_aspect_ratio_and_auto_omits_it(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([])
+        with patch.object(llm_backend, "xai_http_client", client):
+            generate_images(GROK_IMAGE, "a banner", aspect_ratio="21:9")
+            selected = client.post.call_args.kwargs["json"]
+            generate_images(GROK_IMAGE, "surprise me", aspect_ratio="auto")
+            automatic = client.post.call_args.kwargs["json"]
+
+        self.assertEqual(selected["aspect_ratio"], "21:9")
+        self.assertNotIn("aspect_ratio", automatic)
+
+    def test_invalid_aspect_ratio_is_rejected_before_provider_call(self):
+        client = MagicMock()
+        with patch.object(llm_backend, "openai_http_client", client):
+            with self.assertRaisesRegex(ValueError, "Unsupported aspect_ratio"):
+                generate_images(GPT_IMAGE, "a banner", aspect_ratio="16:9")
+        client.post.assert_not_called()
+
+    def test_gemini_aspect_ratio_uses_image_config_shape(self):
+        cfg = get_model_config("gemini-3.1-flash-image")
+        self.assertEqual(
+            image_generation._aspect_ratio_params(cfg, "16:9"),
+            {"aspect_ratio": "16:9"},
+        )
 
     def test_seedance_uses_url_format_and_extra_params(self):
         client = MagicMock()
@@ -283,7 +319,7 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(form["model"], get_model_config(GPT_IMAGE).api_name)
         self.assertEqual(form["prompt"], "add the logo to the photo")
         self.assertEqual(form["n"], "1")
-        self.assertEqual(form["size"], "1024x1024")
+        self.assertNotIn("size", form)
         self.assertEqual(form["quality"], "medium")
         self.assertNotIn("response_format", form)
         # Both references are uploaded under the repeated image[] field, decoded
@@ -295,6 +331,20 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(uploads[0][1][2], "image/png")
         self.assertEqual(uploads[1][1][0], "image_1.jpg")
         self.assertEqual(uploads[1][1][1], b"DEF")
+
+    def test_gpt_image_edit_translates_aspect_ratio_to_form_size(self):
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"b64_json": "aGVsbG8="}])
+        refs = ["data:image/png;base64,QUJD"]
+        with patch.object(llm_backend, "openai_http_client", client):
+            generate_images(
+                GPT_IMAGE,
+                "make it portrait",
+                reference_images=refs,
+                aspect_ratio="2:3",
+            )
+
+        self.assertEqual(client.post.call_args.kwargs["data"]["size"], "1024x1536")
 
     def test_gpt_image_without_references_uses_generations(self):
         # No references -> plain text-to-image on the JSON generations endpoint.

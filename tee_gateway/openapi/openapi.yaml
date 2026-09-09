@@ -2884,6 +2884,14 @@ components:
           type: array
         model:
           $ref: "#/components/schemas/CreateChatCompletionRequest_model"
+        aspect_ratio:
+          description: |
+            Optional output aspect ratio for image-generation models. Omit this
+            field (or pass `auto`) to let the provider choose automatically.
+            Supported values depend on the selected model.
+          nullable: true
+          title: aspect_ratio
+          type: string
         web_search:
           default: false
           deprecated: true

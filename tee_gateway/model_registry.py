@@ -63,6 +63,11 @@ class ModelConfig:
     # Static extra params merged verbatim into the request payload (e.g. size,
     # watermark). Keyed by field name; values must be JSON-serializable.
     image_extra_params: Optional[Mapping[str, Any]] = None
+    # Optional aspect-ratio choices exposed to callers. Keys are normalized
+    # public ``aspect_ratio`` values and values are provider-specific values.
+    # Omitted/"auto" requests send no ratio override.
+    image_aspect_ratios: Optional[Mapping[str, str]] = None
+    image_aspect_ratio_param: str = "aspect_ratio"
     # USD per image-modality output token, for ``image_output`` models (Gemini
     # "nano banana"). These providers bill image output at a higher rate than
     # text/thinking output: image tokens at this rate, text + thinking tokens at
@@ -115,6 +120,61 @@ _SEEDANCE_5_IMAGE_PARAMS: dict[str, Any] = {
     "watermark": False,
     "size": "2K",
     "stream": False,
+}
+
+# 2K-ish explicit dimensions for ModelArk models. The bare ``size: 2K`` config
+# remains the auto path, where ModelArk chooses the shape from the prompt or
+# reference image.
+_BYTEDANCE_2K_ASPECT_SIZES: dict[str, str] = {
+    "1:1": "2048x2048",
+    "16:9": "2560x1440",
+    "9:16": "1440x2560",
+    "4:3": "2368x1776",
+    "3:4": "1776x2368",
+    "3:2": "2496x1664",
+    "2:3": "1664x2496",
+    "21:9": "3136x1344",
+}
+
+_GEMINI_IMAGE_ASPECT_RATIOS: dict[str, str] = {
+    ratio: ratio
+    for ratio in (
+        "1:1",
+        "1:4",
+        "1:8",
+        "2:3",
+        "3:2",
+        "3:4",
+        "4:1",
+        "4:3",
+        "4:5",
+        "5:4",
+        "8:1",
+        "9:16",
+        "16:9",
+        "21:9",
+    )
+}
+
+_GROK_IMAGE_ASPECT_RATIOS: dict[str, str] = {
+    ratio: ratio
+    for ratio in (
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4",
+        "3:2",
+        "2:3",
+        "2:1",
+        "1:2",
+        "19.5:9",
+        "9:19.5",
+        "20:9",
+        "9:20",
+        "21:9",
+        "5:2",
+    )
 }
 
 
@@ -240,9 +300,9 @@ class SupportedModel(Enum):
     # live on OpenAI's separate ``/images/edits`` endpoint, which takes the
     # reference images as multipart file uploads rather than a JSON ``image``
     # field — so reference turns are routed there via ``image_edit_endpoint``
-    # (up to 10 references per request). Size/quality are pinned so the flat
-    # per-image price stays predictable. Billed at a flat $0.05 per generated
-    # image; token prices unused.
+    # (up to 10 references per request). Quality remains pinned to medium while
+    # size defaults to auto unless the caller selects one of the three shapes.
+    # Billed at a flat $0.05 per generated image; token prices unused.
     GPT_IMAGE_2 = ModelConfig(
         provider="openai",
         api_name="gpt-image-2",
@@ -253,7 +313,13 @@ class SupportedModel(Enum):
         image_response_format=None,
         image_supports_reference=True,
         image_edit_endpoint="/images/edits",
-        image_extra_params={"size": "1024x1024", "quality": "medium"},
+        image_extra_params={"quality": "medium"},
+        image_aspect_ratios={
+            "1:1": "1024x1024",
+            "3:2": "1536x1024",
+            "2:3": "1024x1536",
+        },
+        image_aspect_ratio_param="size",
     )
 
     # ── Anthropic ───────────────────────────────────────────────────────
@@ -392,6 +458,21 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.0000015"),
         image_output=True,
         image_output_price_usd=Decimal("0.00003"),
+        image_aspect_ratios={
+            ratio: ratio
+            for ratio in (
+                "1:1",
+                "2:3",
+                "3:2",
+                "3:4",
+                "4:3",
+                "4:5",
+                "5:4",
+                "9:16",
+                "16:9",
+                "21:9",
+            )
+        },
     )
     # Native image generation ("nano banana 2"), the latest Gemini image model.
     # Google bills output at two rates: text/thinking at $3/MTok and images at
@@ -404,6 +485,7 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.000003"),
         image_output=True,
         image_output_price_usd=Decimal("0.00006"),
+        image_aspect_ratios=_GEMINI_IMAGE_ASPECT_RATIOS,
     )
     GEMINI_3_5_FLASH = ModelConfig(
         provider="google",
@@ -510,6 +592,7 @@ class SupportedModel(Enum):
         image_generation=True,
         per_image_price_usd=Decimal("0.02"),
         image_response_format="url",
+        image_aspect_ratios=_GROK_IMAGE_ASPECT_RATIOS,
     )
     # Grok Imagine Image 2.0 — xAI's newer, higher-quality image model
     # (released ~2026-08-11), offered alongside grok-imagine-image rather than
@@ -527,6 +610,7 @@ class SupportedModel(Enum):
         image_generation=True,
         per_image_price_usd=Decimal("0.04"),
         image_response_format="url",
+        image_aspect_ratios=_GROK_IMAGE_ASPECT_RATIOS,
     )
 
     # ── ByteDance (BytePlus ModelArk, OpenAI-compatible) ────────────────
@@ -579,6 +663,8 @@ class SupportedModel(Enum):
         image_generation=True,
         per_image_price_usd=Decimal("0.03"),
         image_supports_reference=True,
+        image_aspect_ratios=_BYTEDANCE_2K_ASPECT_SIZES,
+        image_aspect_ratio_param="size",
     )
     # Seedream 5.0 Lite image generation via a ModelArk deployment endpoint.
     # Seedream 5.0 Lite image generation via a ModelArk deployment endpoint
@@ -595,6 +681,8 @@ class SupportedModel(Enum):
         image_send_n=False,
         image_supports_reference=True,
         image_extra_params=_BYTEDANCE_EP_IMAGE_PARAMS,
+        image_aspect_ratios=_BYTEDANCE_2K_ASPECT_SIZES,
+        image_aspect_ratio_param="size",
     )
     # Seedance 4.5 image generation via a ModelArk deployment endpoint.
     # Returns hosted URLs (fetched and inlined by the gateway) and takes the
@@ -610,6 +698,8 @@ class SupportedModel(Enum):
         image_send_n=False,
         image_supports_reference=True,
         image_extra_params=_BYTEDANCE_EP_IMAGE_PARAMS,
+        image_aspect_ratios=_BYTEDANCE_2K_ASPECT_SIZES,
+        image_aspect_ratio_param="size",
     )
     # Seedance 5.0 image generation via a ModelArk deployment endpoint.
     # Returns hosted URLs (fetched and inlined by the gateway). Unlike the
@@ -628,6 +718,8 @@ class SupportedModel(Enum):
         image_send_n=False,
         image_supports_reference=True,
         image_extra_params=_SEEDANCE_5_IMAGE_PARAMS,
+        image_aspect_ratios=_BYTEDANCE_2K_ASPECT_SIZES,
+        image_aspect_ratio_param="size",
     )
 
     # ── OpenRouter (OpenAI-compatible) ──────────────────────────────────
@@ -674,7 +766,16 @@ class SupportedModel(Enum):
         per_image_price_usd=Decimal("0.015"),
         image_response_format=None,
         image_send_n=False,
-        image_extra_params={"size": "1280x1280"},
+        image_aspect_ratios={
+            "1:1": "1280x1280",
+            "3:2": "1568x1056",
+            "2:3": "1056x1568",
+            "4:3": "1472x1088",
+            "3:4": "1088x1472",
+            "16:9": "1728x960",
+            "9:16": "960x1728",
+        },
+        image_aspect_ratio_param="size",
     )
 
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──

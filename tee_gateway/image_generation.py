@@ -290,7 +290,11 @@ def _build_reference_uploads(
 
 
 def _build_generations_payload(
-    cfg: Any, prompt: str, count: int, refs: Optional[List[str]]
+    cfg: Any,
+    prompt: str,
+    count: int,
+    refs: Optional[List[str]],
+    aspect_ratio: Optional[str] = None,
 ) -> dict[str, Any]:
     """Build the JSON body for a ``/images/generations`` request.
 
@@ -305,9 +309,29 @@ def _build_generations_payload(
         payload["n"] = count
     if cfg.image_extra_params:
         payload.update(cfg.image_extra_params)
+    payload.update(_aspect_ratio_params(cfg, aspect_ratio))
     if refs:
         payload["image"] = refs[0] if len(refs) == 1 else refs
     return payload
+
+
+def _aspect_ratio_params(cfg: Any, aspect_ratio: Optional[str]) -> dict[str, str]:
+    """Translate the public ratio into this provider's request shape."""
+    if aspect_ratio is None:
+        return {}
+    if not isinstance(aspect_ratio, str):
+        raise ValueError("aspect_ratio must be a string")
+    ratio = aspect_ratio.strip()
+    if not ratio or ratio == "auto":
+        return {}
+    supported = cfg.image_aspect_ratios or {}
+    value = supported.get(ratio)
+    if value is None:
+        choices = ", ".join(supported) or "none"
+        raise ValueError(
+            f"Unsupported aspect_ratio {ratio!r} for this model; supported: {choices}"
+        )
+    return {cfg.image_aspect_ratio_param: value}
 
 
 def generate_images(
@@ -315,6 +339,7 @@ def generate_images(
     prompt: str,
     n: int = 1,
     reference_images: Optional[List[str]] = None,
+    aspect_ratio: Optional[str] = None,
 ) -> tuple[list[str], int]:
     """Generate images via a provider's OpenAI-compatible images endpoint.
 
@@ -382,6 +407,7 @@ def generate_images(
             form["response_format"] = cfg.image_response_format
         if cfg.image_extra_params:
             form.update({k: str(v) for k, v in cfg.image_extra_params.items()})
+        form.update(_aspect_ratio_params(cfg, aspect_ratio))
         resp = client.post(edit_endpoint, data=form, files=uploads)
     else:
         # No edit endpoint (or nothing uploadable): JSON generations. Inline
@@ -390,7 +416,9 @@ def generate_images(
         json_refs = refs if not cfg.image_edit_endpoint else None
         resp = client.post(
             _IMAGE_GENERATION_PATH,
-            json=_build_generations_payload(cfg, prompt, count, json_refs),
+            json=_build_generations_payload(
+                cfg, prompt, count, json_refs, aspect_ratio=aspect_ratio
+            ),
         )
     _raise_for_status_with_detail(resp)
     data = resp.json().get("data", []) or []
@@ -497,6 +525,7 @@ def _run_image_generation(
         prompt,
         n=chat_request.n or 1,
         reference_images=reference_images,
+        aspect_ratio=chat_request.aspect_ratio,
     )
 
     timestamp = int(time.time())

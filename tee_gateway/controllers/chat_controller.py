@@ -35,9 +35,10 @@ from tee_gateway.llm_backend import (
     canonical_user_content,
 )
 from tee_gateway.image_generation import (
-    _aspect_ratio_params,
+    aspect_ratio_params,
     create_image_generation_response,
     create_image_generation_streaming_response,
+    validate_aspect_ratio,
 )
 from tee_gateway.model_registry import get_model_config
 from tee_gateway.moderation import (
@@ -102,6 +103,13 @@ def create_chat_completion(body):
         validate_attachments(chat_request.messages, chat_request.model)
     except AttachmentValidationError as e:
         return {"error": "Invalid attachment", "message": str(e)}, 400
+
+    # A ratio the target model can't produce is a client error, so it is caught
+    # here rather than surfacing from the provider call as a 500.
+    try:
+        validate_aspect_ratio(chat_request.model, chat_request.aspect_ratio)
+    except ValueError as e:
+        return {"error": "Invalid aspect_ratio", "message": str(e)}, 400
 
     # Score the newest user turn of image requests before any provider work
     # (text chat is not moderated — see moderation.should_moderate_model).
@@ -296,13 +304,19 @@ def _create_non_streaming_response(
             ),
         )
 
-        if cfg.image_output and chat_request.aspect_ratio:
-            aspect = _aspect_ratio_params(cfg, chat_request.aspect_ratio)
-            model = model.bind(image_config={"aspect_ratio": aspect["aspect_ratio"]})
-
         # Bind user tools and/or the native web search tool if requested.
         if tools_list:
             model = model.bind_tools(tools_list)
+
+        # Aspect ratio for Gemini's inline-image models rides in Gemini's
+        # image_config (these models leave image_aspect_ratio_param at its
+        # default, which is ImageConfig's own field name). Bound after
+        # bind_tools, which re-binds the base model and drops kwargs bound
+        # before it. Empty params mean the automatic path: bind nothing.
+        if cfg.image_output:
+            image_config = aspect_ratio_params(cfg, chat_request.aspect_ratio)
+            if image_config:
+                model = model.bind(image_config=image_config)
 
         # Bind response_format if provided (json_object or json_schema).
         # Anthropic does not support response_format via bind(); use
@@ -478,13 +492,16 @@ def _create_streaming_response(
             ),
         )
 
-        if image_output_model and chat_request.aspect_ratio:
-            aspect = _aspect_ratio_params(cfg, chat_request.aspect_ratio)
-            model = model.bind(image_config={"aspect_ratio": aspect["aspect_ratio"]})
-
         # Bind user tools and/or the native web search tool if requested.
         if tools_list:
             model = model.bind_tools(tools_list)
+
+        # Aspect ratio for the inline-image models (see the non-streaming path
+        # for why this is bound after bind_tools).
+        if image_output_model:
+            image_config = aspect_ratio_params(cfg, chat_request.aspect_ratio)
+            if image_config:
+                model = model.bind(image_config=image_config)
 
         # Bind response_format if provided (json_object or json_schema).
         # Anthropic does not support response_format via bind(); use

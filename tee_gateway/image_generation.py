@@ -309,14 +309,19 @@ def _build_generations_payload(
         payload["n"] = count
     if cfg.image_extra_params:
         payload.update(cfg.image_extra_params)
-    payload.update(_aspect_ratio_params(cfg, aspect_ratio))
+    payload.update(aspect_ratio_params(cfg, aspect_ratio))
     if refs:
         payload["image"] = refs[0] if len(refs) == 1 else refs
     return payload
 
 
-def _aspect_ratio_params(cfg: Any, aspect_ratio: Optional[str]) -> dict[str, str]:
-    """Translate the public ratio into this provider's request shape."""
+def aspect_ratio_params(cfg: Any, aspect_ratio: Optional[str]) -> dict[str, str]:
+    """Translate the public ratio into this provider's request shape.
+
+    Returns an empty dict for the automatic path (field omitted, or ``auto``),
+    so callers must treat "no params" as "let the provider choose" rather than
+    indexing the result.
+    """
     if aspect_ratio is None:
         return {}
     if not isinstance(aspect_ratio, str):
@@ -332,6 +337,24 @@ def _aspect_ratio_params(cfg: Any, aspect_ratio: Optional[str]) -> dict[str, str
             f"Unsupported aspect_ratio {ratio!r} for this model; supported: {choices}"
         )
     return {cfg.image_aspect_ratio_param: value}
+
+
+def validate_aspect_ratio(model: str, aspect_ratio: Optional[str]) -> None:
+    """Reject an unsupported ratio before any provider work is done.
+
+    Raises ``ValueError`` so the controller can answer 400 rather than letting
+    the same error surface from deep inside a generation as a 500. Models that
+    cannot shape their output (every text model) ignore the field instead of
+    failing the request — like the deprecated ``web_search`` flag.
+    """
+    if aspect_ratio is None:
+        return
+    try:
+        cfg = get_model_config(model)
+    except ValueError:
+        return  # unknown model: reported by the normal request path
+    if cfg.image_generation or cfg.image_output:
+        aspect_ratio_params(cfg, aspect_ratio)
 
 
 def generate_images(
@@ -407,7 +430,7 @@ def generate_images(
             form["response_format"] = cfg.image_response_format
         if cfg.image_extra_params:
             form.update({k: str(v) for k, v in cfg.image_extra_params.items()})
-        form.update(_aspect_ratio_params(cfg, aspect_ratio))
+        form.update(aspect_ratio_params(cfg, aspect_ratio))
         resp = client.post(edit_endpoint, data=form, files=uploads)
     else:
         # No edit endpoint (or nothing uploadable): JSON generations. Inline

@@ -1,8 +1,10 @@
 import unittest
+from unittest.mock import Mock, patch
 
 import connexion
 from flask import json
 
+from tee_gateway.controllers.chat_controller import create_chat_completion
 from tee_gateway.encoder import JSONEncoder
 from tee_gateway.test import BaseTestCase
 
@@ -68,6 +70,127 @@ class TestUserMessageContentPartValidation(unittest.TestCase):
             }
         )
         self.assertNotEqual(400, resp.status_code, resp.data.decode("utf-8"))
+
+
+class TestAspectRatioRequests(unittest.TestCase):
+    """``aspect_ratio`` handling on /v1/chat/completions.
+
+    A ratio the model can't produce is a client error (400) rather than a
+    provider failure surfaced as a 500, and the automatic path ("auto", or the
+    field omitted) must bind nothing at all.
+    """
+
+    def _request(self, **extra):
+        body = {
+            "model": "gemini-3.1-flash-image",
+            "messages": [{"role": "user", "content": "a red cube"}],
+            "stream": False,
+        }
+        body.update(extra)
+        return body
+
+    @patch("tee_gateway.controllers.chat_controller.connexion")
+    def test_unsupported_ratio_is_a_400(self, mock_connexion):
+        mock_connexion.request.is_json = True
+        mock_connexion.request.get_json.return_value = self._request(aspect_ratio="7:3")
+
+        result, status = create_chat_completion(None)
+
+        self.assertEqual(400, status)
+        self.assertEqual("Invalid aspect_ratio", result["error"])
+        self.assertIn("supported: ", result["message"])
+
+    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
+    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
+    @patch("tee_gateway.controllers.chat_controller.connexion")
+    def test_ratio_is_bound_as_gemini_image_config(
+        self, mock_connexion, mock_get_model, mock_get_tee_keys
+    ):
+        mock_connexion.request.is_json = True
+        mock_connexion.request.get_json.return_value = self._request(
+            aspect_ratio="16:9"
+        )
+        model = _mock_image_model()
+        mock_get_model.return_value = model
+        mock_get_tee_keys.return_value = _mock_tee_keys()
+
+        create_chat_completion(None)
+
+        model.bind.assert_called_once_with(image_config={"aspect_ratio": "16:9"})
+
+    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
+    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
+    @patch("tee_gateway.controllers.chat_controller.connexion")
+    def test_ratio_survives_bound_tools(
+        self, mock_connexion, mock_get_model, mock_get_tee_keys
+    ):
+        # bind_tools() re-binds the base model, so a kwarg bound before it is
+        # dropped: the image_config has to be bound onto the tools-bound model.
+        mock_connexion.request.is_json = True
+        mock_connexion.request.get_json.return_value = self._request(
+            aspect_ratio="16:9",
+            tools=[
+                {
+                    "type": "function",
+                    "function": {"name": "noop", "parameters": {"type": "object"}},
+                }
+            ],
+        )
+        model = _mock_image_model()
+        tools_bound = _mock_image_model()
+        model.bind_tools.return_value = tools_bound
+        mock_get_model.return_value = model
+        mock_get_tee_keys.return_value = _mock_tee_keys()
+
+        create_chat_completion(None)
+
+        model.bind.assert_not_called()
+        tools_bound.bind.assert_called_once_with(image_config={"aspect_ratio": "16:9"})
+
+    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
+    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
+    @patch("tee_gateway.controllers.chat_controller.connexion")
+    def test_auto_binds_nothing(
+        self, mock_connexion, mock_get_model, mock_get_tee_keys
+    ):
+        mock_connexion.request.is_json = True
+        mock_connexion.request.get_json.return_value = self._request(
+            aspect_ratio="auto"
+        )
+        model = _mock_image_model()
+        mock_get_model.return_value = model
+        mock_get_tee_keys.return_value = _mock_tee_keys()
+
+        result = create_chat_completion(None)
+
+        model.bind.assert_not_called()
+        self.assertIn("choices", result)
+
+
+def _mock_image_model() -> Mock:
+    """A LangChain chat model stand-in that returns one inline image."""
+    response = Mock()
+    response.content = [
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,QUJD"}}
+    ]
+    response.tool_calls = []
+    response.usage_metadata = {
+        "input_tokens": 5,
+        "output_tokens": 3,
+        "total_tokens": 8,
+    }
+    model = Mock()
+    model.invoke.return_value = response
+    model.bind.return_value = model
+    model.bind_tools.return_value = model
+    return model
+
+
+def _mock_tee_keys() -> Mock:
+    keys = Mock()
+    keys.sign_data.return_value = "bW9ja3NpZ25hdHVyZQ=="
+    keys.get_tee_id.return_value = "abcdef01" * 8
+    return keys
 
 
 class TestChatController(BaseTestCase):

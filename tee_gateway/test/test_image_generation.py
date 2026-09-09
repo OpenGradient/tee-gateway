@@ -159,13 +159,13 @@ class TestGenerateImages(unittest.TestCase):
         client = MagicMock()
         with patch.object(llm_backend, "openai_http_client", client):
             with self.assertRaisesRegex(ValueError, "Unsupported aspect_ratio"):
-                generate_images(GPT_IMAGE, "a banner", aspect_ratio="16:9")
+                generate_images(GPT_IMAGE, "a banner", aspect_ratio="7:3")
         client.post.assert_not_called()
 
     def test_gemini_aspect_ratio_uses_image_config_shape(self):
         cfg = get_model_config("gemini-3.1-flash-image")
         self.assertEqual(
-            image_generation._aspect_ratio_params(cfg, "16:9"),
+            image_generation.aspect_ratio_params(cfg, "16:9"),
             {"aspect_ratio": "16:9"},
         )
 
@@ -834,6 +834,105 @@ class TestExtractImageInputs(unittest.TestCase):
         prompt, refs = image_generation._extract_image_inputs(msgs)
         self.assertEqual(prompt, "p")
         self.assertEqual(refs, [])
+
+
+class TestAspectRatioSupport(unittest.TestCase):
+    """The public ratio -> provider-request translation, and the size tables.
+
+    The tables are checked against each provider's documented size rules so a
+    new entry that a provider would reject fails here rather than in
+    production, where it would 400 the whole generation.
+    """
+
+    def test_auto_and_unset_take_the_provider_default(self):
+        cfg = get_model_config(GPT_IMAGE)
+        for value in (None, "auto", "", "  "):
+            with self.subTest(value=value):
+                self.assertEqual(image_generation.aspect_ratio_params(cfg, value), {})
+
+    def test_ratio_is_trimmed_before_lookup(self):
+        cfg = get_model_config(GPT_IMAGE)
+        self.assertEqual(
+            image_generation.aspect_ratio_params(cfg, " 16:9 "), {"size": "1536x864"}
+        )
+
+    def test_validate_rejects_unsupported_ratio_for_an_image_model(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported aspect_ratio"):
+            image_generation.validate_aspect_ratio(GPT_IMAGE, "7:3")
+
+    def test_validate_ignores_the_field_for_models_that_cannot_use_it(self):
+        # Text models have no output shape to set; the field is a no-op there
+        # rather than a rejection (old clients may send it unconditionally).
+        image_generation.validate_aspect_ratio("gpt-4.1", "16:9")
+        # An unknown model is reported by the normal request path, not here.
+        image_generation.validate_aspect_ratio("not-a-model", "16:9")
+
+    def test_gpt_image_sizes_satisfy_openai_size_constraints(self):
+        # https://developers.openai.com/api/docs/guides/image-generation:
+        # edges must be multiples of 16, the long:short ratio at most 3:1,
+        # neither edge over 3840px, and total pixels within [655360, 8294400].
+        sizes = get_model_config(GPT_IMAGE).image_aspect_ratios or {}
+        self.assertIn("16:9", sizes)
+        for ratio, size in sizes.items():
+            with self.subTest(ratio=ratio):
+                width, height = (int(part) for part in size.split("x"))
+                self.assertEqual((width % 16, height % 16), (0, 0))
+                self.assertLessEqual(max(width, height), 3840)
+                self.assertLessEqual(max(width, height) / min(width, height), 3.0)
+                self.assertGreaterEqual(width * height, 655_360)
+                self.assertLessEqual(width * height, 8_294_400)
+                # Pixel count stays in the band the flat per-image price
+                # assumes (gpt-image-2 bills by output tokens, which scale
+                # with area), and the size really is the advertised shape.
+                self.assertLessEqual(width * height, 1_600_000)
+                self._assert_matches_ratio(ratio, width, height)
+
+    def test_bytedance_sizes_satisfy_modelark_size_constraints(self):
+        # Every ModelArk image model in the registry shares one size table, so
+        # it has to satisfy the tightest documented window across them:
+        # pixels >= 2560x1440 (Seedream 4.5 / 5.0 lite) and <= 2048x2048x1.1025
+        # (Seedream 5.0 pro), with the ratio inside [1/16, 16].
+        sizes = get_model_config(SEEDREAM).image_aspect_ratios or {}
+        self.assertEqual(sizes, get_model_config(SEEDANCE_5).image_aspect_ratios)
+        for ratio, size in sizes.items():
+            with self.subTest(ratio=ratio):
+                width, height = (int(part) for part in size.split("x"))
+                self.assertGreaterEqual(width * height, 3_686_400)
+                self.assertLessEqual(width * height, 4_624_220)
+                self.assertLessEqual(max(width, height) / min(width, height), 16)
+                self._assert_matches_ratio(ratio, width, height)
+
+    def test_glm_sizes_are_zai_recommended_resolutions(self):
+        # Z.ai documents these seven resolutions for glm-image and requires
+        # both edges to be multiples of 32, within 512-2048px.
+        sizes = get_model_config(GLM_IMAGE).image_aspect_ratios or {}
+        self.assertEqual(
+            set(sizes.values()),
+            {
+                "1280x1280",
+                "1568x1056",
+                "1056x1568",
+                "1472x1088",
+                "1088x1472",
+                "1728x960",
+                "960x1728",
+            },
+        )
+        for ratio, size in sizes.items():
+            with self.subTest(ratio=ratio):
+                width, height = (int(part) for part in size.split("x"))
+                self.assertEqual((width % 32, height % 32), (0, 0))
+                self.assertGreaterEqual(min(width, height), 512)
+                self.assertLessEqual(max(width, height), 2048)
+                # Z.ai's own recommendations only approximate their labels.
+                self._assert_matches_ratio(ratio, width, height, tolerance=0.03)
+
+    def _assert_matches_ratio(self, ratio, width, height, tolerance=0.001):
+        """Assert WxH is the shape its public ``aspect_ratio`` label claims."""
+        left, right = (float(part) for part in ratio.split(":"))
+        self.assertAlmostEqual(
+            width / height, left / right, delta=(left / right) * tolerance
+        )
 
 
 class TestPerImageBilling(unittest.TestCase):

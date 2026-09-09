@@ -65,8 +65,13 @@ class ModelConfig:
     image_extra_params: Optional[Mapping[str, Any]] = None
     # Optional aspect-ratio choices exposed to callers. Keys are normalized
     # public ``aspect_ratio`` values and values are provider-specific values.
-    # Omitted/"auto" requests send no ratio override.
+    # Omitted/"auto" requests send no ratio override. Required on any image
+    # model: without it, callers get no shape choice at all.
     image_aspect_ratios: Optional[Mapping[str, str]] = None
+    # Request field the ratio is sent under — a provider taking explicit pixel
+    # dimensions uses "size". ``image_output`` (inline-image chat) models must
+    # leave this at the default: it doubles as the field name inside Gemini's
+    # ImageConfig, which the chat controller binds the ratio through.
     image_aspect_ratio_param: str = "aspect_ratio"
     # USD per image-modality output token, for ``image_output`` models (Gemini
     # "nano banana"). These providers bill image output at a higher rate than
@@ -134,6 +139,28 @@ _BYTEDANCE_2K_ASPECT_SIZES: dict[str, str] = {
     "3:2": "2496x1664",
     "2:3": "1664x2496",
     "21:9": "3136x1344",
+}
+
+# gpt-image-2 takes explicit ``WIDTHxHEIGHT`` sizes rather than ratios: it
+# accepts any size whose edges are multiples of 16, whose long:short ratio is
+# at most 3:1, whose longest edge is <= 3840px, and whose pixel count is
+# between 655,360 and 8,294,400. OpenAI's three documented presets
+# (1024x1024, 1536x1024, 1024x1536) are kept verbatim; the rest are the
+# exact-ratio sizes closest to them in pixel count, so every shape stays
+# inside the ~1.0-1.6MP band the flat per-image price is set for (output
+# tokens, and so our real cost, scale with pixel count). Omitting the field
+# leaves size at OpenAI's ``auto``.
+_GPT_IMAGE_ASPECT_SIZES: dict[str, str] = {
+    "1:1": "1024x1024",
+    "3:2": "1536x1024",
+    "2:3": "1024x1536",
+    "4:3": "1408x1056",
+    "3:4": "1056x1408",
+    "5:4": "1280x1024",
+    "4:5": "1024x1280",
+    "16:9": "1536x864",
+    "9:16": "864x1536",
+    "21:9": "1792x768",
 }
 
 _GEMINI_IMAGE_ASPECT_RATIOS: dict[str, str] = {
@@ -301,7 +328,7 @@ class SupportedModel(Enum):
     # reference images as multipart file uploads rather than a JSON ``image``
     # field — so reference turns are routed there via ``image_edit_endpoint``
     # (up to 10 references per request). Quality remains pinned to medium while
-    # size defaults to auto unless the caller selects one of the three shapes.
+    # size defaults to auto unless the caller selects a shape.
     # Billed at a flat $0.05 per generated image; token prices unused.
     GPT_IMAGE_2 = ModelConfig(
         provider="openai",
@@ -314,11 +341,7 @@ class SupportedModel(Enum):
         image_supports_reference=True,
         image_edit_endpoint="/images/edits",
         image_extra_params={"quality": "medium"},
-        image_aspect_ratios={
-            "1:1": "1024x1024",
-            "3:2": "1536x1024",
-            "2:3": "1024x1536",
-        },
+        image_aspect_ratios=_GPT_IMAGE_ASPECT_SIZES,
         image_aspect_ratio_param="size",
     )
 

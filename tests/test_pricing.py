@@ -572,6 +572,15 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg, get_model_config("tencent/hy3"))
         self.assertEqual(cfg, get_model_config("tencent/hy3:floor"))
 
+    def test_hy4_preview_resolves(self):
+        cfg = get_model_config("hy4-preview")
+        self.assertEqual(cfg.provider, "openrouter")
+        self.assertEqual(cfg.api_name, "tencent/hy4-preview")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000000834"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000002501"))
+        self.assertEqual(cfg, get_model_config("hy4"))
+        self.assertEqual(cfg, get_model_config("tencent/hy4-preview"))
+
     # ── Z.ai (Model API) ───────────────────────────────────────────────────
 
     def test_glm_5_2_resolves(self):
@@ -945,6 +954,12 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(
             self._calc("hy3", 1000, 500),
             247_500_000_000_000,
+        )
+
+    def test_hy4_preview_cost(self):
+        self.assertEqual(
+            self._calc("hy4-preview", 1000, 500),
+            2_084_500_000_000_000,
         )
 
     # ── Haiku is cheaper than Sonnet ────────────────────────────────────────

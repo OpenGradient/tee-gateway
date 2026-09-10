@@ -344,6 +344,48 @@ class SupportedModel(Enum):
         image_aspect_ratios=_GPT_IMAGE_ASPECT_SIZES,
         image_aspect_ratio_param="size",
     )
+    # GPT-Image-2.5 Flare — OpenAI's fastest model for high-quality, everyday
+    # image generation (GA 2026-09-08), positioned as the general-purpose
+    # successor to gpt-image-2 (50% lower latency, better reference-photo
+    # fidelity). Same /images/generations + /images/edits endpoints,
+    # b64-only output (response_format omitted, as with gpt-image-2), and
+    # per OpenAI's model page "token rates align with GPT Image 2" — text
+    # $5/$1.25(cached) per MTok, image input $8/$2(cached) per MTok, image
+    # output $30 per MTok — so the same flat per-image approximation as
+    # gpt-image-2 applies.
+    GPT_IMAGE_2_5_FLARE = ModelConfig(
+        provider="openai",
+        api_name="gpt-image-2.5-flare",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.05"),
+        image_response_format=None,
+        image_supports_reference=True,
+        image_edit_endpoint="/images/edits",
+        image_extra_params={"quality": "medium"},
+        image_aspect_ratios=_GPT_IMAGE_ASPECT_SIZES,
+        image_aspect_ratio_param="size",
+    )
+    # GPT-Image-2.5 Sunburst — OpenAI's most capable image model, favoring
+    # editing precision over latency for premium/production workflows (GA
+    # 2026-09-08, same day as Flare). Only reachable via /images/generations
+    # and /images/edits (not chat/Responses/Batch), same request shaping and
+    # token rates as Flare/gpt-image-2.
+    GPT_IMAGE_2_5_SUNBURST = ModelConfig(
+        provider="openai",
+        api_name="gpt-image-2.5-sunburst",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.05"),
+        image_response_format=None,
+        image_supports_reference=True,
+        image_edit_endpoint="/images/edits",
+        image_extra_params={"quality": "medium"},
+        image_aspect_ratios=_GPT_IMAGE_ASPECT_SIZES,
+        image_aspect_ratio_param="size",
+    )
 
     # ── Anthropic ───────────────────────────────────────────────────────
     CLAUDE_SONNET_4_5 = ModelConfig(
@@ -842,6 +884,11 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gpt-5.6-luna": SupportedModel.GPT_5_6_LUNA,
     "gpt-6-astra": SupportedModel.GPT_6_ASTRA,
     "gpt-image-2": SupportedModel.GPT_IMAGE_2,
+    "gpt-image-2.5": SupportedModel.GPT_IMAGE_2_5_FLARE,
+    "gpt-image-2.5-flare": SupportedModel.GPT_IMAGE_2_5_FLARE,
+    "gpt-image-2.5-flare-2026-09-08": SupportedModel.GPT_IMAGE_2_5_FLARE,
+    "gpt-image-2.5-sunburst": SupportedModel.GPT_IMAGE_2_5_SUNBURST,
+    "gpt-image-2.5-sunburst-2026-09-08": SupportedModel.GPT_IMAGE_2_5_SUNBURST,
     # Anthropic
     "claude-sonnet-4-5": SupportedModel.CLAUDE_SONNET_4_5,
     "claude-sonnet-4-6": SupportedModel.CLAUDE_SONNET_4_6,

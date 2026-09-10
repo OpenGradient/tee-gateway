@@ -266,6 +266,26 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.output_price_usd, Decimal("0.00005"))
         self.assertTrue(cfg.responses_api_for_tools)
 
+    def test_gpt_image_2_5_flare_resolves(self):
+        cfg = get_model_config("gpt-image-2.5-flare")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.api_name, "gpt-image-2.5-flare")
+        self.assertTrue(cfg.image_generation)
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.05"))
+
+    def test_gpt_image_2_5_bare_alias_resolves_to_flare(self):
+        self.assertEqual(
+            get_model_config("gpt-image-2.5"),
+            get_model_config("gpt-image-2.5-flare"),
+        )
+
+    def test_gpt_image_2_5_sunburst_resolves(self):
+        cfg = get_model_config("gpt-image-2.5-sunburst")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.api_name, "gpt-image-2.5-sunburst")
+        self.assertTrue(cfg.image_generation)
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.05"))
+
     # ── Google ──────────────────────────────────────────────────────────────
 
     def test_gemini_2_5_flash_resolves(self):

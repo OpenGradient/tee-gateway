@@ -238,6 +238,18 @@ terminal in-band SSE `data:` frame, since the status is already 200):
   their refusal, not the user's content, and error bodies are forwarded to the
   relay as plaintext.
 
+### Request bodies are read before any response
+
+`__main__._read_body_before_responding` wraps the WSGI stack *outside* the
+x402 payment middleware and buffers the body of a POST to a paid route (up to
+the OHTTP cap) before dispatch. Without it, a 402 challenge on a
+multi-megabyte body was written while nitriding was still streaming the body
+in; Go's HTTP server closes a connection with more than 256 KiB of unread
+body, the reset propagated through gvproxy, and the relay saw either an empty
+`ReadError` or a bare 502 instead of the challenge. Keep this the outermost
+layer: anything that can answer before the body is consumed (payment errors,
+pricing 503s) must run inside it.
+
 ### Load reporting
 
 `/health` carries a `load` block — `in_flight_requests`,

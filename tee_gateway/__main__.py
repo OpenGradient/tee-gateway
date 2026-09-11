@@ -3,6 +3,7 @@ OpenAI-compatible API server with TEE integration and x402 payment middleware.
 Runs inside a Nitro Enclave, proxied by nitriding on port 443.
 """
 
+import io
 import logging
 import sys
 import os
@@ -26,6 +27,7 @@ from tee_gateway.moderation import moderation_available
 from tee_gateway.web_search import web_search_available
 from tee_gateway.heartbeat import create_heartbeat_service
 from tee_gateway.controllers.ohttp_controller import (
+    _MAX_ENCAPSULATED_REQUEST_BYTES,
     create_anonymous_chat_completion,
     get_hpke_config,
 )
@@ -285,6 +287,55 @@ def _session_cost_calculator(ctx: dict) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Read the request body before anything can answer
+#
+# The x402 middleware answers 402 Payment Required from the request *headers*,
+# before a byte of the body has been read. That is fine for a 2 KB chat body
+# and a disaster for a multi-megabyte one (an image attachment, a long
+# transcript): nitriding's Go reverse proxy is still streaming the body from
+# the relay when the 402 comes back. Go's HTTP server will not drain more than
+# 256 KiB of unread body after a response, so it sends its FIN, waits 500 ms
+# and closes — a TCP reset while the relay is still uploading, which gvproxy
+# (the host-side vsock forwarder) relays as an abort. The relay sees a
+# connection reset with no response at all (httpx ``ReadError`` with an empty
+# message), or nitriding sees the same reset from Werkzeug's side and answers
+# a bare 502. Either way a request that only needed a payment challenge fails,
+# and it fails exactly on big bodies — which is what "flaky 502s on image
+# chats" looked like from the app.
+#
+# Reading the body up front, before the payment middleware runs, means every
+# response — the 402 included — is written after the upload has been consumed
+# end to end, so the connection is left clean for the paid retry. The OHTTP
+# controller already buffers the whole body (``get_data``), so this changes
+# where the bytes are read, not how many are held. Bodies above the OHTTP cap
+# are left alone: the controller rejects them with 413 without reading them.
+# ---------------------------------------------------------------------------
+MAX_PREREAD_REQUEST_BYTES = _MAX_ENCAPSULATED_REQUEST_BYTES
+
+
+def _read_body_before_responding(wsgi_app, paths):
+    """WSGI wrapper: buffer the body of a POST to ``paths`` before dispatch."""
+    paths = frozenset(paths)
+
+    def wrapper(environ, start_response):
+        if (
+            environ.get("REQUEST_METHOD") == "POST"
+            and environ.get("PATH_INFO") in paths
+        ):
+            try:
+                length = int(environ.get("CONTENT_LENGTH") or 0)
+            except ValueError:
+                length = 0
+            if 0 < length <= MAX_PREREAD_REQUEST_BYTES:
+                body = environ["wsgi.input"].read(length)
+                environ["wsgi.input"] = io.BytesIO(body)
+                environ["CONTENT_LENGTH"] = str(len(body))
+        return wsgi_app(environ, start_response)
+
+    return wrapper
+
+
+# ---------------------------------------------------------------------------
 # One-time runtime configuration injection
 # ---------------------------------------------------------------------------
 _keys_initialized: bool = False
@@ -413,6 +464,12 @@ def _init_payment_middleware(facilitator_url: str) -> None:
         cost_per_request=100000000000000,  # static precheck/fallback estimate
         session_idle_timeout=100,
         session_cost_calculator=_session_cost_calculator,
+    )
+    # Outermost layer, so the body is consumed before the payment middleware
+    # can answer 402 (see "Read the request body before anything can answer").
+    application.wsgi_app = _read_body_before_responding(
+        application.wsgi_app,
+        paths=[route.split(" ", 1)[1] for route in routes],
     )
     logger.info(
         "x402 payment middleware initialized with facilitator: %s", facilitator_url

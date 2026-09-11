@@ -213,6 +213,42 @@ Points to keep in mind:
   blocked (451) requests produce no `opengradient` block and are never
   settled.
 
+### Error responses
+
+Every inference endpoint answers failures with one JSON shape, built by
+`tee_gateway/errors.py` (non-streaming: the response body; streaming: the
+terminal in-band SSE `data:` frame, since the status is already 200):
+
+```json
+{"error": "Error code: 529 - {...overloaded_error...}", "exception_type": "APIStatusError",
+ "source": "provider", "provider_status": 529, "retryable": true}
+```
+
+- `source` is `provider` when a model provider answered with an error or could
+  not be reached (any exception from a provider SDK or httpx), `gateway` for a
+  failure inside the enclave. `provider_status` is the provider's own HTTP
+  status when it returned one; `retryable` says whether resending the same
+  request has a real chance (provider 5xx/429/overload, resets, timeouts).
+- The outer status follows the same classification: provider failures are
+  **502** (or **504** when the provider timed out), gateway failures **500**.
+  Before this, every failure was a 500, so a browser could not tell an
+  overloaded provider from an enclave bug — and could not distinguish either
+  from the bare 502 nitriding emits when it cannot reach this app at all.
+- Never put prompt or completion text in an error: provider messages describe
+  their refusal, not the user's content, and error bodies are forwarded to the
+  relay as plaintext.
+
+### Load reporting
+
+`/health` carries a `load` block — `in_flight_requests`,
+`peak_in_flight_requests`, `requests_served`, `active_threads` — counted in
+`__main__.py` by a `before_request`/`teardown_request` pair (health and
+heartbeat polls excluded). The app runs on Werkzeug's threaded dev server
+(`application.run`): one thread per connection, no concurrency cap, and
+`Connection: close` on every response, so under load the symptom is thread
+growth and nitriding 502s rather than any error of its own. Check `load`
+first when the relay reports `tee_gateway_error` 502s.
+
 ## Verification Examples
 
 - `examples/verify_attestation.py` — Validates AWS Nitro attestation documents against the root CA

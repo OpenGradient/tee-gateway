@@ -129,6 +129,32 @@ set_price_feed(_price_feed)
 
 _started_at = time.time()
 
+# ---------------------------------------------------------------------------
+# Load accounting
+#
+# The enclave serves requests from Werkzeug's threaded dev server: one thread
+# per connection, no concurrency cap, on the 2 vCPUs the enclave is given.
+# When it is overloaded nothing says so — nitriding's reverse proxy just
+# answers 502 once the app stops accepting. These counters, reported on
+# /health, make load observable: in-flight inference requests (incremented
+# for the duration of every request), the high-water mark since start, and
+# the process thread count.
+# ---------------------------------------------------------------------------
+_load_lock = threading.Lock()
+_in_flight_requests = 0
+_peak_in_flight_requests = 0
+_requests_served = 0
+
+
+def _load_snapshot() -> dict:
+    with _load_lock:
+        return {
+            "in_flight_requests": _in_flight_requests,
+            "peak_in_flight_requests": _peak_in_flight_requests,
+            "requests_served": _requests_served,
+            "active_threads": threading.active_count(),
+        }
+
 
 def _gateway_version() -> str:
     try:
@@ -560,6 +586,8 @@ def health():
         "moderation_enabled": moderation_available(),
         "facilitator_url": _active_facilitator_url,
         "price_feed": _price_feed.get_status(),
+        # Concurrency the app is carrying right now (see "Load accounting").
+        "load": _load_snapshot(),
     }, 200
 
 
@@ -644,6 +672,30 @@ application = create_app()
 #   1. Price feed has a valid OPG/USD price (CoinGecko fetch succeeded).
 #   2. The requested model is in the registry (has a known per-token price).
 # ---------------------------------------------------------------------------
+
+
+@application.before_request
+def _count_request_start():
+    global _in_flight_requests, _peak_in_flight_requests, _requests_served
+    if request.path in ("/health", "/heartbeat/status"):
+        return
+    with _load_lock:
+        _in_flight_requests += 1
+        _requests_served += 1
+        _peak_in_flight_requests = max(_peak_in_flight_requests, _in_flight_requests)
+    request.environ["tee_gateway.counted"] = True
+
+
+@application.teardown_request
+def _count_request_end(_exc):
+    # teardown_request runs once the response has been fully sent — after
+    # the last SSE chunk for streams — so in-flight counts whole requests,
+    # not just the time until headers were written.
+    global _in_flight_requests
+    if not request.environ.pop("tee_gateway.counted", False):
+        return
+    with _load_lock:
+        _in_flight_requests = max(0, _in_flight_requests - 1)
 
 
 @application.before_request

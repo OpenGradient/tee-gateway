@@ -58,8 +58,9 @@ export OPENROUTER_API_KEY=...  # OpenRouter
 export ZAI_API_KEY=...   # Z.ai Model API
 
 # Run server (starts the Flask/connexion app on port 8000)
-make test-local
+make test-local          # Werkzeug dev server (development only)
 # or: python3 -m tee_gateway
+make serve               # gunicorn, the command the enclave runs (tee_gateway/gunicorn_conf.py)
 ```
 
 ### Test Endpoints

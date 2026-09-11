@@ -8,7 +8,9 @@ The repo must provide a stable AWS Nitro PCR when the code doesn't change in ord
 
 ```
 ├── tee_gateway/             # Main application package (Flask/connexion)
-│   ├── __main__.py          # Entry point: app factory, x402 middleware setup, key injection
+│   ├── __main__.py          # App factory, x402 middleware setup, key injection; dev server when run directly
+│   ├── wsgi.py              # `application` for gunicorn (what the enclave runs)
+│   ├── gunicorn_conf.py     # Production server settings: one gthread worker, fatal worker exit
 │   ├── llm_backend.py       # LLM provider routing via LangChain, HTTP client management
 │   ├── image_generation.py  # Endpoint-based image gen (/images/generations): request shaping, URL→inline-bytes, signed responses
 │   ├── tee_manager.py       # TEE key generation, nitriding registration, response signing
@@ -41,7 +43,8 @@ uv lock                      # Regenerate lockfile after editing pyproject.toml
 # Only regenerate the lockfile when intentionally changing dependencies.
 
 # Run server locally for development (without TEE)
-make test-local              # Runs: uv run python -m tee_gateway
+make test-local              # Runs: uv run python -m tee_gateway (Werkzeug dev server)
+make serve                   # Runs the production command the enclave uses (gunicorn)
 
 # Linting and type checking
 make lint                    # Run ruff format + ruff check + mypy
@@ -255,11 +258,35 @@ pricing 503s) must run inside it.
 `/health` carries a `load` block — `in_flight_requests`,
 `peak_in_flight_requests`, `requests_served`, `active_threads` — counted in
 `__main__.py` by a `before_request`/`teardown_request` pair (health and
-heartbeat polls excluded). The app runs on Werkzeug's threaded dev server
-(`application.run`): one thread per connection, no concurrency cap, and
-`Connection: close` on every response, so under load the symptom is thread
-growth and nitriding 502s rather than any error of its own. Check `load`
-first when the relay reports `tee_gateway_error` 502s.
+heartbeat polls excluded). Check `load` first when the relay reports
+`tee_gateway_error` 502s: `in_flight_requests` at the `GUNICORN_THREADS` cap
+(default 64) means requests are queueing in the listen backlog.
+
+### Production server
+
+The enclave serves the app with **gunicorn**, one `gthread` worker
+(`scripts/start.sh` → `tee_gateway/gunicorn_conf.py`, app object in
+`tee_gateway/wsgi.py`). `python -m tee_gateway` still runs Werkzeug's
+development server for local work only; it used to be what the enclave ran,
+with one unbounded thread per connection, a 128-entry backlog and
+`Connection: close` on every response. The config's constraints are not
+tunables:
+
+- **`workers = 1`, no preload.** The TEE signing key, the nitriding
+  registration, the injected provider keys and the x402 session store are all
+  state of the one worker process. More workers would mean several signing
+  keys behind one registry entry.
+- **A worker exit halts gunicorn** (`child_exit`). A respawned worker would
+  have a new signing key and no provider keys and keep answering requests
+  wrongly. Dying is what the bare process did; keep it that way.
+- **`keepalive = 3600`.** nitriding's Go proxy pools idle loopback connections
+  with no idle timeout and does not retry a POST it has written; the server
+  must not be the side that closes an idle connection first (that race is a
+  bare 502 to the relay).
+- **`timeout = 0`.** The heartbeat watchdog is off because, with worker exit
+  fatal, a false positive under load would take the enclave down.
+- `GUNICORN_THREADS` caps concurrent requests (each chat stream holds a
+  thread for its duration); `API_SERVER_HOST`/`API_SERVER_PORT` bind as before.
 
 ## Verification Examples
 
@@ -268,6 +295,6 @@ first when the relay reports `tee_gateway_error` 502s.
 
 ## Deployment
 
-Multi-stage Docker build: nitriding compiled from source (`brave/nitriding-daemon`), then copied into `python:3.12.10-slim-bullseye`. Dependencies are installed via `uv sync --frozen` from the lockfile for reproducible builds. Enclave launched via `scripts/run-enclave.sh` with gvproxy as the vsock network bridge, allocating 2 CPUs and 8GB memory.
+Multi-stage Docker build: nitriding compiled from source (`brave/nitriding-daemon`), then copied into `python:3.12.10-slim-bullseye`. Dependencies are installed via `uv sync --frozen` from the lockfile for reproducible builds. `scripts/start.sh` starts nitriding and then gunicorn (see "Production server"). Enclave launched via `scripts/run-enclave.sh` with gvproxy as the vsock network bridge, allocating 2 CPUs and 8GB memory.
 
 Port 8000 is forwarded to `127.0.0.1` only on the EC2 host (loopback-only for key injection). Port 443 is forwarded publicly via gvproxy.

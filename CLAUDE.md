@@ -253,15 +253,6 @@ body, the reset propagated through gvproxy, and the relay saw either an empty
 layer: anything that can answer before the body is consumed (payment errors,
 pricing 503s) must run inside it.
 
-### Load reporting
-
-`/health` carries a `load` block — `in_flight_requests`,
-`peak_in_flight_requests`, `requests_served`, `active_threads` — counted in
-`__main__.py` by a `before_request`/`teardown_request` pair (health and
-heartbeat polls excluded). Check `load` first when the relay reports
-`tee_gateway_error` 502s: `in_flight_requests` at the `GUNICORN_THREADS` cap
-(default 64) means requests are queueing in the listen backlog.
-
 ### Production server
 
 The enclave serves the app with **gunicorn**, one `gthread` worker

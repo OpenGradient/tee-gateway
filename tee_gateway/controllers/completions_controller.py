@@ -10,6 +10,7 @@ from langchain_core.messages import HumanMessage
 
 from tee_gateway.models.create_completion_request import CreateCompletionRequest
 
+from tee_gateway.errors import error_response
 from tee_gateway.tee_manager import get_tee_keys, compute_tee_msg_hash
 from tee_gateway.llm_backend import (
     get_chat_model_cached,
@@ -108,7 +109,6 @@ def create_completion(body):
 
     except Exception as e:
         logger.error(f"Completion error: {str(e)}", exc_info=True)
-        return {
-            "error": str(e) or "Request processing failed",
-            "exception_type": type(e).__name__,
-        }, 500
+        # Provider failures answer 502/504 with the provider's status; only
+        # the gateway's own failures are 500 (see tee_gateway/errors.py).
+        return error_response(e, fallback="Request processing failed")

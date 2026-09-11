@@ -40,6 +40,7 @@ from tee_gateway.image_generation import (
     create_image_generation_streaming_response,
     validate_aspect_ratio,
 )
+from tee_gateway.errors import describe_exception, error_response
 from tee_gateway.model_registry import get_model_config
 from tee_gateway.moderation import (
     ModerationOutcome,
@@ -446,10 +447,11 @@ def _create_non_streaming_response(
 
     except Exception as e:
         logger.error(f"Chat completion error: {str(e)}", exc_info=True)
-        return {
-            "error": str(e) or "Request processing failed",
-            "exception_type": type(e).__name__,
-        }, 500
+        # Provider failures (their 5xx/429, a reset, a timeout) answer 502/504
+        # with the provider's own status and message so the relay and browser
+        # can tell "the model provider is struggling" from "the enclave has a
+        # bug" (500). See tee_gateway/errors.py for the payload.
+        return error_response(e, fallback="Request processing failed")
 
 
 def _create_streaming_response(
@@ -891,10 +893,9 @@ def _create_streaming_response(
                 # event IS the terminal marker for the error path — we do NOT
                 # emit a trailing `[DONE]`, which conventionally signals a
                 # clean completion and would mis-signal an errored stream.
-                error_payload = {
-                    "error": str(e) or "Stream processing failed",
-                    "exception_type": type(e).__name__,
-                }
+                error_payload = describe_exception(
+                    e, fallback="Stream processing failed"
+                )
                 yield f"data: {json.dumps(error_payload)}\n\n"
 
         return Response(
@@ -909,10 +910,7 @@ def _create_streaming_response(
 
     except Exception as e:
         logger.error(f"Stream setup error: {str(e)}", exc_info=True)
-        return {
-            "error": str(e) or "Stream setup failed",
-            "exception_type": type(e).__name__,
-        }, 500
+        return error_response(e, fallback="Stream setup failed")
 
 
 # ---------------------------------------------------------------------------

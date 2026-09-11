@@ -79,6 +79,12 @@ get-tls-cert:
 # Local development (no TEE, no payment middleware enforced by x402 clients)
 # ---------------------------------------------------------------------------
 
+.PHONY: serve
+serve:
+	# Run the exact server command the enclave uses (gunicorn, one gthread
+	# worker; see tee_gateway/gunicorn_conf.py). Needs the same env as test-local.
+	uv run gunicorn -c python:tee_gateway.gunicorn_conf tee_gateway.wsgi:application
+
 .PHONY: test-local
 test-local:
 	# Run server locally without TEE (for development).
@@ -108,7 +114,8 @@ help:
 	@echo "  make verify-tee-id  - Verify tee_id matches the public key"
 	@echo "  make get-tls-cert   - Print the nitriding TLS certificate"
 	@echo ""
-	@echo "  make test-local     - Run server locally without TEE (development)"
+	@echo "  make test-local     - Run server locally without TEE (development, Werkzeug)"
+	@echo "  make serve          - Run the production server command (gunicorn)"
 	@echo "  make lint           - Run ruff check, ruff format --check, and mypy"
 	@echo "  make mypy           - Run mypy type checker on tee_gateway"
 	@echo ""

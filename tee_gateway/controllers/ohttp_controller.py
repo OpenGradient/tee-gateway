@@ -81,6 +81,7 @@ from flask import Response, current_app, request as flask_request
 from tee_gateway import ohttp
 from tee_gateway.tee_manager import get_tee_keys
 from tee_gateway.pricing import SessionCost
+from tee_gateway.body_preread import MAX_PAID_REQUEST_BYTES
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ _SSE_CONTENT_TYPE = "text/event-stream"
 # 14 MiB raw image — or several attached reference images — after base64/JSON
 # overhead while still bounding enclave memory use for malicious or
 # accidentally huge payloads.
-_MAX_ENCAPSULATED_REQUEST_BYTES = 20 * 1024 * 1024
+_MAX_ENCAPSULATED_REQUEST_BYTES = MAX_PAID_REQUEST_BYTES
 
 # Fields that can re-identify a client and have no role in inference. We drop
 # them before forwarding to the inner handler — keeping them inside the

@@ -8,7 +8,11 @@ The repo must provide a stable AWS Nitro PCR when the code doesn't change in ord
 
 ```
 ├── tee_gateway/             # Main application package (Flask/connexion)
-│   ├── __main__.py          # Entry point: app factory, x402 middleware setup, key injection
+│   ├── __main__.py          # App factory, x402 middleware setup, key injection; dev server when run directly
+│   ├── wsgi.py              # `application` for gunicorn (what the enclave runs)
+│   ├── body_preread.py      # Reads/refuses a paid POST body before x402 can answer 402
+│   ├── errors.py            # One error payload + outer status for provider vs gateway failures
+│   ├── gunicorn_conf.py     # Production server settings: one gthread worker, fatal worker exit
 │   ├── llm_backend.py       # LLM provider routing via LangChain, HTTP client management
 │   ├── image_generation.py  # Endpoint-based image gen (/images/generations): request shaping, URL→inline-bytes, signed responses
 │   ├── tee_manager.py       # TEE key generation, nitriding registration, response signing
@@ -41,7 +45,8 @@ uv lock                      # Regenerate lockfile after editing pyproject.toml
 # Only regenerate the lockfile when intentionally changing dependencies.
 
 # Run server locally for development (without TEE)
-make test-local              # Runs: uv run python -m tee_gateway
+make test-local              # Runs: uv run python -m tee_gateway (Werkzeug dev server)
+make serve                   # Runs the production command the enclave uses (gunicorn)
 
 # Linting and type checking
 make lint                    # Run ruff format + ruff check + mypy
@@ -213,6 +218,82 @@ Points to keep in mind:
   blocked (451) requests produce no `opengradient` block and are never
   settled.
 
+### Error responses
+
+Every inference endpoint answers failures with one JSON shape, built by
+`tee_gateway/errors.py` (non-streaming: the response body; streaming: the
+terminal in-band SSE `data:` frame, since the status is already 200):
+
+```json
+{"error": "Error code: 529 - {...overloaded_error...}", "exception_type": "APIStatusError",
+ "source": "provider", "provider_status": 529, "retryable": true}
+```
+
+- `source` is `provider` when a model provider answered with an error or could
+  not be reached (any exception from a provider SDK or httpx), `gateway` for a
+  failure inside the enclave. `provider_status` is the provider's own HTTP
+  status when it returned one; `retryable` says whether resending the same
+  request has a real chance (provider 5xx/429/overload, resets, timeouts).
+- The outer status follows the same classification: a provider that could
+  not be reached or answered 5xx is **502** (**504** for a timeout or 408,
+  **503** for 429), a gateway failure **500**. A provider 4xx about the
+  request itself (context too long, bad parameter, unknown model, oversize
+  image) is **passed through unchanged**: the relay and the browser retry
+  502/503 once, and resending an invalid request cannot help. The exception
+  is 401/402/403/407 from a provider, which are about the gateway's own key
+  or account and become 502 (a 401 would read as the client's credentials
+  failing; a 402 would be taken by the relay's x402 client for a payment
+  challenge from this gateway). Before this, every failure was a 500, so a
+  browser could not tell an overloaded provider from an enclave bug — and
+  could not distinguish either from the bare 502 nitriding emits when it
+  cannot reach this app at all.
+- Never put prompt or completion text in an error: provider messages describe
+  their refusal, not the user's content, and error bodies are forwarded to the
+  relay as plaintext.
+
+### Request bodies are read before any response
+
+`tee_gateway/body_preread.py` wraps the WSGI stack *outside* the x402
+payment middleware and buffers the body of a POST to a paid route before
+dispatch. Without it, a 402 challenge on a multi-megabyte body was written
+while nitriding was still streaming the body in; Go's HTTP server closes a
+connection with more than 256 KiB of unread body, the reset propagated
+through gvproxy, and the relay saw either an empty `ReadError` or a bare 502
+instead of the challenge. A body over `MAX_PAID_REQUEST_BYTES` (20 MiB, the
+same cap the OHTTP handler enforces) is refused with 413 there, before
+payment, rather than passed through unread. Keep this the outermost layer:
+anything that can answer before the body is consumed (payment errors,
+pricing 503s) must run inside it. The module has no import-time side
+effects, so it is unit-tested directly (`test_body_preread.py`).
+
+### Production server
+
+The enclave serves the app with **gunicorn**, one `gthread` worker
+(`scripts/start.sh` → `tee_gateway/gunicorn_conf.py`, app object in
+`tee_gateway/wsgi.py`). `python -m tee_gateway` still runs Werkzeug's
+development server for local work only; it used to be what the enclave ran,
+with one unbounded thread per connection, a 128-entry backlog and
+`Connection: close` on every response. The config's constraints are not
+tunables:
+
+- **`workers = 1`, no preload.** The TEE signing key, the nitriding
+  registration, the injected provider keys and the x402 session store are all
+  state of the one worker process. More workers would mean several signing
+  keys behind one registry entry.
+- **An unsolicited worker exit halts gunicorn** (`child_exit`, exit status
+  1; a normal SIGTERM shutdown still exits 0). A respawned worker would have
+  a new signing key and no provider keys and keep answering requests wrongly.
+  Dying is what the bare process did; keep it that way. `scripts/start.sh`
+  `exec`s gunicorn so that status is the container's.
+- **`keepalive = 3600`.** nitriding's Go proxy pools idle loopback connections
+  with no idle timeout and does not retry a POST it has written; the server
+  must not be the side that closes an idle connection first (that race is a
+  bare 502 to the relay).
+- **`timeout = 0`.** The heartbeat watchdog is off because, with worker exit
+  fatal, a false positive under load would take the enclave down.
+- `GUNICORN_THREADS` caps concurrent requests (each chat stream holds a
+  thread for its duration); `API_SERVER_HOST`/`API_SERVER_PORT` bind as before.
+
 ## Verification Examples
 
 - `examples/verify_attestation.py` — Validates AWS Nitro attestation documents against the root CA
@@ -220,6 +301,6 @@ Points to keep in mind:
 
 ## Deployment
 
-Multi-stage Docker build: nitriding compiled from source (`brave/nitriding-daemon`), then copied into `python:3.12.10-slim-bullseye`. Dependencies are installed via `uv sync --frozen` from the lockfile for reproducible builds. Enclave launched via `scripts/run-enclave.sh` with gvproxy as the vsock network bridge, allocating 2 CPUs and 8GB memory.
+Multi-stage Docker build: nitriding compiled from source (`brave/nitriding-daemon`), then copied into `python:3.12.10-slim-bullseye`. Dependencies are installed via `uv sync --frozen` from the lockfile for reproducible builds. `scripts/start.sh` starts nitriding and then gunicorn (see "Production server"). Enclave launched via `scripts/run-enclave.sh` with gvproxy as the vsock network bridge, allocating 2 CPUs and 8GB memory.
 
 Port 8000 is forwarded to `127.0.0.1` only on the EC2 host (loopback-only for key injection). Port 443 is forwarded publicly via gvproxy.

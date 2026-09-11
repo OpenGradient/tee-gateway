@@ -29,6 +29,7 @@ from tee_gateway.controllers.ohttp_controller import (
     create_anonymous_chat_completion,
     get_hpke_config,
 )
+from tee_gateway.body_preread import read_body_before_responding
 from tee_gateway.controllers.web_search_controller import create_web_search
 
 from x402.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption
@@ -387,6 +388,12 @@ def _init_payment_middleware(facilitator_url: str) -> None:
         cost_per_request=100000000000000,  # static precheck/fallback estimate
         session_idle_timeout=100,
         session_cost_calculator=_session_cost_calculator,
+    )
+    # Outermost layer, so the body is consumed (or refused as too large)
+    # before the payment middleware can answer 402; see body_preread.py.
+    application.wsgi_app = read_body_before_responding(
+        application.wsgi_app,
+        paths=[route.split(" ", 1)[1] for route in routes],
     )
     logger.info(
         "x402 payment middleware initialized with facilitator: %s", facilitator_url

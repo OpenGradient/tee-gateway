@@ -79,7 +79,14 @@ def child_exit(server, worker):  # noqa: ANN001 - gunicorn hook signature
     key and no provider keys (both are process state), so serving on is worse
     than stopping: attestation and signature verification would fail for
     every client until the enclave is restarted anyway.
+
+    During a shutdown the arbiter has already closed its listeners before it
+    signals the worker, so a worker exit then is the expected one: let the
+    normal stop finish with status 0 instead of a false CRITICAL and a
+    re-entered stop.
     """
+    if not server.LISTENERS:
+        return
     server.log.critical(
         "gateway worker %s exited; TEE key material, injected provider keys and "
         "x402 sessions lived in that process — halting instead of serving with "

@@ -138,19 +138,38 @@ def describe_exception(
     return payload
 
 
+# Provider 4xx that are about *this gateway's* standing with the provider
+# (its key, its plan, its quota), not about the request. They must not reach
+# the client as-is: a 401/403 would read as the client's own credentials
+# failing, and a 402 would be taken by the relay's x402 client for a payment
+# challenge from this gateway.
+_GATEWAY_ACCOUNT_STATUSES = frozenset({401, 402, 403, 407})
+
+
 def http_status_for(exc: BaseException) -> int:
     """Outer HTTP status for a failed (non-streaming) inference request.
 
-    * a provider answered with an error, or could not be reached → ``502``
-      (this gateway got a bad answer from the server behind it);
-    * a provider did not answer in time → ``504``;
-    * anything raised by the gateway's own code → ``500``.
+    * anything raised by the gateway's own code → ``500``;
+    * a provider could not be reached → ``502``, or ``504`` for a timeout;
+    * a provider answered 5xx → ``502``; ``429`` → ``503``; ``408`` → ``504``;
+    * a provider refused the gateway's credentials or account → ``502``;
+    * any other provider 4xx is about the request itself (too long, bad
+      parameter, unknown model, oversize image) and is passed through
+      unchanged, so the relay and browser do not retry it as a gateway
+      failure — resending an invalid request cannot make it valid.
     """
     if not _is_provider_exception(exc):
         return 500
-    if _provider_status(exc) is None and _is_timeout(exc):
+    status = _provider_status(exc)
+    if status is None:
+        return 504 if _is_timeout(exc) else 502
+    if status == 429:
+        return 503
+    if status == 408:
         return 504
-    return 502
+    if status >= 500 or status in _GATEWAY_ACCOUNT_STATUSES:
+        return 502
+    return status if status >= 400 else 502
 
 
 def error_response(

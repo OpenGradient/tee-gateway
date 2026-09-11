@@ -10,6 +10,8 @@ The repo must provide a stable AWS Nitro PCR when the code doesn't change in ord
 ├── tee_gateway/             # Main application package (Flask/connexion)
 │   ├── __main__.py          # App factory, x402 middleware setup, key injection; dev server when run directly
 │   ├── wsgi.py              # `application` for gunicorn (what the enclave runs)
+│   ├── body_preread.py      # Reads/refuses a paid POST body before x402 can answer 402
+│   ├── errors.py            # One error payload + outer status for provider vs gateway failures
 │   ├── gunicorn_conf.py     # Production server settings: one gthread worker, fatal worker exit
 │   ├── llm_backend.py       # LLM provider routing via LangChain, HTTP client management
 │   ├── image_generation.py  # Endpoint-based image gen (/images/generations): request shaping, URL→inline-bytes, signed responses
@@ -232,26 +234,37 @@ terminal in-band SSE `data:` frame, since the status is already 200):
   failure inside the enclave. `provider_status` is the provider's own HTTP
   status when it returned one; `retryable` says whether resending the same
   request has a real chance (provider 5xx/429/overload, resets, timeouts).
-- The outer status follows the same classification: provider failures are
-  **502** (or **504** when the provider timed out), gateway failures **500**.
-  Before this, every failure was a 500, so a browser could not tell an
-  overloaded provider from an enclave bug — and could not distinguish either
-  from the bare 502 nitriding emits when it cannot reach this app at all.
+- The outer status follows the same classification: a provider that could
+  not be reached or answered 5xx is **502** (**504** for a timeout or 408,
+  **503** for 429), a gateway failure **500**. A provider 4xx about the
+  request itself (context too long, bad parameter, unknown model, oversize
+  image) is **passed through unchanged**: the relay and the browser retry
+  502/503 once, and resending an invalid request cannot help. The exception
+  is 401/402/403/407 from a provider, which are about the gateway's own key
+  or account and become 502 (a 401 would read as the client's credentials
+  failing; a 402 would be taken by the relay's x402 client for a payment
+  challenge from this gateway). Before this, every failure was a 500, so a
+  browser could not tell an overloaded provider from an enclave bug — and
+  could not distinguish either from the bare 502 nitriding emits when it
+  cannot reach this app at all.
 - Never put prompt or completion text in an error: provider messages describe
   their refusal, not the user's content, and error bodies are forwarded to the
   relay as plaintext.
 
 ### Request bodies are read before any response
 
-`__main__._read_body_before_responding` wraps the WSGI stack *outside* the
-x402 payment middleware and buffers the body of a POST to a paid route (up to
-the OHTTP cap) before dispatch. Without it, a 402 challenge on a
-multi-megabyte body was written while nitriding was still streaming the body
-in; Go's HTTP server closes a connection with more than 256 KiB of unread
-body, the reset propagated through gvproxy, and the relay saw either an empty
-`ReadError` or a bare 502 instead of the challenge. Keep this the outermost
-layer: anything that can answer before the body is consumed (payment errors,
-pricing 503s) must run inside it.
+`tee_gateway/body_preread.py` wraps the WSGI stack *outside* the x402
+payment middleware and buffers the body of a POST to a paid route before
+dispatch. Without it, a 402 challenge on a multi-megabyte body was written
+while nitriding was still streaming the body in; Go's HTTP server closes a
+connection with more than 256 KiB of unread body, the reset propagated
+through gvproxy, and the relay saw either an empty `ReadError` or a bare 502
+instead of the challenge. A body over `MAX_PAID_REQUEST_BYTES` (20 MiB, the
+same cap the OHTTP handler enforces) is refused with 413 there, before
+payment, rather than passed through unread. Keep this the outermost layer:
+anything that can answer before the body is consumed (payment errors,
+pricing 503s) must run inside it. The module has no import-time side
+effects, so it is unit-tested directly (`test_body_preread.py`).
 
 ### Production server
 
@@ -267,9 +280,11 @@ tunables:
   registration, the injected provider keys and the x402 session store are all
   state of the one worker process. More workers would mean several signing
   keys behind one registry entry.
-- **A worker exit halts gunicorn** (`child_exit`). A respawned worker would
-  have a new signing key and no provider keys and keep answering requests
-  wrongly. Dying is what the bare process did; keep it that way.
+- **An unsolicited worker exit halts gunicorn** (`child_exit`, exit status
+  1; a normal SIGTERM shutdown still exits 0). A respawned worker would have
+  a new signing key and no provider keys and keep answering requests wrongly.
+  Dying is what the bare process did; keep it that way. `scripts/start.sh`
+  `exec`s gunicorn so that status is the container's.
 - **`keepalive = 3600`.** nitriding's Go proxy pools idle loopback connections
   with no idle timeout and does not retry a POST it has written; the server
   must not be the side that closes an idle connection first (that race is a

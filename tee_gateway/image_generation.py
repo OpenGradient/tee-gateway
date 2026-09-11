@@ -35,6 +35,7 @@ import httpx
 from flask import Response
 
 from tee_gateway import llm_backend
+from tee_gateway.errors import describe_exception
 from tee_gateway.moderation import ModerationOutcome
 from tee_gateway.models.create_chat_completion_request import (
     CreateChatCompletionRequest,
@@ -647,13 +648,10 @@ def create_image_generation_streaming_response(
             yield "data: [DONE]\n\n"
         except Exception as e:
             logger.error(f"Image generation streaming error: {str(e)}", exc_info=True)
-            # Surface the real exception detail to the client (matching the chat
-            # streaming path) so browser-side logs show the actual cause instead
-            # of an opaque generic string.
-            error_payload = {
-                "error": str(e) or "Stream processing failed",
-                "exception_type": type(e).__name__,
-            }
+            # Same in-band error frame as the chat streaming path: the status
+            # is already 200, so this classified payload is the only channel
+            # left to say whether the provider or the enclave failed.
+            error_payload = describe_exception(e, fallback="Stream processing failed")
             yield f"data: {json.dumps(error_payload)}\n\n"
 
     return Response(

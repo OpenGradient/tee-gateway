@@ -428,7 +428,6 @@ def set_provider_keys():
             xai_api_key=body.get("xai_api_key") or None,
             bytedance_api_key=body.get("bytedance_api_key") or None,
             openrouter_api_key=body.get("openrouter_api_key") or None,
-            zai_api_key=body.get("zai_api_key") or None,
             exa_api_key=body.get("exa_api_key") or None,
         )
         set_provider_config(provider_config)
@@ -494,9 +493,6 @@ def set_provider_keys():
             _set(provider_config.openrouter_api_key),
         )
         logger.info(
-            "  zai_api_key                 : %s", _set(provider_config.zai_api_key)
-        )
-        logger.info(
             "  exa_api_key (web search)    : %s", _set(provider_config.exa_api_key)
         )
         logger.info("  facilitator_url             : %s", facilitator_url)
@@ -532,7 +528,6 @@ def set_provider_keys():
             "xai": provider_config.xai_api_key,
             "bytedance": provider_config.bytedance_api_key,
             "openrouter": provider_config.openrouter_api_key,
-            "zai": provider_config.zai_api_key,
         }.items()
         if k
     ]

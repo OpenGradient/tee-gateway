@@ -10,7 +10,7 @@ model name is rejected outright — there is no fallback — so every model the
 gateway can route is added here, with pricing, before anything else can use it.
 
 Adding a model to a provider the gateway **already** speaks (OpenAI, Anthropic,
-Google, xAI, ByteDance/ModelArk, OpenRouter, Z.ai) touches only the files
+Google, xAI, ByteDance/ModelArk, OpenRouter) touches only the files
 below. `llm_backend.py` routes off `ModelConfig.provider`, so it needs no
 change. A model from a *new* provider is a different, larger job: it needs a
 client, an API key path in `__main__.py` and `/v1/keys`, and is out of scope

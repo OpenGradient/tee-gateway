@@ -29,7 +29,6 @@ class ProviderConfig:
     xai_api_key: Optional[str] = None
     bytedance_api_key: Optional[str] = None
     openrouter_api_key: Optional[str] = None
-    zai_api_key: Optional[str] = None
     # Exa, which backs the `web_search` tool the gateway executes inside the
     # enclave for every model (see web_search.py). Not an LLM provider, so it is
     # deliberately absent from initialized_providers() — /health reports it
@@ -51,8 +50,6 @@ class ProviderConfig:
             providers.append("bytedance")
         if self.openrouter_api_key:
             providers.append("openrouter")
-        if self.zai_api_key:
-            providers.append("zai")
         return providers
 
 

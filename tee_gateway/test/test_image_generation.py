@@ -1,5 +1,5 @@
 """Tests for endpoint-based image generation (OpenAI gpt-image, xAI Grok,
-ByteDance Seedream, ByteDance Seedance, Z.ai GLM-Image).
+ByteDance Seedream, ByteDance Seedance).
 
 Unlike Gemini's inline-image chat models (see test_image_billing.py), these
 models are served via a dedicated OpenAI-compatible ``/images/generations``
@@ -30,7 +30,6 @@ SEEDREAM = "seedream-4.0"
 SEEDREAM_5_LITE = "seedream-5.0-lite"
 SEEDANCE = "seedance-4.5"
 SEEDANCE_5 = "seedance-5.0"
-GLM_IMAGE = "glm-image"
 GPT_IMAGE = "gpt-image-2"
 
 
@@ -87,30 +86,6 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertEqual(images, ["data:image/jpeg;base64,RkVUQ0hFRA=="])
         fetch.assert_called_once_with("https://img/1.jpg")
-
-    def test_zai_glm_image_uses_documented_payload_and_fetches_url(self):
-        client = MagicMock()
-        client.post.return_value = _mock_response([{"url": "https://z.ai/img.png"}])
-        with (
-            patch.object(llm_backend, "zai_http_client", client),
-            patch.object(
-                image_generation,
-                "_fetch_url_as_data_uri",
-                return_value="data:image/png;base64,RkVUQ0hFRA==",
-            ),
-        ):
-            images, count = generate_images(GLM_IMAGE, "a poster", n=3)
-
-        self.assertEqual(count, 1)
-        self.assertEqual(images, ["data:image/png;base64,RkVUQ0hFRA=="])
-
-        _, kwargs = client.post.call_args
-        payload = kwargs["json"]
-        self.assertEqual(payload["model"], "glm-image")
-        self.assertEqual(payload["prompt"], "a poster")
-        self.assertNotIn("size", payload)
-        self.assertNotIn("n", payload)
-        self.assertNotIn("response_format", payload)
 
     def test_openai_gpt_image_defaults_size_to_auto_and_pins_quality(self):
         # gpt-image models always return base64 and reject `response_format`, so
@@ -374,7 +349,7 @@ class TestGenerateImages(unittest.TestCase):
         self.assertNotIn("image", kwargs["json"])
 
     def test_reference_images_ignored_for_non_bytedance(self):
-        # xAI/Z.ai text-to-image endpoints don't support image edit; the `image`
+        # xAI text-to-image endpoints don't support image edit; the `image`
         # field must not leak into their payloads.
         client = MagicMock()
         client.post.return_value = _mock_response([{"b64_json": "x"}])
@@ -648,7 +623,7 @@ def _ok_stream_ctx(chunks: list[bytes]) -> MagicMock:
 class TestFetchUrlRetry(unittest.TestCase):
     """The hosted-URL fetch retries CDN-visibility 404s and transient errors.
 
-    Z.ai's generations response can point at a file mfile.z.ai hasn't made
+    A provider's generations response can point at a file its CDN hasn't made
     visible yet, so the immediate fetch 404s with "file not exist" even though
     the image exists moments later. A 404 on a provider-returned URL is
     therefore retried, not trusted.
@@ -902,31 +877,6 @@ class TestAspectRatioSupport(unittest.TestCase):
                 self.assertLessEqual(max(width, height) / min(width, height), 16)
                 self._assert_matches_ratio(ratio, width, height)
 
-    def test_glm_sizes_are_zai_recommended_resolutions(self):
-        # Z.ai documents these seven resolutions for glm-image and requires
-        # both edges to be multiples of 32, within 512-2048px.
-        sizes = get_model_config(GLM_IMAGE).image_aspect_ratios or {}
-        self.assertEqual(
-            set(sizes.values()),
-            {
-                "1280x1280",
-                "1568x1056",
-                "1056x1568",
-                "1472x1088",
-                "1088x1472",
-                "1728x960",
-                "960x1728",
-            },
-        )
-        for ratio, size in sizes.items():
-            with self.subTest(ratio=ratio):
-                width, height = (int(part) for part in size.split("x"))
-                self.assertEqual((width % 32, height % 32), (0, 0))
-                self.assertGreaterEqual(min(width, height), 512)
-                self.assertLessEqual(max(width, height), 2048)
-                # Z.ai's own recommendations only approximate their labels.
-                self._assert_matches_ratio(ratio, width, height, tolerance=0.03)
-
     def _assert_matches_ratio(self, ratio, width, height, tolerance=0.001):
         """Assert WxH is the shape its public ``aspect_ratio`` label claims."""
         left, right = (float(part) for part in ratio.split(":"))
@@ -957,7 +907,7 @@ class TestPerImageBilling(unittest.TestCase):
         return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     def test_single_image_charged_flat_price(self):
-        for model in (GROK_IMAGE, SEEDREAM, SEEDANCE, SEEDANCE_5, GLM_IMAGE, GPT_IMAGE):
+        for model in (GROK_IMAGE, SEEDREAM, SEEDANCE, SEEDANCE_5, GPT_IMAGE):
             with self.subTest(model=model):
                 cfg = get_model_config(model)
                 cost = compute_session_cost(model, self._zero_usage(), image_count=1)

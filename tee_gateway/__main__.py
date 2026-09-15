@@ -597,7 +597,8 @@ def create_app():
     )
 
     def root_openapi():
-        return jsonify(api.specification.raw)
+        # Publish resolved request/response schemas for discovery clients.
+        return jsonify(dict(api.specification))
 
     app.app.add_url_rule("/health", "health", health, methods=["GET"])
     app.app.add_url_rule("/signing-key", "signing-key", signing_key, methods=["GET"])

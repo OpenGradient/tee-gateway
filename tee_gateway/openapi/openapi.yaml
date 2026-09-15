@@ -727,6 +727,14 @@ paths:
   /completions:
     post:
       operationId: create_completion
+      security: []
+      x-payment-info:
+        protocols:
+        - x402
+        pricingMode: dynamic
+        currency: OPG
+        minPrice: "0"
+        maxPrice: "0.1"
       requestBody:
         content:
           application/json:
@@ -741,6 +749,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/CreateCompletionResponse"
           description: OK
+        "402":
+          description: Payment Required
+          headers:
+            PAYMENT-REQUIRED:
+              description: Base64-encoded x402 v2 payment challenge
+              schema:
+                type: string
       summary: Creates a completion for the provided prompt and parameters.
       tags:
       - Completions

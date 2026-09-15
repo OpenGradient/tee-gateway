@@ -1,18 +1,11 @@
 openapi: 3.0.0
 info:
-  contact:
-    name: OpenAI Support
-    url: https://help.openai.com/
-  description: The OpenAI REST API. Please see https://platform.openai.com/docs/api-reference
-    for more details.
-  license:
-    name: MIT
-    url: https://github.com/openai/openai-openapi/blob/master/LICENSE
-  termsOfService: https://openai.com/policies/terms-of-use
-  title: OpenAI API
+  description: OpenAI-compatible inference protected by x402 payments and executed
+    inside a Nitro Enclave.
+  title: OpenGradient TEE Gateway
   version: 2.3.0
 servers:
-- url: https://api.openai.com/v1
+- url: https://tee.opengradient.ai/v1
 security:
 - ApiKeyAuth: []
 tags:
@@ -53,6 +46,14 @@ paths:
   /chat/completions:
     post:
       operationId: create_chat_completion
+      security: []
+      x-payment-info:
+        protocols:
+        - x402
+        pricingMode: dynamic
+        currency: OPG
+        minPrice: "0"
+        maxPrice: "0.1"
       requestBody:
         content:
           application/json:
@@ -67,6 +68,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/CreateChatCompletionResponse"
           description: OK
+        "402":
+          description: Payment Required
+          headers:
+            PAYMENT-REQUIRED:
+              description: Base64-encoded x402 v2 payment challenge
+              schema:
+                type: string
       summary: "Creates a model response for the given chat conversation. Learn more\
         \ in the\n[text generation](/docs/guides/text-generation), [vision](/docs/guides/vision),\n\
         and [audio](/docs/guides/audio) guides.\n\nParameter support can differ depending\

@@ -590,7 +590,14 @@ def heartbeat_status():
 def create_app():
     app = connexion.App(__name__, specification_dir="./openapi/")
     app.app.json_encoder = encoder.JSONEncoder
-    app.add_api("openapi.yaml", arguments={"title": "OpenAI API"}, pythonic_params=True)
+    api = app.add_api(
+        "openapi.yaml",
+        arguments={"title": "OpenGradient TEE Gateway"},
+        pythonic_params=True,
+    )
+
+    def root_openapi():
+        return jsonify(api.specification.raw)
 
     app.app.add_url_rule("/health", "health", health, methods=["GET"])
     app.app.add_url_rule("/signing-key", "signing-key", signing_key, methods=["GET"])
@@ -599,6 +606,9 @@ def create_app():
     )
     app.app.add_url_rule(
         "/heartbeat/status", "heartbeat-status", heartbeat_status, methods=["GET"]
+    )
+    app.app.add_url_rule(
+        "/openapi.json", "root-openapi", root_openapi, methods=["GET"]
     )
 
     # Anonymous inference (OHTTP-wrapped chat completions). Deliberately

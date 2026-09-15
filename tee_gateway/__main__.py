@@ -40,6 +40,11 @@ from x402.mechanisms.evm.upto import UptoEvmServerScheme
 from x402.extensions.erc20_approval_gas_sponsoring import (
     declare_erc20_approval_gas_sponsoring_extension,
 )
+from x402.extensions.bazaar import (
+    OutputConfig,
+    bazaar_resource_server_extension,
+    declare_discovery_extension,
+)
 from x402.schemas import AssetAmount
 from x402.server import x402ResourceServerSync
 from x402.session import SessionStore
@@ -266,6 +271,77 @@ _keys_initialized: bool = False
 _keys_lock = threading.Lock()
 
 
+# ---------------------------------------------------------------------------
+# x402 Bazaar discovery declarations
+# ---------------------------------------------------------------------------
+# Indexers (x402scan and other Bazaar crawlers) read the request shape out of
+# the `bazaar` extension on the 402 challenge.
+PUBLIC_BASE_URL = os.environ.get(
+    "PUBLIC_BASE_URL", "https://tee.opengradient.ai"
+).rstrip("/")
+
+_CHAT_MESSAGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "role": {
+            "type": "string",
+            "enum": ["system", "user", "assistant", "tool"],
+        },
+        "content": {"type": "string", "description": "Message text."},
+    },
+    "required": ["role", "content"],
+}
+
+_CHAT_COMPLETIONS_INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "model": {
+            "type": "string",
+            "description": "Model id, e.g. gpt-5, claude-opus-5, gemini-3-pro-preview.",
+        },
+        "messages": {
+            "type": "array",
+            "items": _CHAT_MESSAGE_SCHEMA,
+            "description": "Conversation so far, oldest first.",
+        },
+        "max_tokens": {"type": "integer", "description": "Cap on completion tokens."},
+        "temperature": {"type": "number", "description": "Sampling temperature."},
+        "stream": {
+            "type": "boolean",
+            "description": "Stream the response as SSE frames.",
+        },
+    },
+    "required": ["model", "messages"],
+}
+
+_COMPLETIONS_INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "model": {"type": "string", "description": "Model id."},
+        "prompt": {"type": "string", "description": "Prompt to complete."},
+        "max_tokens": {"type": "integer", "description": "Cap on completion tokens."},
+        "temperature": {"type": "number", "description": "Sampling temperature."},
+    },
+    "required": ["model", "prompt"],
+}
+
+_WEB_SEARCH_INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "query": {"type": "string", "description": "Search query."},
+        "num_results": {
+            "type": "integer",
+            "description": "Maximum number of results to return.",
+        },
+        "recency_days": {
+            "type": "integer",
+            "description": "Restrict results to the last N days.",
+        },
+    },
+    "required": ["query"],
+}
+
+
 def _init_payment_middleware(facilitator_url: str) -> None:
     """Build and attach the x402 payment middleware to the running Flask app.
 
@@ -278,6 +354,7 @@ def _init_payment_middleware(facilitator_url: str) -> None:
 
     server.register(BASE_MAINNET_NETWORK, ExactEvmServerScheme())
     server.register(BASE_MAINNET_NETWORK, UptoEvmServerScheme())
+    server.register_extension(bazaar_resource_server_extension)
 
     routes = {
         "POST /v1/chat/completions": RouteConfig(
@@ -297,8 +374,34 @@ def _init_payment_middleware(facilitator_url: str) -> None:
                     network=BASE_MAINNET_NETWORK,
                 ),
             ],
+            resource=f"{PUBLIC_BASE_URL}/v1/chat/completions",
             extensions={
                 **declare_erc20_approval_gas_sponsoring_extension(),
+                **declare_discovery_extension(
+                    input={
+                        "model": "gpt-5",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                    },
+                    input_schema=_CHAT_COMPLETIONS_INPUT_SCHEMA,
+                    body_type="json",
+                    output=OutputConfig(
+                        example={
+                            "id": "chatcmpl-123",
+                            "object": "chat.completion",
+                            "model": "gpt-5",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": "Hello!",
+                                    },
+                                    "finish_reason": "stop",
+                                }
+                            ],
+                        }
+                    ),
+                ),
             },
             mime_type="application/json",
             description="Chat completion",
@@ -320,11 +423,32 @@ def _init_payment_middleware(facilitator_url: str) -> None:
                     network=BASE_MAINNET_NETWORK,
                 ),
             ],
+            resource=f"{PUBLIC_BASE_URL}/v1/completions",
             extensions={
                 **declare_erc20_approval_gas_sponsoring_extension(),
+                **declare_discovery_extension(
+                    input={"model": "gpt-5", "prompt": "Hello"},
+                    input_schema=_COMPLETIONS_INPUT_SCHEMA,
+                    body_type="json",
+                    output=OutputConfig(
+                        example={
+                            "id": "cmpl-123",
+                            "object": "text_completion",
+                            "model": "gpt-5",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "text": "Hello!",
+                                    "finish_reason": "stop",
+                                }
+                            ],
+                        }
+                    ),
+                ),
             },
             mime_type="application/json",
-            description="Completion",
+            description="OpenAI-compatible text completion, executed inside an "
+            "AWS Nitro Enclave and signed with the enclave's attested key.",
         ),
         "POST /v1/web_search": RouteConfig(
             accepts=[
@@ -343,8 +467,22 @@ def _init_payment_middleware(facilitator_url: str) -> None:
                     network=BASE_MAINNET_NETWORK,
                 ),
             ],
+            resource=f"{PUBLIC_BASE_URL}/v1/web_search",
             extensions={
                 **declare_erc20_approval_gas_sponsoring_extension(),
+                **declare_discovery_extension(
+                    input={"query": "latest x402 spec changes", "num_results": 5},
+                    input_schema=_WEB_SEARCH_INPUT_SCHEMA,
+                    body_type="json",
+                    output=OutputConfig(
+                        example={
+                            "content": "1. Example result — https://example.com",
+                            "citations": [
+                                {"title": "Example", "url": "https://example.com"}
+                            ],
+                        }
+                    ),
+                ),
             },
             mime_type="application/json",
             description="Web search",
@@ -608,9 +746,7 @@ def create_app():
     app.app.add_url_rule(
         "/heartbeat/status", "heartbeat-status", heartbeat_status, methods=["GET"]
     )
-    app.app.add_url_rule(
-        "/openapi.json", "root-openapi", root_openapi, methods=["GET"]
-    )
+    app.app.add_url_rule("/openapi.json", "root-openapi", root_openapi, methods=["GET"])
 
     # Anonymous inference (OHTTP-wrapped chat completions). Deliberately
     # mounted via add_url_rule rather than the OpenAPI spec because the body

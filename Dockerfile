@@ -7,6 +7,11 @@ WORKDIR /
 ARG NITRIDING_COMMIT=2b7dfefaee56819681b7f5a4ee8d66a417ad457d
 RUN git clone https://github.com/brave/nitriding-daemon.git && \
     cd nitriding-daemon && git checkout ${NITRIDING_COMMIT}
+# The pinned ACME setup omits TLS configuration for the private HTTPS server.
+RUN cd nitriding-daemon && \
+    test "$(grep -Fc 'e.extPubSrv.TLSConfig = certManager.TLSConfig()' enclave.go)" = 1 && \
+    sed -i '/e.extPubSrv.TLSConfig = certManager.TLSConfig()/a\e.extPrivSrv.TLSConfig = e.extPubSrv.TLSConfig.Clone()' enclave.go && \
+    gofmt -w enclave.go
 ARG TARGETARCH
 RUN ARCH=${TARGETARCH} make -C nitriding-daemon/ nitriding
 

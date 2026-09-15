@@ -61,7 +61,7 @@ test-heartbeat-status:
 
 .PHONY: health
 health:
-	curl -i -k https://localhost:443/health
+	curl -i -k --resolve tee.opengradient.ai:443:127.0.0.1 https://tee.opengradient.ai/health
 
 .PHONY: get-signing-key
 get-signing-key:

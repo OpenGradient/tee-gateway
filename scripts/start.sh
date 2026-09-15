@@ -2,7 +2,7 @@
 
 # Start nitriding - proxies external port 443 to Flask app on port 8000
 # Internal API on port 8080 (for /enclave/ready, /enclave/hash)
-nitriding -fqdn localhost -appwebsrv "http://127.0.0.1:8000" -ext-pub-port 443 -intport 8080 -wait-for-app &
+nitriding -fqdn tee.opengradient.ai -acme -appwebsrv "http://127.0.0.1:8000" -ext-pub-port 443 -intport 8080 -wait-for-app &
 echo "[sh] Started nitriding."
 
 sleep 1

@@ -131,7 +131,7 @@ prefixes determine routing:
 - **Google**: gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-flash-preview, gemini-3.1-pro-preview; image generation: gemini-2.5-flash-image, gemini-3.1-flash-image
 - **xAI**: grok-4.6, grok-4.5, grok-4.3, grok-4.20-reasoning, grok-4.20-non-reasoning; image generation: grok-2-image, grok-imagine-image-2.0
 - **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro, glm-5.2 (Z.ai's model served via a ModelArk deployment endpoint); image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0
-- **OpenRouter** (OpenAI-compatible): hy4-preview, hermes-4-405b, hermes-4-70b, hy3
+- **OpenRouter** (OpenAI-compatible): hy4-preview, hermes-4-405b, hy3
 - **Z.ai** (Model API, OpenAI-compatible): image generation: glm-image (glm-5.2 chat is routed through BytePlus ModelArk, see ByteDance above)
 
 Models kept registered but no longer offered to new clients — each still
@@ -148,6 +148,12 @@ provider actually bills, not at its pre-retirement rate:
   snapshots retiring then. OpenAI does not document whether such an alias is
   repointed or retired with its snapshot; if repointed, they become mispriced
   the way the xAI slugs were.
+
+Removed outright (the provider does not serve them at all, so no request could
+succeed): **hermes-4-70b** — OpenRouter delisted `nousresearch/hermes-4-70b`;
+it is absent from `openrouter.ai/api/v1/models` and every request returned
+"404 No endpoints found". Its pricing page still resolves, so checking a price
+does not prove a model is served — read availability from `/api/v1/models`.
 
 Image generation via OpenAI (gpt-image-2.5-flare, gpt-image-2.5-sunburst, gpt-image-2), xAI (grok-2-image, grok-imagine-image-2.0), ByteDance
 (seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0), and Z.ai (glm-image) is served

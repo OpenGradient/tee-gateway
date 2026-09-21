@@ -939,25 +939,28 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.000000834"),
         output_price_usd=Decimal("0.000002501"),
     )
-    # Nous no longer serves Hermes 4 through Nous Portal, so both models route
-    # through their canonical OpenRouter slugs and use OpenRouter list pricing.
+    # Nous no longer serves Hermes 4 through Nous Portal, so it routes through
+    # its canonical OpenRouter slug and uses OpenRouter list pricing.
+    #
+    # hermes-4-70b was removed on 2026-09-21: OpenRouter's live model list no
+    # longer contains nousresearch/hermes-4-70b at all, so every request to it
+    # came back "404 No endpoints found". Its pricing page still resolves,
+    # which is why a price check alone did not catch it — availability has to
+    # be read from /api/v1/models. The 405B below is still served.
     HERMES_4_405B = ModelConfig(
         provider="openrouter",
         api_name="nousresearch/hermes-4-405b",
         input_price_usd=Decimal("0.000001"),
         output_price_usd=Decimal("0.000003"),
     )
-    HERMES_4_70B = ModelConfig(
-        provider="openrouter",
-        api_name="nousresearch/hermes-4-70b",
-        input_price_usd=Decimal("0.00000013"),
-        output_price_usd=Decimal("0.0000004"),
-    )
+    # OpenRouter's live rate for tencent/hy3 is $0.132/$0.528 per MTok
+    # (openrouter.ai/api/v1/models). The previous 0.0825/0.33 undercharged it
+    # by 1.6x.
     HY3 = ModelConfig(
         provider="openrouter",
         api_name="tencent/hy3",
-        input_price_usd=Decimal("0.0000000825"),
-        output_price_usd=Decimal("0.00000033"),
+        input_price_usd=Decimal("0.000000132"),
+        output_price_usd=Decimal("0.000000528"),
     )
 
     # ── Z.ai (Model API, OpenAI-compatible) ─────────────────────────────
@@ -1118,8 +1121,6 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     # Nous Research models routed through OpenRouter
     "hermes-4-405b": SupportedModel.HERMES_4_405B,
     "nousresearch/hermes-4-405b": SupportedModel.HERMES_4_405B,
-    "hermes-4-70b": SupportedModel.HERMES_4_70B,
-    "nousresearch/hermes-4-70b": SupportedModel.HERMES_4_70B,
     "hy3": SupportedModel.HY3,
     "tencent/hy3": SupportedModel.HY3,
     "tencent/hy3:floor": SupportedModel.HY3,

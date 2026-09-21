@@ -52,9 +52,9 @@ PROVIDER_SMOKE_MODELS = (
     _ProviderCase("OpenAI", "gpt-4.1-nano", "OPENAI_API_KEY"),
     _ProviderCase("Anthropic", "claude-haiku-4-5", "ANTHROPIC_API_KEY"),
     _ProviderCase("Google", "gemini-3.5-flash-lite", "GOOGLE_API_KEY"),
-    _ProviderCase("xAI", "grok-4-fast", "XAI_API_KEY"),
+    _ProviderCase("xAI", "grok-4.3", "XAI_API_KEY"),
     _ProviderCase("ByteDance", "deepseek-v4-flash", "ARK_API_KEY"),
-    _ProviderCase("OpenRouter", "hermes-4-70b", "OPENROUTER_API_KEY"),
+    _ProviderCase("OpenRouter", "hy3", "OPENROUTER_API_KEY"),
     _ProviderCase("Z.ai", "glm-5.2", "ZAI_API_KEY"),
 )
 

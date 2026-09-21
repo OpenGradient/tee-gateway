@@ -2892,6 +2892,15 @@ components:
           nullable: true
           title: aspect_ratio
           type: string
+        resolution:
+          description: |
+            Optional output-resolution tier for image-generation models that
+            offer more than one (e.g. `1.5K` / `2K`). Omit it to run at the
+            model's default tier. The tier decides both the pixel size and the
+            per-image price; it is rejected on models with a single resolution.
+          nullable: true
+          title: resolution
+          type: string
         web_search:
           default: false
           deprecated: true

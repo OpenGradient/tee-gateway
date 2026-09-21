@@ -35,6 +35,7 @@ class CreateChatCompletionRequest:
         functions=None,
         web_search=False,
         aspect_ratio=None,
+        resolution=None,
     ):
         self.messages = messages
         self.model = model
@@ -68,6 +69,7 @@ class CreateChatCompletionRequest:
         self.functions = functions
         self.web_search = web_search
         self.aspect_ratio = aspect_ratio
+        self.resolution = resolution
 
     @classmethod
     def from_dict(cls, dikt) -> "CreateChatCompletionRequest":
@@ -106,5 +108,6 @@ class CreateChatCompletionRequest:
             "functions",
             "web_search",
             "aspect_ratio",
+            "resolution",
         }
         return cls(**{k: v for k, v in dikt.items() if k in known})

@@ -169,6 +169,12 @@ class ModelConfig:
 # settled (see WebSearchOutcome.billable).
 WEB_SEARCH_PRICE_USD: Decimal = Decimal("0.015")
 
+# What xAI charges for any slug it retired on 2026-05-15: every such request is
+# redirected to a live model and billed at grok-4.3's rate ($1.25 in / $2.50 out
+# per MTok), whatever name was sent.
+_XAI_RETIRED_INPUT_USD: Decimal = Decimal("0.00000125")
+_XAI_RETIRED_OUTPUT_USD: Decimal = Decimal("0.0000025")
+
 # ByteDance ModelArk image *deployment* endpoints (api_name "ep-…", e.g. Seedance
 # 4.5, Seedream 5.0 Lite) return the URL response format and require these extra
 # params. The gateway fetches the returned URL and inlines the bytes, so the
@@ -302,12 +308,21 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000004"),
         output_price_usd=Decimal("0.0000016"),
     )
+    # Shuts down 2026-10-23 (OpenAI names this exact slug, not a dated
+    # snapshot, so it stops resolving that day). Replacement: gpt-5.6-luna.
+    # Dropped from the SDK already; kept here for older SDK versions until the
+    # date. Same for o4-mini below (replacement: gpt-5.6-terra).
     GPT_4_1_NANO = ModelConfig(
         provider="openai",
         api_name="gpt-4.1-nano",
         input_price_usd=Decimal("0.0000001"),
         output_price_usd=Decimal("0.0000004"),
     )
+    # o3, gpt-5 and gpt-5-mini are undated aliases of snapshots that shut down
+    # on 2026-12-11 (o3-2025-04-16, gpt-5-2025-08-07, gpt-5-mini-2025-08-07).
+    # OpenAI does not document whether such an alias is repointed to a
+    # successor or retired with its snapshot. If it is repointed, these become
+    # mispriced the way the retired xAI slugs were, so revisit before then.
     O3 = ModelConfig(
         provider="openai",
         api_name="o3",
@@ -558,9 +573,14 @@ class SupportedModel(Enum):
     )
 
     # ── Google Gemini ───────────────────────────────────────────────────
-    # Note: gemini-2.5-flash, gemini-2.5-pro, and gemini-2.5-flash-lite are scheduled
-    # for deprecation on June 17, 2026 (flash-lite: July 22, 2026). Use the Gemini 3
-    # replacements below for new integrations.
+    # Note: gemini-2.5-flash, gemini-2.5-pro and gemini-2.5-flash-lite are
+    # still served. A previous note here said they were "scheduled for
+    # deprecation on June 17, 2026 (flash-lite: July 22, 2026)"; those dates
+    # passed and Google's deprecation list does not carry them, so the note was
+    # wrong. The Gemini 3 models below are still the better default for new
+    # integrations. (Google did retire gemini-3.1-flash-image-preview on
+    # 2026-06-25 — the registry calls the GA gemini-3.1-flash-image, not that
+    # preview.)
     GEMINI_2_5_FLASH = ModelConfig(
         provider="google",
         api_name="gemini-2.5-flash",
@@ -685,29 +705,43 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.00000125"),
         output_price_usd=Decimal("0.0000025"),
     )
+    # ── xAI models retired on 2026-05-15 ────────────────────────────────
+    # xAI retired these slugs (docs.x.ai/developers/migration/may-15-retirement)
+    # but still ACCEPTS them: each is silently redirected to a live model, and
+    # every redirected request is billed at grok-4.3's rate regardless of the
+    # name sent. They are kept registered so older SDK versions keep working
+    # (the current SDK no longer offers them), but they must be priced at what
+    # xAI actually charges — $1.25/$2.50 per MTok — or the gateway eats the
+    # difference. They were previously priced at their pre-retirement rates,
+    # which undercharged grok-4-fast by 6.25x on input and 5x on output.
+    # Remove once no client sends them.
+    # -> grok-4.3 (low reasoning effort)
     GROK_4 = ModelConfig(
         provider="x-ai",
         api_name="grok-4",
-        input_price_usd=Decimal("0.000003"),
-        output_price_usd=Decimal("0.000015"),
+        input_price_usd=_XAI_RETIRED_INPUT_USD,
+        output_price_usd=_XAI_RETIRED_OUTPUT_USD,
     )
+    # -> grok-4.3 (low reasoning effort)
     GROK_4_FAST = ModelConfig(
         provider="x-ai",
         api_name="grok-4-fast",
-        input_price_usd=Decimal("0.0000002"),
-        output_price_usd=Decimal("0.0000005"),
+        input_price_usd=_XAI_RETIRED_INPUT_USD,
+        output_price_usd=_XAI_RETIRED_OUTPUT_USD,
     )
+    # -> grok-4.3 (low reasoning effort)
     GROK_4_1_FAST = ModelConfig(
         provider="x-ai",
         api_name="grok-4-1-fast",
-        input_price_usd=Decimal("0.0000002"),
-        output_price_usd=Decimal("0.0000005"),
+        input_price_usd=_XAI_RETIRED_INPUT_USD,
+        output_price_usd=_XAI_RETIRED_OUTPUT_USD,
     )
+    # -> grok-4.3 (reasoning effort "none")
     GROK_4_1_FAST_NON_REASONING = ModelConfig(
         provider="x-ai",
         api_name="grok-4-1-fast-non-reasoning",
-        input_price_usd=Decimal("0.0000002"),
-        output_price_usd=Decimal("0.0000005"),
+        input_price_usd=_XAI_RETIRED_INPUT_USD,
+        output_price_usd=_XAI_RETIRED_OUTPUT_USD,
     )
     GROK_4_20_REASONING = ModelConfig(
         provider="x-ai",
@@ -721,11 +755,13 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.000002"),
         output_price_usd=Decimal("0.000006"),
     )
+    # Retired 2026-05-15 -> grok-build-0.1, billed at grok-4.3's rate. See the
+    # retired-slug note above.
     GROK_CODE_FAST_1 = ModelConfig(
         provider="x-ai",
         api_name="grok-code-fast-1",
-        input_price_usd=Decimal("0.0000002"),
-        output_price_usd=Decimal("0.0000015"),
+        input_price_usd=_XAI_RETIRED_INPUT_USD,
+        output_price_usd=_XAI_RETIRED_OUTPUT_USD,
     )
     # Image generation via xAI's OpenAI-compatible /images/generations endpoint.
     # grok-2-image-1212 was retired in February 2026; grok-imagine-image is its
@@ -959,17 +995,22 @@ class SupportedModel(Enum):
     )
 
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──
+    # grok-3 was retired on 2026-05-15 alongside the slugs above and is
+    # redirected to grok-4.3 (reasoning effort "none"), billed at grok-4.3's
+    # rate. grok-3-mini is not named in that notice but is no longer offered on
+    # xAI's models page, so it is priced the same way rather than at its old
+    # rate. See the retired-slug note above.
     GROK_3_MINI = ModelConfig(
         provider="x-ai",
         api_name="grok-3-mini",
-        input_price_usd=Decimal("0.0000003"),
-        output_price_usd=Decimal("0.0000005"),
+        input_price_usd=_XAI_RETIRED_INPUT_USD,
+        output_price_usd=_XAI_RETIRED_OUTPUT_USD,
     )
     GROK_3 = ModelConfig(
         provider="x-ai",
         api_name="grok-3-latest",
-        input_price_usd=Decimal("0.000003"),
-        output_price_usd=Decimal("0.000015"),
+        input_price_usd=_XAI_RETIRED_INPUT_USD,
+        output_price_usd=_XAI_RETIRED_OUTPUT_USD,
     )
 
 

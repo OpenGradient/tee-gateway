@@ -33,12 +33,21 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 
 | Provider | Models |
 |----------|--------|
-| OpenAI | gpt-6-astra, gpt-4.1, gpt-5, gpt-5-mini, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, o4-mini |
-| Anthropic | claude-fable-5-1, claude-sonnet-4-5, claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-5, claude-opus-4-6 |
-| Google | gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-pro-preview, gemini-3-flash-preview |
-| xAI | grok-4.6, grok-4.5, grok-4.3, grok-4, grok-4-fast, grok-4-1-fast, grok-4-1-fast-non-reasoning |
-| ByteDance | seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro |
+| OpenAI | gpt-6-astra, gpt-4.1, gpt-4.1-mini, gpt-5, gpt-5-mini, gpt-5.2, gpt-5.4, gpt-5.5, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, o3 |
+| Anthropic | claude-fable-5-1, claude-fable-5, claude-opus-5, claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-opus-4-5, claude-sonnet-5, claude-sonnet-4-6, claude-sonnet-4-5, claude-haiku-4-5 |
+| Google | gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-flash-preview, gemini-3.1-pro-preview |
+| xAI | grok-4.6, grok-4.5, grok-4.3, grok-4.20-reasoning, grok-4.20-non-reasoning |
+| ByteDance | seed-1.6, seed-1.8, seed-2.0-lite, dola-seed-2.0-mini, deepseek-v4-flash, deepseek-v4-pro, glm-5.2 |
 | OpenRouter | hy4-preview, hermes-4-405b, hermes-4-70b, hy3 |
+
+Image generation: gpt-image-2, gpt-image-2.5-flare, gpt-image-2.5-sunburst,
+gemini-2.5-flash-image, gemini-3.1-flash-image, grok-2-image,
+grok-imagine-image-2.0, seedream-4.0, seedream-5.0-lite, seedance-4.5,
+seedance-5.0, glm-image.
+
+Some retired models stay registered so older SDK versions keep working; see
+"Supported Providers" in CLAUDE.md. `tee_gateway/model_registry.py` is the
+source of truth for all of the above.
 
 ## Quick Start
 
@@ -89,7 +98,7 @@ curl -X POST http://127.0.0.1:8000/v1/chat/completions \
 curl -X POST http://127.0.0.1:8000/v1/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-3.7-sonnet",
+    "model": "claude-sonnet-4-6",
     "prompt": "Explain quantum computing in one sentence"
   }'
 

@@ -413,8 +413,33 @@ class TestModelRegistry(unittest.TestCase):
     def test_grok_code_fast_1_resolves(self):
         cfg = get_model_config("grok-code-fast-1")
         self.assertEqual(cfg.provider, "x-ai")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.0000002"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.0000015"))
+        # Retired 2026-05-15 and redirected to grok-build-0.1; xAI bills it at
+        # grok-4.3's rate, so that is what we charge.
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00000125"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000025"))
+
+    def test_retired_xai_slugs_priced_at_grok_4_3_rate(self):
+        """Every slug xAI retired on 2026-05-15 bills at grok-4.3's rate.
+
+        xAI redirects each of these to a live model and bills the request at
+        grok-4.3's price whatever name was sent, so pricing them at their old
+        pre-retirement rates made the gateway eat the difference (grok-4-fast
+        was 6.25x under on input, 5x on output).
+        """
+        live = get_model_config("grok-4.3")
+        for name in (
+            "grok-4",
+            "grok-4-fast",
+            "grok-4-1-fast",
+            "grok-4-1-fast-non-reasoning",
+            "grok-code-fast-1",
+            "grok-3",
+            "grok-3-mini",
+        ):
+            with self.subTest(model=name):
+                cfg = get_model_config(name)
+                self.assertEqual(cfg.input_price_usd, live.input_price_usd)
+                self.assertEqual(cfg.output_price_usd, live.output_price_usd)
 
     def test_grok_imagine_image_2_0_resolves(self):
         cfg = get_model_config("grok-imagine-image-2.0")
@@ -873,15 +898,17 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         cost = self._calc("grok-4", 1000, 500)
         expected = _expected_cost_opg("grok-4", 1000, 500)
         self.assertEqual(cost, expected)
-        # Same pricing tier as claude-sonnet-4-5
-        self.assertEqual(cost, 10_500_000_000_000_000)
+        # Retired slug, billed by xAI at grok-4.3's rate:
+        # 1000*0.00000125 + 500*0.0000025 = 0.00125 + 0.00125 = 0.0025 USD
+        self.assertEqual(cost, 2_500_000_000_000_000)
 
     def test_grok_4_fast_cost(self):
         cost = self._calc("grok-4-fast", 1000, 500)
         expected = _expected_cost_opg("grok-4-fast", 1000, 500)
         self.assertEqual(cost, expected)
-        # 1000*0.0000002 + 500*0.0000005 = 0.0002 + 0.00025 = 0.00045 USD
-        self.assertEqual(cost, 450_000_000_000_000)
+        # Retired slug, billed by xAI at grok-4.3's rate:
+        # 1000*0.00000125 + 500*0.0000025 = 0.00125 + 0.00125 = 0.0025 USD
+        self.assertEqual(cost, 2_500_000_000_000_000)
 
     def test_grok_4_1_fast_cost(self):
         cost = self._calc("grok-4-1-fast", 1000, 500)
@@ -902,8 +929,9 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         cost = self._calc("grok-code-fast-1", 1000, 500)
         expected = _expected_cost_opg("grok-code-fast-1", 1000, 500)
         self.assertEqual(cost, expected)
-        # 1000*0.0000002 + 500*0.0000015 = 0.0002 + 0.00075 = 0.00095 USD = 9.5e14 wei
-        self.assertEqual(cost, 950_000_000_000_000)
+        # Retired slug, billed by xAI at grok-4.3's rate:
+        # 1000*0.00000125 + 500*0.0000025 = 0.0025 USD = 2.5e15 wei
+        self.assertEqual(cost, 2_500_000_000_000_000)
 
     def test_grok_3_mini_cost(self):
         cost = self._calc("grok-3-mini", 1000, 500)
@@ -981,10 +1009,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         flash = self._calc("gemini-2.5-flash", 1000, 1000)
         self.assertLess(lite, flash)
 
-    def test_grok_4_fast_cheaper_than_grok_4(self):
-        fast = self._calc("grok-4-fast", 1000, 1000)
-        full = self._calc("grok-4", 1000, 1000)
-        self.assertLess(fast, full)
+    def test_grok_4_3_cheaper_than_grok_4_6(self):
+        # grok-4 / grok-4-fast were retired on 2026-05-15 and both now bill at
+        # grok-4.3's rate, so the old fast-vs-full comparison is vacuous. The
+        # live tiers still hold this ordering.
+        cheap = self._calc("grok-4.3", 1000, 1000)
+        flagship = self._calc("grok-4.6", 1000, 1000)
+        self.assertLess(cheap, flagship)
 
 
 class TestCalculateSessionCostEdgeCases(unittest.TestCase):

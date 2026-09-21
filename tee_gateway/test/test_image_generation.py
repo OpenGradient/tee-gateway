@@ -246,9 +246,51 @@ class TestGenerateImages(unittest.TestCase):
         self.assertEqual(payload["response_format"], "url")
         self.assertNotIn("sequential_image_generation", payload)
         self.assertFalse(payload["watermark"])
-        self.assertEqual(payload["size"], "2K")
+        # No resolution => the default tier, which is the cheaper 1.5K one.
+        self.assertEqual(payload["size"], "1.5K")
         self.assertFalse(payload["stream"])
         self.assertNotIn("n", payload)
+
+    def _seedance_5_payload(self, **kwargs) -> dict:
+        client = MagicMock()
+        client.post.return_value = _mock_response([{"url": "https://cdn/img.jpg"}])
+        with (
+            patch.object(llm_backend, "bytedance_http_client", client),
+            patch.object(
+                image_generation,
+                "_fetch_url_as_data_uri",
+                return_value="data:image/jpeg;base64,RkVUQ0hFRA==",
+            ),
+        ):
+            generate_images(SEEDANCE_5, "a black hole", n=1, **kwargs)
+        return client.post.call_args.kwargs["json"]
+
+    def test_seedance_5_resolution_selects_the_tier_keyword(self):
+        # The tier keyword is what ModelArk prices by: 1.5K lands under its
+        # 2.61 MP line, 2K (what every request used to send) above it.
+        self.assertEqual(self._seedance_5_payload(resolution="2K")["size"], "2K")
+        self.assertEqual(self._seedance_5_payload(resolution="1.5K")["size"], "1.5K")
+        self.assertEqual(self._seedance_5_payload(resolution="")["size"], "1.5K")
+
+    def test_seedance_5_ratio_resolves_through_the_selected_tier(self):
+        # Same public ratio, different pixel size per tier — the explicit WxH
+        # replaces the keyword, so the request never carries both.
+        default = self._seedance_5_payload(aspect_ratio="16:9")
+        high = self._seedance_5_payload(aspect_ratio="16:9", resolution="2K")
+        self.assertEqual(default["size"], "2048x1152")
+        self.assertEqual(high["size"], "2560x1440")
+
+    def test_invalid_resolution_is_rejected_before_provider_call(self):
+        client = MagicMock()
+        with patch.object(llm_backend, "bytedance_http_client", client):
+            with self.assertRaisesRegex(ValueError, "Unsupported resolution"):
+                generate_images(SEEDANCE_5, "a black hole", resolution="4K")
+            # A single-resolution model refuses the field rather than ignoring
+            # it: it names a price tier, and silently running at another one
+            # would bill something other than what the client was quoted.
+            with self.assertRaisesRegex(ValueError, "single output resolution"):
+                generate_images(SEEDREAM, "a black hole", resolution="2K")
+        client.post.assert_not_called()
 
     def test_seedance_forwards_single_reference_image(self):
         client = MagicMock()
@@ -887,20 +929,67 @@ class TestAspectRatioSupport(unittest.TestCase):
                 self.assertLessEqual(width * height, 1_600_000)
                 self._assert_matches_ratio(ratio, width, height)
 
-    def test_bytedance_sizes_satisfy_modelark_size_constraints(self):
-        # Every ModelArk image model in the registry shares one size table, so
-        # it has to satisfy the tightest documented window across them:
-        # pixels >= 2560x1440 (Seedream 4.5 / 5.0 lite) and <= 2048x2048x1.1025
-        # (Seedream 5.0 pro), with the ratio inside [1/16, 16].
+    # ModelArk's documented explicit-size windows (docs.byteplus.com/en/docs/
+    # ModelArk/1541523): Seedream 4.5 / 5.0 Lite accept nothing under
+    # 2560x1440; Seedream 5.0 pro accepts [1280x720, 2048x2048x1.1025] and
+    # prices by pixel count with the line at 2.61 MP.
+    MODELARK_2K_FLOOR = 3_686_400
+    SEEDREAM_5_PRO_FLOOR = 921_600
+    SEEDREAM_5_PRO_CEILING = 4_624_220
+    SEEDREAM_5_PRO_PRICE_LINE = 2_610_000
+
+    def test_bytedance_2k_sizes_satisfy_modelark_size_constraints(self):
+        # Seedream 4.0, 4.5, 5.0 Lite and Seedream 5.0's upper tier share the
+        # 2K table, so it has to satisfy the tightest window across them —
+        # and every entry must sit above the 5.0 price line, or the "2K" tier
+        # would be billed $0.09 for an image ModelArk charges $0.045 for.
         sizes = get_model_config(SEEDREAM).image_aspect_ratios or {}
-        self.assertEqual(sizes, get_model_config(SEEDANCE_5).image_aspect_ratios)
+        high = get_model_config(SEEDANCE_5).image_resolutions["2K"]
+        self.assertEqual(sizes, high.aspect_ratios)
+        for model in (SEEDANCE, SEEDREAM_5_LITE):
+            self.assertEqual(sizes, get_model_config(model).image_aspect_ratios)
         for ratio, size in sizes.items():
             with self.subTest(ratio=ratio):
                 width, height = (int(part) for part in size.split("x"))
-                self.assertGreaterEqual(width * height, 3_686_400)
-                self.assertLessEqual(width * height, 4_624_220)
+                self.assertGreaterEqual(width * height, self.MODELARK_2K_FLOOR)
+                self.assertGreater(width * height, self.SEEDREAM_5_PRO_PRICE_LINE)
+                self.assertLessEqual(width * height, self.SEEDREAM_5_PRO_CEILING)
                 self.assertLessEqual(max(width, height) / min(width, height), 16)
                 self._assert_matches_ratio(ratio, width, height)
+
+    def test_seedance_5_default_tier_sizes_stay_under_the_price_line(self):
+        # The 1.5K table is the point of the cheaper tier: every shape must be
+        # a valid explicit size for Seedream 5.0 pro AND under 2.61 MP, else a
+        # ratio pick would silently double the provider bill while the gateway
+        # still charged the lower tier price.
+        cfg = get_model_config(SEEDANCE_5)
+        standard = cfg.image_resolutions["1.5K"]
+        self.assertEqual(standard.aspect_ratios, cfg.image_aspect_ratios)
+        self.assertEqual(
+            set(standard.aspect_ratios), set(cfg.image_resolutions["2K"].aspect_ratios)
+        )
+        for ratio, size in standard.aspect_ratios.items():
+            with self.subTest(ratio=ratio):
+                width, height = (int(part) for part in size.split("x"))
+                self.assertGreaterEqual(width * height, self.SEEDREAM_5_PRO_FLOOR)
+                self.assertLessEqual(width * height, self.SEEDREAM_5_PRO_PRICE_LINE)
+                self.assertLessEqual(max(width, height) / min(width, height), 16)
+                self._assert_matches_ratio(ratio, width, height)
+
+    def test_validate_resolution_mirrors_the_ratio_contract(self):
+        image_generation.validate_resolution(SEEDANCE_5, None)
+        image_generation.validate_resolution(SEEDANCE_5, "2K")
+        with self.assertRaisesRegex(ValueError, "Unsupported resolution"):
+            image_generation.validate_resolution(SEEDANCE_5, "4K")
+        with self.assertRaisesRegex(ValueError, "single output resolution"):
+            image_generation.validate_resolution(GPT_IMAGE, "2K")
+        # Text models and unknown models ignore the field, as with the ratio.
+        image_generation.validate_resolution("gpt-4.1", "2K")
+        image_generation.validate_resolution("not-a-model", "2K")
+        # The ratio validates against the selected tier's table.
+        image_generation.validate_aspect_ratio(SEEDANCE_5, "21:9", "2K")
+        with self.assertRaisesRegex(ValueError, "Unsupported aspect_ratio"):
+            image_generation.validate_aspect_ratio(SEEDANCE_5, "7:3", "2K")
 
     def test_glm_sizes_are_zai_recommended_resolutions(self):
         # Z.ai documents these seven resolutions for glm-image and requires
@@ -963,6 +1052,32 @@ class TestPerImageBilling(unittest.TestCase):
                 cost = compute_session_cost(model, self._zero_usage(), image_count=1)
                 self.assertIsNotNone(cost)
                 self.assertAlmostEqual(cost.cost_usd, cfg.per_image_price_usd, places=9)
+
+    def test_resolution_tier_sets_the_per_image_price(self):
+        usage = self._zero_usage()
+        default = compute_session_cost(SEEDANCE_5, usage, image_count=1)
+        standard = compute_session_cost(
+            SEEDANCE_5, usage, image_count=1, resolution="1.5K"
+        )
+        high = compute_session_cost(SEEDANCE_5, usage, image_count=1, resolution="2K")
+        self.assertEqual(default.cost_usd, Decimal("0.045"))
+        self.assertEqual(standard.cost_usd, Decimal("0.045"))
+        self.assertEqual(high.cost_usd, Decimal("0.09"))
+
+    def test_default_tier_mirrors_the_flat_price_on_every_tiered_model(self):
+        # Everything that knows nothing about tiers (the integration test,
+        # chat-api's catalog quote, the "from" price) reads per_image_price_usd
+        # and image_aspect_ratios, so they must be the default tier's.
+        from tee_gateway.model_registry import SupportedModel
+
+        tiered = [m.value for m in SupportedModel if m.value.image_resolutions]
+        self.assertTrue(tiered, "expected at least one model with resolution tiers")
+        for cfg in tiered:
+            with self.subTest(model=cfg.api_name):
+                self.assertIn(cfg.image_default_resolution, cfg.image_resolutions)
+                default = cfg.image_resolutions[cfg.image_default_resolution]
+                self.assertEqual(default.per_image_price_usd, cfg.per_image_price_usd)
+                self.assertEqual(default.aspect_ratios, cfg.image_aspect_ratios)
 
     def test_cost_scales_with_image_count(self):
         cfg = get_model_config(GROK_IMAGE)

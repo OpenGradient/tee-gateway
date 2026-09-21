@@ -39,6 +39,7 @@ from tee_gateway.image_generation import (
     create_image_generation_response,
     create_image_generation_streaming_response,
     validate_aspect_ratio,
+    validate_resolution,
 )
 from tee_gateway.errors import describe_exception, error_response
 from tee_gateway.model_registry import get_model_config
@@ -105,10 +106,17 @@ def create_chat_completion(body):
     except AttachmentValidationError as e:
         return {"error": "Invalid attachment", "message": str(e)}, 400
 
-    # A ratio the target model can't produce is a client error, so it is caught
-    # here rather than surfacing from the provider call as a 500.
+    # A resolution tier or ratio the target model can't produce is a client
+    # error, so both are caught here rather than surfacing from the provider
+    # call as a 500. Resolution first: the ratio resolves through its tier.
     try:
-        validate_aspect_ratio(chat_request.model, chat_request.aspect_ratio)
+        validate_resolution(chat_request.model, chat_request.resolution)
+    except ValueError as e:
+        return {"error": "Invalid resolution", "message": str(e)}, 400
+    try:
+        validate_aspect_ratio(
+            chat_request.model, chat_request.aspect_ratio, chat_request.resolution
+        )
     except ValueError as e:
         return {"error": "Invalid aspect_ratio", "message": str(e)}, 400
 
@@ -982,6 +990,8 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
         d["web_search"] = True
     if chat_request.aspect_ratio:
         d["aspect_ratio"] = chat_request.aspect_ratio
+    if chat_request.resolution:
+        d["resolution"] = chat_request.resolution
     return d
 
 
@@ -1006,6 +1016,7 @@ def _parse_chat_request(chat_request_dict: dict) -> CreateChatCompletionRequest:
         user=chat_request_dict.get("user"),
         web_search=chat_request_dict.get("web_search", False),
         aspect_ratio=chat_request_dict.get("aspect_ratio"),
+        resolution=chat_request_dict.get("resolution"),
     )
 
 

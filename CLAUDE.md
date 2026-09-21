@@ -153,7 +153,14 @@ uploads (only inline `data:` references are uploaded — a plain-URL reference i
 skipped rather than dereferenced in the enclave). Per-provider request quirks
 (response format, `n`, size/watermark, reference support, edit endpoint) live in
 `model_registry.py`. These models are billed a flat per-image
-price (see `per_image_price_usd`), not per token.
+price (see `per_image_price_usd`), not per token. A model whose provider
+prices by output pixel count can declare **resolution tiers**
+(`image_resolutions` / `image_default_resolution`): the request's optional
+`resolution` field (`"1.5K"`, `"2K"`) picks the tier, which supplies the
+`size` keyword, the ratio→pixels table, and the per-image price — omitted
+means the default tier, and the field is rejected on single-resolution
+models. Seedream 5.0 is the only tiered model today (`1.5K` at $0.045 is the
+default; `2K` at $0.09 is what every request used to be pinned to).
 
 ### Web Search
 

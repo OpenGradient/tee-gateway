@@ -5,10 +5,34 @@ Every model the gateway can route MUST be registered here with pricing.
 Unknown models are rejected — there is no fallback.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum, unique
 from typing import Any, Mapping, Optional
+
+
+@dataclass(frozen=True)
+class ImageResolutionTier:
+    """One selectable output-resolution tier of an ``image_generation`` model.
+
+    Some providers price an image by how many pixels it has (ModelArk bills
+    Seedream 5.0 pro at one rate up to 2.61 MP and double above), so the tier a
+    request runs at decides both the request shaping and the price. A model
+    with tiers lists them in ``ModelConfig.image_resolutions``; the default
+    tier's price and size table are mirrored in ``per_image_price_usd`` and
+    ``image_aspect_ratios`` so every code path that knows nothing about tiers
+    keeps billing and shaping the default correctly.
+    """
+
+    # Flat USD price per generated image at this tier.
+    per_image_price_usd: Decimal
+    # Ratio -> provider value at this tier (same shape as
+    # ``ModelConfig.image_aspect_ratios``).
+    aspect_ratios: Mapping[str, str]
+    # Request params selecting this tier when the caller picks no ratio (for
+    # ModelArk the bare ``size`` keyword). Merged after ``image_extra_params``
+    # and before the ratio override, so an explicit ratio still wins.
+    extra_params: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -73,6 +97,14 @@ class ModelConfig:
     # leave this at the default: it doubles as the field name inside Gemini's
     # ImageConfig, which the chat controller binds the ratio through.
     image_aspect_ratio_param: str = "aspect_ratio"
+    # Selectable output-resolution tiers, keyed by the public ``resolution``
+    # value the client sends (``"1.5K"``, ``"2K"``). ``None`` means the model
+    # has one resolution and the field is rejected. When set,
+    # ``image_default_resolution`` names the tier an omitted field runs at,
+    # and that tier's price/size table must equal ``per_image_price_usd`` /
+    # ``image_aspect_ratios`` (pinned by a test).
+    image_resolutions: Optional[Mapping[str, ImageResolutionTier]] = None
+    image_default_resolution: Optional[str] = None
     # USD per image-modality output token, for ``image_output`` models (Gemini
     # "nano banana"). These providers bill image output at a higher rate than
     # text/thinking output: image tokens at this rate, text + thinking tokens at
@@ -90,6 +122,36 @@ class ModelConfig:
     # function tools together (preserving reasoning rather than disabling it).
     # OpenAI provider only; ignored elsewhere.
     responses_api_for_tools: bool = False
+
+    def image_tier(self, resolution: Optional[str]) -> Optional[ImageResolutionTier]:
+        """The tier a request runs at, or ``None`` for a single-resolution model.
+
+        An omitted/empty ``resolution`` selects the default tier. Raises
+        ``ValueError`` for a value the model does not offer, and for any value
+        on a model without tiers — a client that names a resolution expects it
+        to bind, and silently ignoring it would bill a different image than the
+        one it asked for.
+        """
+        if resolution is not None and not isinstance(resolution, str):
+            raise ValueError("resolution must be a string")
+        key = (resolution or "").strip()
+        tiers = self.image_resolutions or {}
+        if not key:
+            if not tiers:
+                return None
+            assert self.image_default_resolution is not None
+            return tiers[self.image_default_resolution]
+        if not tiers:
+            raise ValueError(
+                "This model has a single output resolution; omit `resolution`"
+            )
+        tier = tiers.get(key)
+        if tier is None:
+            raise ValueError(
+                f"Unsupported resolution {key!r} for this model; "
+                f"supported: {', '.join(tiers)}"
+            )
+        return tier
 
 
 # Flat USD price per call to the /v1/web_search endpoint.
@@ -120,10 +182,10 @@ _BYTEDANCE_EP_IMAGE_PARAMS: dict[str, Any] = {
 
 # Seedance 5.0's deployment endpoint rejects ``sequential_image_generation``
 # ("not supported by the current model" -> HTTP 400), so it takes the shared
-# params minus that field.
+# params minus that field. ``size`` is not here either: it is what the
+# resolution tier selects (see ``SEEDANCE_5_0``).
 _SEEDANCE_5_IMAGE_PARAMS: dict[str, Any] = {
     "watermark": False,
-    "size": "2K",
     "stream": False,
 }
 
@@ -139,6 +201,26 @@ _BYTEDANCE_2K_ASPECT_SIZES: dict[str, str] = {
     "3:2": "2496x1664",
     "2:3": "1664x2496",
     "21:9": "3136x1344",
+}
+
+# 1.5K-ish explicit dimensions for Seedream 5.0 pro's cheaper tier. ModelArk
+# bills that model by output pixel count — one rate at <= 2.61 MP ("1.5K or
+# lower"), double above — and accepts any WxH with total pixels in
+# [1280x720 = 921,600, 2048x2048x1.1025 = 4,624,220] and ratio in [1/16, 16]
+# (docs.byteplus.com/en/docs/ModelArk/1541523). These are the exact-ratio sizes
+# nearest ModelArk's own 1.5K mapping (1536x1536, 2048x1152, 1792x1344,
+# 1872x1248, 2352x1008 are its documented values), every one under the price
+# line. Note Seedream 4.0/4.5/5.0 Lite cannot use this table: their explicit
+# sizes have a 2560x1440 floor, so they are flat-priced at the 2K table above.
+_BYTEDANCE_1_5K_ASPECT_SIZES: dict[str, str] = {
+    "1:1": "1536x1536",
+    "16:9": "2048x1152",
+    "9:16": "1152x2048",
+    "4:3": "1792x1344",
+    "3:4": "1344x1792",
+    "3:2": "1872x1248",
+    "2:3": "1248x1872",
+    "21:9": "2352x1008",
 }
 
 # gpt-image-2 takes explicit ``WIDTHxHEIGHT`` sizes rather than ratios: it
@@ -766,25 +848,45 @@ class SupportedModel(Enum):
         image_aspect_ratios=_BYTEDANCE_2K_ASPECT_SIZES,
         image_aspect_ratio_param="size",
     )
-    # Seedance 5.0 image generation via a ModelArk deployment endpoint.
-    # Returns hosted URLs (fetched and inlined by the gateway). Unlike the
-    # other ep- models it rejects sequential_image_generation, so it takes its
-    # own param set. BytePlus bills it tiered by output size ($0.045/image at
-    # <=2.61MP, $0.09 above); the gateway pins size "2K" (~4.2MP), which
-    # always lands in the upper tier, so bill flat $0.09.
+    # Seedance 5.0 (ModelArk "Seedream 5.0 pro") image generation via a
+    # ModelArk deployment endpoint. Returns hosted URLs (fetched and inlined by
+    # the gateway). Unlike the other ep- models it rejects
+    # sequential_image_generation, so it takes its own param set.
+    #
+    # BytePlus bills it by output pixel count (ModelArk pricing page, model
+    # dola-seedream-5-0-pro-260628): $0.045/image at <= 2.61 MP ("1.5K or
+    # lower"), $0.09 above. It is the only registered image model with such a
+    # split (Seedream 4.5 / 5.0 Lite cannot render below 2560x1440 at all), so
+    # it is the only one with resolution tiers: "1.5K" (~2.4 MP, the default)
+    # and "2K" (~4.2 MP, what the gateway used to pin for every request at the
+    # $0.09 rate). ``size`` comes from the tier: the bare keyword on the auto
+    # path, an explicit WxH from the tier's table when a ratio is picked.
     SEEDANCE_5_0 = ModelConfig(
         provider="bytedance",
         api_name="ep-20260803211347-hq9k8",
         input_price_usd=Decimal("0"),
         output_price_usd=Decimal("0"),
         image_generation=True,
-        per_image_price_usd=Decimal("0.09"),
+        per_image_price_usd=Decimal("0.045"),
         image_response_format="url",
         image_send_n=False,
         image_supports_reference=True,
         image_extra_params=_SEEDANCE_5_IMAGE_PARAMS,
-        image_aspect_ratios=_BYTEDANCE_2K_ASPECT_SIZES,
+        image_aspect_ratios=_BYTEDANCE_1_5K_ASPECT_SIZES,
         image_aspect_ratio_param="size",
+        image_resolutions={
+            "1.5K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.045"),
+                aspect_ratios=_BYTEDANCE_1_5K_ASPECT_SIZES,
+                extra_params={"size": "1.5K"},
+            ),
+            "2K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.09"),
+                aspect_ratios=_BYTEDANCE_2K_ASPECT_SIZES,
+                extra_params={"size": "2K"},
+            ),
+        },
+        image_default_resolution="1.5K",
     )
 
     # ── OpenRouter (OpenAI-compatible) ──────────────────────────────────

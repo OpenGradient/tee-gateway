@@ -50,7 +50,7 @@ class SessionCost(BaseModel):
 
 
 def compute_session_cost(
-    model: str, usage: dict, image_count: int = 0
+    model: str, usage: dict, image_count: int = 0, resolution: str | None = None
 ) -> SessionCost | None:
     """Compute the settled cost for a completed inference request.
 
@@ -98,10 +98,16 @@ def compute_session_cost(
 
         # Image-generation models (xAI Grok, ByteDance Seedream) are billed a flat
         # price per generated image rather than per token; token prices are 0.
+        # A model with resolution tiers is billed at the tier the request ran
+        # at (``resolution`` was validated before generation, so it resolves).
         images = max(0, int(image_count))
+        tier = cfg.image_tier(resolution)
+        per_image = (
+            tier.per_image_price_usd if tier is not None else cfg.per_image_price_usd
+        )
         image_usd = (
-            Decimal(images) * cfg.per_image_price_usd
-            if images and cfg.per_image_price_usd is not None
+            Decimal(images) * per_image
+            if images and per_image is not None
             else Decimal(0)
         )
         raw_usd += image_usd

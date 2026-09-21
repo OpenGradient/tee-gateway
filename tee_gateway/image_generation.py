@@ -296,6 +296,7 @@ def _build_generations_payload(
     count: int,
     refs: Optional[List[str]],
     aspect_ratio: Optional[str] = None,
+    resolution: Optional[str] = None,
 ) -> dict[str, Any]:
     """Build the JSON body for a ``/images/generations`` request.
 
@@ -310,18 +311,25 @@ def _build_generations_payload(
         payload["n"] = count
     if cfg.image_extra_params:
         payload.update(cfg.image_extra_params)
-    payload.update(aspect_ratio_params(cfg, aspect_ratio))
+    tier = cfg.image_tier(resolution)
+    if tier is not None:
+        payload.update(tier.extra_params)
+    payload.update(aspect_ratio_params(cfg, aspect_ratio, resolution=resolution))
     if refs:
         payload["image"] = refs[0] if len(refs) == 1 else refs
     return payload
 
 
-def aspect_ratio_params(cfg: Any, aspect_ratio: Optional[str]) -> dict[str, str]:
+def aspect_ratio_params(
+    cfg: Any, aspect_ratio: Optional[str], resolution: Optional[str] = None
+) -> dict[str, str]:
     """Translate the public ratio into this provider's request shape.
 
     Returns an empty dict for the automatic path (field omitted, or ``auto``),
     so callers must treat "no params" as "let the provider choose" rather than
-    indexing the result.
+    indexing the result. On a model with resolution tiers the ratio resolves
+    through the selected tier's table, since the pixel size a ratio maps to
+    is what the tier changes.
     """
     if aspect_ratio is None:
         return {}
@@ -330,7 +338,10 @@ def aspect_ratio_params(cfg: Any, aspect_ratio: Optional[str]) -> dict[str, str]
     ratio = aspect_ratio.strip()
     if not ratio or ratio == "auto":
         return {}
-    supported = cfg.image_aspect_ratios or {}
+    tier = cfg.image_tier(resolution)
+    supported = (
+        tier.aspect_ratios if tier is not None else (cfg.image_aspect_ratios or {})
+    )
     value = supported.get(ratio)
     if value is None:
         choices = ", ".join(supported) or "none"
@@ -340,7 +351,9 @@ def aspect_ratio_params(cfg: Any, aspect_ratio: Optional[str]) -> dict[str, str]
     return {cfg.image_aspect_ratio_param: value}
 
 
-def validate_aspect_ratio(model: str, aspect_ratio: Optional[str]) -> None:
+def validate_aspect_ratio(
+    model: str, aspect_ratio: Optional[str], resolution: Optional[str] = None
+) -> None:
     """Reject an unsupported ratio before any provider work is done.
 
     Raises ``ValueError`` so the controller can answer 400 rather than letting
@@ -355,7 +368,26 @@ def validate_aspect_ratio(model: str, aspect_ratio: Optional[str]) -> None:
     except ValueError:
         return  # unknown model: reported by the normal request path
     if cfg.image_generation or cfg.image_output:
-        aspect_ratio_params(cfg, aspect_ratio)
+        aspect_ratio_params(cfg, aspect_ratio, resolution=resolution)
+
+
+def validate_resolution(model: str, resolution: Optional[str]) -> None:
+    """Reject a resolution the model does not offer before any provider work.
+
+    Same contract as ``validate_aspect_ratio``: ``ValueError`` for the
+    controller's 400, and text models ignore the field. Unlike the ratio, an
+    explicit resolution on a single-resolution image model is an error rather
+    than a no-op — it names a price tier, and the client's quote must match
+    what is billed.
+    """
+    if resolution is None:
+        return
+    try:
+        cfg = get_model_config(model)
+    except ValueError:
+        return  # unknown model: reported by the normal request path
+    if cfg.image_generation or cfg.image_output:
+        cfg.image_tier(resolution)
 
 
 def generate_images(
@@ -364,6 +396,7 @@ def generate_images(
     n: int = 1,
     reference_images: Optional[List[str]] = None,
     aspect_ratio: Optional[str] = None,
+    resolution: Optional[str] = None,
 ) -> tuple[list[str], int]:
     """Generate images via a provider's OpenAI-compatible images endpoint.
 
@@ -431,7 +464,10 @@ def generate_images(
             form["response_format"] = cfg.image_response_format
         if cfg.image_extra_params:
             form.update({k: str(v) for k, v in cfg.image_extra_params.items()})
-        form.update(aspect_ratio_params(cfg, aspect_ratio))
+        tier = cfg.image_tier(resolution)
+        if tier is not None:
+            form.update({k: str(v) for k, v in tier.extra_params.items()})
+        form.update(aspect_ratio_params(cfg, aspect_ratio, resolution=resolution))
         resp = client.post(edit_endpoint, data=form, files=uploads)
     else:
         # No edit endpoint (or nothing uploadable): JSON generations. Inline
@@ -441,7 +477,12 @@ def generate_images(
         resp = client.post(
             _IMAGE_GENERATION_PATH,
             json=_build_generations_payload(
-                cfg, prompt, count, json_refs, aspect_ratio=aspect_ratio
+                cfg,
+                prompt,
+                count,
+                json_refs,
+                aspect_ratio=aspect_ratio,
+                resolution=resolution,
             ),
         )
     _raise_for_status_with_detail(resp)
@@ -550,6 +591,7 @@ def _run_image_generation(
         n=chat_request.n or 1,
         reference_images=reference_images,
         aspect_ratio=chat_request.aspect_ratio,
+        resolution=chat_request.resolution,
     )
 
     timestamp = int(time.time())
@@ -558,7 +600,12 @@ def _run_image_generation(
     )
     tee_keys = get_tee_keys()
     usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-    cost = compute_session_cost(chat_request.model, usage, image_count=image_count)
+    cost = compute_session_cost(
+        chat_request.model,
+        usage,
+        image_count=image_count,
+        resolution=chat_request.resolution,
+    )
 
     return {
         "images": images,

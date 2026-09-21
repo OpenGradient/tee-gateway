@@ -100,6 +100,32 @@ class TestAspectRatioRequests(unittest.TestCase):
         self.assertEqual("Invalid aspect_ratio", result["error"])
         self.assertIn("supported: ", result["message"])
 
+    @patch("tee_gateway.controllers.chat_controller.connexion")
+    def test_resolution_on_a_single_resolution_model_is_a_400(self, mock_connexion):
+        # A resolution names a price tier, so a model without tiers refuses
+        # the field rather than ignoring it — the client's quote must be what
+        # gets billed.
+        mock_connexion.request.is_json = True
+        mock_connexion.request.get_json.return_value = self._request(resolution="2K")
+
+        result, status = create_chat_completion(None)
+
+        self.assertEqual(400, status)
+        self.assertEqual("Invalid resolution", result["error"])
+
+    @patch("tee_gateway.controllers.chat_controller.connexion")
+    def test_unsupported_resolution_tier_is_a_400(self, mock_connexion):
+        mock_connexion.request.is_json = True
+        mock_connexion.request.get_json.return_value = self._request(
+            model="seedance-5.0", resolution="4K"
+        )
+
+        result, status = create_chat_completion(None)
+
+        self.assertEqual(400, status)
+        self.assertEqual("Invalid resolution", result["error"])
+        self.assertIn("supported: 1.5K, 2K", result["message"])
+
     @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
     @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
     @patch("tee_gateway.controllers.chat_controller.connexion")

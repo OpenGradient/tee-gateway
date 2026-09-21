@@ -525,7 +525,14 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.provider, "bytedance")
         self.assertEqual(cfg.api_name, "ep-20260803211347-hq9k8")
         self.assertTrue(cfg.image_generation)
-        self.assertEqual(cfg.per_image_price_usd, Decimal("0.09"))
+        # ModelArk prices Seedream 5.0 pro by pixel count: $0.045 up to 2.61 MP
+        # (the "1.5K" tier, the default), $0.09 above (the "2K" tier).
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.045"))
+        self.assertEqual(cfg.image_default_resolution, "1.5K")
+        self.assertEqual(
+            {k: t.per_image_price_usd for k, t in cfg.image_resolutions.items()},
+            {"1.5K": Decimal("0.045"), "2K": Decimal("0.09")},
+        )
 
     def test_seedance_5_0_aliases_resolve(self):
         self.assertEqual(

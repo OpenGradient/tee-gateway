@@ -578,29 +578,30 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.000001"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000003"))
 
-    def test_hermes_4_70b_resolves(self):
-        cfg = get_model_config("hermes-4-70b")
-        self.assertEqual(cfg.provider, "openrouter")
-        self.assertEqual(cfg.api_name, "nousresearch/hermes-4-70b")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.00000013"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.0000004"))
+    def test_hermes_4_70b_is_gone(self):
+        """OpenRouter delisted nousresearch/hermes-4-70b.
+
+        It is absent from openrouter.ai/api/v1/models, so every request
+        returned "404 No endpoints found". Rejecting it here beats forwarding
+        a request that cannot succeed.
+        """
+        for name in ("hermes-4-70b", "nousresearch/hermes-4-70b"):
+            with self.subTest(model=name):
+                with self.assertRaises(ValueError):
+                    get_model_config(name)
 
     def test_openrouter_canonical_hermes_aliases_resolve(self):
         self.assertEqual(
             get_model_config("nousresearch/hermes-4-405b"),
             get_model_config("hermes-4-405b"),
         )
-        self.assertEqual(
-            get_model_config("nousresearch/hermes-4-70b"),
-            get_model_config("hermes-4-70b"),
-        )
 
     def test_hy3_resolves(self):
         cfg = get_model_config("hy3")
         self.assertEqual(cfg.provider, "openrouter")
         self.assertEqual(cfg.api_name, "tencent/hy3")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.0000000825"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.00000033"))
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000000132"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000000528"))
         self.assertEqual(cfg, get_model_config("tencent/hy3"))
         self.assertEqual(cfg, get_model_config("tencent/hy3:floor"))
 
@@ -986,9 +987,10 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
     # ── OpenRouter ─────────────────────────────────────────────────────────
 
     def test_hy3_cost(self):
+        # 1000*0.000000132 + 500*0.000000528 = 0.000132 + 0.000264 = 0.000396 USD
         self.assertEqual(
             self._calc("hy3", 1000, 500),
-            247_500_000_000_000,
+            396_000_000_000_000,
         )
 
     def test_hy4_preview_cost(self):

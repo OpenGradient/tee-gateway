@@ -687,6 +687,19 @@ class SupportedModel(Enum):
     )
 
     # ── xAI Grok ────────────────────────────────────────────────────────
+    # Grok 4.7 — xAI's newest flagship (released 2026-09-21), a larger base
+    # model (2.1T params, up from 4.6's 1.5T per xAI's announcement) at the
+    # same $2/$6 per MTok sticker and 500K context as Grok 4.6. xAI's own
+    # announcement (x.ai/news/grok-4-7) makes no mention of any request-
+    # parameter changes versus 4.6, and none of the other reasoning-capable
+    # Grok entries here (4.6, 4.5, 4.20-reasoning) reject `temperature`, so no
+    # supports_temperature override is added.
+    GROK_4_7 = ModelConfig(
+        provider="x-ai",
+        api_name="grok-4.7",
+        input_price_usd=Decimal("0.000002"),
+        output_price_usd=Decimal("0.000006"),
+    )
     GROK_4_6 = ModelConfig(
         provider="x-ai",
         api_name="grok-4.6",
@@ -1071,6 +1084,7 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-3.7-flash": SupportedModel.GEMINI_3_7_FLASH,
     "gemini-3.8-flash": SupportedModel.GEMINI_3_8_FLASH,
     # xAI
+    "grok-4.7": SupportedModel.GROK_4_7,
     "grok-4.6": SupportedModel.GROK_4_6,
     "grok-4.5": SupportedModel.GROK_4_5,
     "grok-4.5-latest": SupportedModel.GROK_4_5,

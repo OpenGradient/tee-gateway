@@ -356,6 +356,13 @@ class TestModelRegistry(unittest.TestCase):
 
     # ── xAI Grok ────────────────────────────────────────────────────────────
 
+    def test_grok_4_7_resolves(self):
+        cfg = get_model_config("grok-4.7")
+        self.assertEqual(cfg.provider, "x-ai")
+        self.assertEqual(cfg.api_name, "grok-4.7")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000006"))
+
     def test_grok_4_6_resolves(self):
         cfg = get_model_config("grok-4.6")
         self.assertEqual(cfg.provider, "x-ai")
@@ -876,6 +883,11 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(cost, 2_625_000_000_000_000)
 
     # ── xAI Grok ────────────────────────────────────────────────────────────
+
+    def test_grok_4_7_cost(self):
+        cost = self._calc("grok-4.7", 1000, 500)
+        self.assertEqual(cost, _expected_cost_opg("grok-4.7", 1000, 500))
+        self.assertEqual(cost, 5_000_000_000_000_000)
 
     def test_grok_4_6_cost(self):
         cost = self._calc("grok-4.6", 1000, 500)

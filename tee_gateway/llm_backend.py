@@ -30,6 +30,7 @@ from tee_gateway.config import ProviderConfig
 from tee_gateway.model_registry import get_model_config
 from tee_gateway.moderation import configure_moderation_client
 from tee_gateway.web_search import configure_exa_client
+from tee_gateway.xai_transport import XaiRecoveryTransport
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +98,7 @@ def set_provider_config(config: ProviderConfig) -> None:
         base_url="https://api.x.ai/v1",
         headers={"Authorization": f"Bearer {config.xai_api_key or ''}"},
         timeout=_TIMEOUT,
-        limits=_LIMITS,
-        http2=True,
+        transport=XaiRecoveryTransport(limits=_LIMITS),
         follow_redirects=False,
     )
     # HTTP/1.1 only for BytePlus: its ap-southeast edge terminates idle/aged
@@ -301,6 +301,9 @@ def get_chat_model_cached(
             temperature=effective_temp,
             max_tokens=max_tokens,
             http_client=xai_http_client,
+            # One SDK retry; connection failures retire the pool first. Never
+            # add controller retries that could replay partial tool/output data.
+            max_retries=1,
             streaming=True,
             stream_usage=True,
         )

@@ -14,6 +14,7 @@ from importlib.metadata import PackageNotFoundError, version as pkg_version
 import connexion
 from flask import jsonify, request
 from tee_gateway import encoder
+from tee_gateway.error_logging import install_error_export
 from tee_gateway.tee_manager import initialize_tee, get_tee_keys
 from tee_gateway.config import (
     HeartbeatConfig,
@@ -75,6 +76,8 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
     force=True,
 )
+
+install_error_export()
 
 # Force third-party loggers to propagate through the root logger so they
 # inherit the timestamped format above.  Without this, libraries that attach

@@ -540,6 +540,18 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.000025"),
         supports_temperature=False,
     )
+    # Claude Opus 5.5 — successor to Opus 5, GA 2026-09-22. Leads on agentic
+    # coding/knowledge-work benchmarks while costing 20% less than Opus 5
+    # ($4/$20 vs $5/$25 per MTok). Adaptive-thinking-only (always on, can't be
+    # disabled); like Opus 4.7+ it rejects the `temperature` field (HTTP 400),
+    # so supports_temperature=False.
+    CLAUDE_OPUS_5_5 = ModelConfig(
+        provider="anthropic",
+        api_name="claude-opus-5-5",
+        input_price_usd=Decimal("0.000004"),
+        output_price_usd=Decimal("0.00002"),
+        supports_temperature=False,
+    )
     # Claude Opus 5 — the current Opus, a drop-in upgrade at Opus 4.8's pricing
     # ($5/$25 per MTok). Adaptive-thinking-only; like Opus 4.7+ it rejects the
     # `temperature` field (HTTP 400), so supports_temperature=False.
@@ -1067,6 +1079,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "claude-opus-4-7": SupportedModel.CLAUDE_OPUS_4_7,
     "claude-opus-4-8": SupportedModel.CLAUDE_OPUS_4_8,
     "claude-opus-5": SupportedModel.CLAUDE_OPUS_5,
+    "claude-opus-5-5": SupportedModel.CLAUDE_OPUS_5_5,
+    "claude-opus-5.5": SupportedModel.CLAUDE_OPUS_5_5,
     "claude-fable-5": SupportedModel.CLAUDE_FABLE_5,
     "claude-fable-5-1": SupportedModel.CLAUDE_FABLE_5_1,
     "claude-fable-5.1": SupportedModel.CLAUDE_FABLE_5_1,

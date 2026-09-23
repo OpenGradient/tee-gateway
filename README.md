@@ -34,7 +34,7 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 | Provider | Models |
 |----------|--------|
 | OpenAI | gpt-6-astra, gpt-4.1, gpt-4.1-mini, gpt-5, gpt-5-mini, gpt-5.2, gpt-5.4, gpt-5.5, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, o3 |
-| Anthropic | claude-fable-5-1, claude-fable-5, claude-opus-5, claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-opus-4-5, claude-sonnet-5, claude-sonnet-4-6, claude-sonnet-4-5, claude-haiku-4-5 |
+| Anthropic | claude-fable-5-1, claude-fable-5, claude-opus-5-5, claude-opus-5, claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-opus-4-5, claude-sonnet-5, claude-sonnet-4-6, claude-sonnet-4-5, claude-haiku-4-5 |
 | Google | gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-flash-preview, gemini-3.1-pro-preview |
 | xAI | grok-4.7, grok-4.6, grok-4.5, grok-4.3, grok-4.20-reasoning, grok-4.20-non-reasoning |
 | ByteDance | seed-1.6, seed-1.8, seed-2.0-lite, dola-seed-2.0-mini, deepseek-v4-flash, deepseek-v4-pro, glm-5.2 |

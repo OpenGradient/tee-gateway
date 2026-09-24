@@ -417,6 +417,33 @@ class SupportedModel(Enum):
         responses_api_for_tools=True,
         supports_temperature=False,
     )
+    # GPT-6 Sol and GPT-6 Luna — cheaper GPT-6-family siblings of Astra
+    # (released 2026-09-22), not a continuation of gpt-5.6-sol/terra/luna
+    # (those stay registered as-is). Sol targets coding/complex-reasoning
+    # workloads at $2/$10 per MTok; Luna targets high-volume/latency-sensitive
+    # work (chat, classification, light agentic tasks) at $0.10/$0.50 per
+    # MTok. Same reasoning_effort/function-tools conflict on Chat Completions
+    # as Astra and the gpt-5.6 family, so both route through the Responses API
+    # for tools. Both reject `temperature` values other than the default (1)
+    # ("Unsupported value: 'temperature' does not support 0 with this model.
+    # Only the default (1) value is supported"), so supports_temperature=False
+    # — same reasoning-only sampling restriction as Astra.
+    GPT_6_SOL = ModelConfig(
+        provider="openai",
+        api_name="gpt-6-sol",
+        input_price_usd=Decimal("0.000002"),
+        output_price_usd=Decimal("0.00001"),
+        responses_api_for_tools=True,
+        supports_temperature=False,
+    )
+    GPT_6_LUNA = ModelConfig(
+        provider="openai",
+        api_name="gpt-6-luna",
+        input_price_usd=Decimal("0.0000001"),
+        output_price_usd=Decimal("0.0000005"),
+        responses_api_for_tools=True,
+        supports_temperature=False,
+    )
     # Image generation via OpenAI's /images/generations endpoint (gpt-image).
     # Unlike DALL·E, gpt-image models always return base64 (``b64_json``) and
     # reject the ``response_format`` field, so it's omitted. Image-to-image
@@ -1063,6 +1090,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gpt-5.6-terra": SupportedModel.GPT_5_6_TERRA,
     "gpt-5.6-luna": SupportedModel.GPT_5_6_LUNA,
     "gpt-6-astra": SupportedModel.GPT_6_ASTRA,
+    "gpt-6-sol": SupportedModel.GPT_6_SOL,
+    "gpt-6-luna": SupportedModel.GPT_6_LUNA,
     "gpt-image-2": SupportedModel.GPT_IMAGE_2,
     "gpt-image-2.5": SupportedModel.GPT_IMAGE_2_5_FLARE,
     "gpt-image-2.5-flare": SupportedModel.GPT_IMAGE_2_5_FLARE,

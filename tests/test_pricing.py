@@ -90,6 +90,16 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.000003"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000015"))
 
+    def test_claude_sonnet_5_5_resolves(self):
+        cfg = get_model_config("claude-sonnet-5-5")
+        self.assertEqual(cfg.provider, "anthropic")
+        self.assertEqual(cfg.api_name, "claude-sonnet-5-5")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00001"))
+        # Non-default temperature/top_p/top_k return HTTP 400
+        self.assertFalse(cfg.supports_temperature)
+        self.assertEqual(cfg, get_model_config("claude-sonnet-5.5"))
+
     def test_claude_sonnet_5_resolves(self):
         cfg = get_model_config("claude-sonnet-5")
         self.assertEqual(cfg.provider, "anthropic")
@@ -832,6 +842,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(cost, expected)
         # Same price tier as opus-4-5/4-6/4-7/4-8: 1000*0.000005 + 500*0.000025 = 0.0175 USD
         self.assertEqual(cost, 17_500_000_000_000_000)
+
+    def test_claude_sonnet_5_5_cost(self):
+        cost = self._calc("claude-sonnet-5-5", 1000, 500)
+        expected = _expected_cost_opg("claude-sonnet-5-5", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.000002 + 500*0.00001 = 0.002 + 0.005 = 0.007 USD = 7e15 wei
+        self.assertEqual(cost, 7_000_000_000_000_000)
 
     def test_claude_opus_5_5_cost(self):
         cost = self._calc("claude-opus-5-5", 1000, 500)

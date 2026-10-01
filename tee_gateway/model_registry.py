@@ -38,7 +38,7 @@ class ImageResolutionTier:
 @dataclass(frozen=True)
 class ModelConfig:
     # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" |
-    # "openrouter" | "zai"
+    # "openrouter" | "zai" | "wavespeed"
     provider: str
     api_name: str  # model name sent to provider API
     input_price_usd: Decimal  # USD per token
@@ -84,6 +84,19 @@ class ModelConfig:
     #     Used by OpenAI gpt-image, whose editing/compositing lives on a separate
     #     endpoint from text-to-image generation.
     image_edit_endpoint: Optional[str] = None
+    # WaveSpeed splits a model into separate text-to-image and edit model
+    # endpoints (``…/text-to-image`` vs ``…/edit``). When set, a request that
+    # carries reference images is submitted to this model path instead of
+    # ``api_name``. WaveSpeed provider only.
+    image_edit_model: Optional[str] = None
+    # Most reference images the endpoint accepts. Providers reject a request
+    # over their cap rather than truncating it, so the gateway forwards at most
+    # this many (the first ones, in the order the client sent them).
+    image_max_references: int = 10
+    # Flat USD price per reference image forwarded to the provider, for
+    # providers that bill input images on edits. Added on top of the per-output
+    # image price; ``None`` means references are not billed.
+    per_reference_image_price_usd: Optional[Decimal] = None
     # Static extra params merged verbatim into the request payload (e.g. size,
     # watermark). Keyed by field name; values must be JSON-serializable.
     image_extra_params: Optional[Mapping[str, Any]] = None
@@ -249,6 +262,30 @@ _GPT_IMAGE_ASPECT_SIZES: dict[str, str] = {
     "16:9": "1536x864",
     "9:16": "864x1536",
     "21:9": "1792x768",
+}
+
+# WaveSpeed's aspect_ratio enum for Qwen Image 3.0 Pro (text-to-image and edit
+# share it). WaveSpeed maps ratio + resolution tier to pixels itself, so both
+# tiers use the same table and the values pass through unchanged.
+_WAVESPEED_QWEN_IMAGE_ASPECT_RATIOS: dict[str, str] = {
+    ratio: ratio
+    for ratio in (
+        "1:1",
+        "1:2",
+        "2:1",
+        "1:3",
+        "3:1",
+        "2:3",
+        "3:2",
+        "3:4",
+        "4:3",
+        "4:5",
+        "5:4",
+        "9:16",
+        "16:9",
+        "9:21",
+        "21:9",
+    )
 }
 
 _GEMINI_IMAGE_ASPECT_RATIOS: dict[str, str] = {
@@ -1056,6 +1093,45 @@ class SupportedModel(Enum):
         image_aspect_ratio_param="size",
     )
 
+    # ── WaveSpeed (async prediction API) ────────────────────────────────
+    # Qwen Image 3.0 Pro — Alibaba's flagship image model, served through
+    # WaveSpeed rather than Alibaba Cloud Model Studio. WaveSpeed exposes it as
+    # two model endpoints, text-to-image and edit (1-3 reference images), both
+    # run as async predictions the gateway submits and polls (see
+    # image_generation._generate_wavespeed). One image per prediction, so `n`
+    # is not sent. Priced from WaveSpeed's model pages: $0.04 per 1k image,
+    # $0.075 per 2k image, plus $0.003 per input image on edits. WaveSpeed's
+    # `resolution` field ("1k" / "2k") is what it bills by, so it is exposed as
+    # resolution tiers; omitted means 1k.
+    QWEN_IMAGE_3_0_PRO = ModelConfig(
+        provider="wavespeed",
+        api_name="alibaba/qwen-image-3.0-pro/text-to-image",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.04"),
+        image_response_format=None,
+        image_send_n=False,
+        image_supports_reference=True,
+        image_edit_model="alibaba/qwen-image-3.0-pro/edit",
+        image_max_references=3,
+        per_reference_image_price_usd=Decimal("0.003"),
+        image_aspect_ratios=_WAVESPEED_QWEN_IMAGE_ASPECT_RATIOS,
+        image_resolutions={
+            "1K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.04"),
+                aspect_ratios=_WAVESPEED_QWEN_IMAGE_ASPECT_RATIOS,
+                extra_params={"resolution": "1k"},
+            ),
+            "2K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.075"),
+                aspect_ratios=_WAVESPEED_QWEN_IMAGE_ASPECT_RATIOS,
+                extra_params={"resolution": "2k"},
+            ),
+        },
+        image_default_resolution="1K",
+    )
+
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──
     # grok-3 was retired on 2026-05-15 alongside the slugs above and is
     # redirected to grok-4.3 (reasoning effort "none"), billed at grok-4.3's
@@ -1197,6 +1273,12 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "glm-5.2": SupportedModel.GLM_5_2,
     "ep-20260803211658-fwpzs": SupportedModel.GLM_5_2,
     "glm-image": SupportedModel.GLM_IMAGE,
+    # WaveSpeed
+    "qwen-image-3.0-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
+    "qwen-image-3-0-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
+    "qwen-image-3-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
+    "alibaba/qwen-image-3.0-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
+    "alibaba/qwen-image-3.0-pro/text-to-image": SupportedModel.QWEN_IMAGE_3_0_PRO,
     # Legacy — not in current SDK, retained for older SDK versions
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
     "grok-3-mini": SupportedModel.GROK_3_MINI,

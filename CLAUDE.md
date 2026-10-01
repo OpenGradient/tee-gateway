@@ -75,6 +75,7 @@ API keys (injected at runtime via POST /v1/keys — do NOT bake into the image):
 - `ARK_API_KEY` (BytePlus / ByteDance ModelArk; injected as `bytedance_api_key`)
 - `OPENROUTER_API_KEY` (OpenRouter; injected as `openrouter_api_key`)
 - `ZAI_API_KEY` (Z.ai Model API; injected as `zai_api_key`)
+- `WAVESPEED_API_KEY` (WaveSpeed; injected as `wavespeed_api_key`)
 - `EXA_API_KEY` (Exa search; injected as `exa_api_key`) — backs the in-enclave
   `/v1/web_search` endpoint, not an LLM provider. Without it the endpoint
   returns 503 and `/health` reports `web_search_enabled: false`.
@@ -133,6 +134,7 @@ prefixes determine routing:
 - **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro, glm-5.2 (Z.ai's model served via a ModelArk deployment endpoint); image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0
 - **OpenRouter** (OpenAI-compatible): hy4-preview, hermes-4-405b, hy3
 - **Z.ai** (Model API, OpenAI-compatible): image generation: glm-image (glm-5.2 chat is routed through BytePlus ModelArk, see ByteDance above)
+- **WaveSpeed** (async prediction API): image generation: qwen-image-3.0-pro (Alibaba's model; text-to-image and edit are separate WaveSpeed endpoints)
 
 Models kept registered but no longer offered to new clients — each still
 resolves so older SDK versions keep working, and each is priced at what the
@@ -181,8 +183,25 @@ prices by output pixel count can declare **resolution tiers**
 `resolution` field (`"1.5K"`, `"2K"`) picks the tier, which supplies the
 `size` keyword, the ratio→pixels table, and the per-image price — omitted
 means the default tier, and the field is rejected on single-resolution
-models. Seedream 5.0 is the only tiered model today (`1.5K` at $0.045 is the
-default; `2K` at $0.09 is what every request used to be pinned to).
+models. Seedream 5.0 (`1.5K` at $0.045 is the default; `2K` at $0.09 is what
+every request used to be pinned to) and Qwen Image 3.0 Pro (`1K` $0.04 default,
+`2K` $0.075) are the tiered models today.
+
+**WaveSpeed** (qwen-image-3.0-pro) is the one image provider that does not
+answer in a single call. `image_generation._generate_wavespeed` submits an
+async prediction to `/{model_id}` — the `…/text-to-image` model, or the
+`…/edit` model (`image_edit_model`) when the turn carries references — then
+polls `/predictions/{id}/result` (2s, backing off to 5s, 180s deadline → 504,
+under the relay's 210s read timeout),
+fetches the output URL like any hosted image, and finally deletes the
+prediction so WaveSpeed's history no longer holds the prompt or output.
+WaveSpeed takes references as URLs only: inline `data:` references are
+uploaded through its `/media/uploads` ticket (a keyless PUT to the signed
+URL, which is a credential and is never logged), plain URLs are passed
+through, and at most `image_max_references` (3) are sent. Its input images are
+billed too — `per_reference_image_price_usd` ($0.003 each) on top of the
+per-image price, counted from the references actually forwarded. One image
+per prediction; `n` is ignored.
 
 ### Web Search
 

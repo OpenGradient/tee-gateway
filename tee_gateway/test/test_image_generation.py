@@ -1,5 +1,6 @@
 """Tests for endpoint-based image generation (OpenAI gpt-image, xAI Grok,
-ByteDance Seedream, ByteDance Seedance, Z.ai GLM-Image).
+ByteDance Seedream, ByteDance Seedance, Z.ai GLM-Image, Qwen Image via
+WaveSpeed's async prediction API).
 
 Unlike Gemini's inline-image chat models (see test_image_billing.py), these
 models are served via a dedicated OpenAI-compatible ``/images/generations``
@@ -32,6 +33,7 @@ SEEDANCE = "seedance-4.5"
 SEEDANCE_5 = "seedance-5.0"
 GLM_IMAGE = "glm-image"
 GPT_IMAGE = "gpt-image-2"
+QWEN_IMAGE = "qwen-image-3.0-pro"
 
 
 def _mock_response(data: list[dict]) -> MagicMock:
@@ -441,6 +443,237 @@ class TestGenerateImages(unittest.TestCase):
         with patch.object(llm_backend, "xai_http_client", None):
             with self.assertRaises(RuntimeError):
                 generate_images(GROK_IMAGE, "p", n=1)
+
+
+_WS_BASE = "https://api.wavespeed.ai/api/v3"
+_WS_PREDICTION = "pred_abc123"
+_WS_RESULT_PATH = f"/predictions/{_WS_PREDICTION}/result"
+_WS_OUTPUT = "https://cdn.wavespeed.ai/outputs/out.png"
+
+
+def _ws_response(data: dict, *, status: int = 200, code: int = 200) -> httpx.Response:
+    return httpx.Response(
+        status,
+        json={"code": code, "message": "success", "data": data},
+        request=httpx.Request("POST", _WS_BASE),
+    )
+
+
+def _ws_prediction(status: str, **extra) -> httpx.Response:
+    return _ws_response({"id": _WS_PREDICTION, "status": status, **extra})
+
+
+class _WaveSpeedClient:
+    """Fake WaveSpeed API client: records posts, replays result polls."""
+
+    def __init__(self, polls: list, submit: httpx.Response | None = None):
+        self.posts: list[tuple[str, dict]] = []
+        self.gets: list[str] = []
+        self._polls = list(polls)
+        self._submit = submit or _ws_prediction("created")
+
+    def post(self, path, json=None):
+        self.posts.append((path, json))
+        if path == "/media/uploads":
+            n = sum(1 for p, _ in self.posts if p == "/media/uploads")
+            return _ws_response(
+                {
+                    "download_url": f"https://cdn.wavespeed.ai/media/ref{n}.png",
+                    "upload": {
+                        "method": "PUT",
+                        "url": f"https://storage.example/signed/{n}",
+                        "headers": {"Content-Type": json["content_type"]},
+                    },
+                }
+            )
+        if path == "/predictions/delete":
+            return _ws_response({"deleted_count": 1, "deleted_ids": json["ids"]})
+        return self._submit
+
+    def get(self, path):
+        self.gets.append(path)
+        item = self._polls.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    def submitted(self) -> tuple[str, dict]:
+        return next(
+            (path, body)
+            for path, body in self.posts
+            if path not in ("/media/uploads", "/predictions/delete")
+        )
+
+
+class TestWaveSpeedImageGeneration(unittest.TestCase):
+    """Qwen Image 3.0 Pro through WaveSpeed: submit, poll, fetch, delete."""
+
+    def setUp(self):
+        sleep = patch.object(image_generation.time, "sleep")
+        self.sleep = sleep.start()
+        self.addCleanup(sleep.stop)
+        fetch = patch.object(
+            image_generation,
+            "_fetch_url_as_data_uri",
+            return_value="data:image/png;base64,RkVUQ0hFRA==",
+        )
+        self.fetch = fetch.start()
+        self.addCleanup(fetch.stop)
+        self.uploader = MagicMock()
+        self.uploader.request.return_value = httpx.Response(200)
+        uploader = patch.object(
+            image_generation, "_wavespeed_upload_client", self.uploader
+        )
+        uploader.start()
+        self.addCleanup(uploader.stop)
+
+    def _run(self, client: _WaveSpeedClient, **kwargs):
+        with patch.object(llm_backend, "wavespeed_http_client", client):
+            return generate_images(QWEN_IMAGE, "a lighthouse at dusk", **kwargs)
+
+    def test_text_to_image_submits_polls_fetches_and_deletes(self):
+        client = _WaveSpeedClient(
+            [
+                _ws_prediction("processing"),
+                _ws_prediction("completed", outputs=[_WS_OUTPUT]),
+            ]
+        )
+        images, count = self._run(client, n=4)
+
+        self.assertEqual((images, count), (["data:image/png;base64,RkVUQ0hFRA=="], 1))
+        path, body = client.submitted()
+        self.assertEqual(path, "/alibaba/qwen-image-3.0-pro/text-to-image")
+        # One image per prediction: WaveSpeed has no `n`, and the default
+        # (1k) tier is always sent so the billed tier is never left implicit.
+        self.assertEqual(body, {"prompt": "a lighthouse at dusk", "resolution": "1k"})
+        self.assertEqual(client.gets, [_WS_RESULT_PATH, _WS_RESULT_PATH])
+        self.fetch.assert_called_once_with(_WS_OUTPUT)
+        self.assertIn(("/predictions/delete", {"ids": [_WS_PREDICTION]}), client.posts)
+        # WaveSpeed asks for no more than one poll every 2 seconds.
+        for call in self.sleep.call_args_list:
+            self.assertGreaterEqual(call.args[0], 2.0)
+
+    def test_resolution_and_aspect_ratio_pass_through(self):
+        client = _WaveSpeedClient([_ws_prediction("completed", outputs=[_WS_OUTPUT])])
+        self._run(client, aspect_ratio="9:21", resolution="2K")
+        _, body = client.submitted()
+        self.assertEqual(body["resolution"], "2k")
+        self.assertEqual(body["aspect_ratio"], "9:21")
+
+    def test_unsupported_ratio_and_resolution_are_rejected_before_submit(self):
+        client = _WaveSpeedClient([])
+        with self.assertRaisesRegex(ValueError, "Unsupported aspect_ratio"):
+            self._run(client, aspect_ratio="7:3")
+        with self.assertRaisesRegex(ValueError, "Unsupported resolution"):
+            self._run(client, resolution="4K")
+        self.assertEqual(client.posts, [])
+
+    def test_edit_uploads_inline_references_and_uses_the_edit_model(self):
+        client = _WaveSpeedClient([_ws_prediction("completed", outputs=[_WS_OUTPUT])])
+        refs = [
+            "data:image/png;base64,iVBORw0KGgo=",
+            "https://example.com/photo.jpg",
+            "data:image/jpeg;base64,/9j/4AAQ",
+            "https://example.com/fourth.jpg",  # over WaveSpeed's 3-image cap
+        ]
+        self._run(client, reference_images=refs)
+
+        path, body = client.submitted()
+        self.assertEqual(path, "/alibaba/qwen-image-3.0-pro/edit")
+        # Inline references go up through the upload ticket; a plain URL is
+        # handed to WaveSpeed as-is; the fourth is dropped.
+        self.assertEqual(
+            body["images"],
+            [
+                "https://cdn.wavespeed.ai/media/ref1.png",
+                "https://example.com/photo.jpg",
+                "https://cdn.wavespeed.ai/media/ref2.png",
+            ],
+        )
+        # No ratio picked: the edit keeps the first reference's shape.
+        self.assertNotIn("aspect_ratio", body)
+        uploads = [b for p, b in client.posts if p == "/media/uploads"]
+        self.assertEqual(
+            uploads,
+            [
+                {"filename": "image_0.png", "size": 8, "content_type": "image/png"},
+                {"filename": "image_2.jpg", "size": 6, "content_type": "image/jpeg"},
+            ],
+        )
+        # The bytes go to the signed URL on the keyless client, never with
+        # the API key.
+        method, url = self.uploader.request.call_args_list[0].args
+        kwargs = self.uploader.request.call_args_list[0].kwargs
+        self.assertEqual((method, url), ("PUT", "https://storage.example/signed/1"))
+        self.assertEqual(kwargs["headers"], {"Content-Type": "image/png"})
+        self.assertNotIn("Authorization", kwargs["headers"])
+
+    def test_failed_upload_does_not_leak_the_signed_url(self):
+        self.uploader.request.return_value = httpx.Response(403)
+        client = _WaveSpeedClient([])
+        with self.assertRaises(image_generation.ProviderTaskError) as ctx:
+            self._run(client, reference_images=["data:image/png;base64,iVBORw0KGgo="])
+        self.assertNotIn("storage.example", str(ctx.exception))
+
+    def test_failed_prediction_is_a_provider_error_and_still_deleted(self):
+        from tee_gateway.errors import describe_exception, http_status_for
+
+        client = _WaveSpeedClient(
+            [_ws_prediction("failed", error="content policy violation")]
+        )
+        with self.assertRaisesRegex(
+            image_generation.ProviderTaskError, "failed: content policy violation"
+        ) as ctx:
+            self._run(client)
+        self.assertEqual(describe_exception(ctx.exception)["source"], "provider")
+        self.assertEqual(http_status_for(ctx.exception), 502)
+        self.assertIn(("/predictions/delete", {"ids": [_WS_PREDICTION]}), client.posts)
+
+    def test_prediction_past_the_deadline_is_a_provider_timeout(self):
+        from tee_gateway.errors import http_status_for
+
+        client = _WaveSpeedClient([_ws_prediction("processing")] * 3)
+        with patch.object(image_generation, "_WAVESPEED_DEADLINE_SECONDS", 0.0):
+            with self.assertRaises(httpx.TimeoutException) as ctx:
+                self._run(client)
+        self.assertEqual(http_status_for(ctx.exception), 504)
+        self.fetch.assert_not_called()
+
+    def test_transient_poll_errors_are_retried(self):
+        client = _WaveSpeedClient(
+            [
+                httpx.ConnectError("reset"),
+                _ws_prediction("processing"),
+                httpx.ReadTimeout("slow"),
+                _ws_prediction("completed", outputs=[_WS_OUTPUT]),
+            ]
+        )
+        _, count = self._run(client)
+        self.assertEqual(count, 1)
+
+    def test_persistent_poll_errors_give_up(self):
+        client = _WaveSpeedClient([httpx.ConnectError("reset")] * 3)
+        with self.assertRaises(httpx.ConnectError):
+            self._run(client)
+        self.assertEqual(len(client.gets), 3)
+
+    def test_error_code_in_body_is_raised(self):
+        client = _WaveSpeedClient([], submit=_ws_response({}, code=400, status=200))
+        with self.assertRaisesRegex(image_generation.ProviderTaskError, "error 400"):
+            self._run(client)
+
+    def test_undecodable_inline_reference_is_not_forwarded_or_billed(self):
+        cfg = get_model_config(QWEN_IMAGE)
+        refs = ["data:image/png;base64,***", "https://example.com/a.jpg"]
+        self.assertEqual(
+            image_generation._forwarded_references(cfg, refs),
+            ["https://example.com/a.jpg"],
+        )
+
+    def test_uninitialized_client_raises(self):
+        with patch.object(llm_backend, "wavespeed_http_client", None):
+            with self.assertRaises(RuntimeError):
+                generate_images(QWEN_IMAGE, "p")
 
 
 class TestProviderErrorDetail(unittest.TestCase):
@@ -1046,7 +1279,15 @@ class TestPerImageBilling(unittest.TestCase):
         return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     def test_single_image_charged_flat_price(self):
-        for model in (GROK_IMAGE, SEEDREAM, SEEDANCE, SEEDANCE_5, GLM_IMAGE, GPT_IMAGE):
+        for model in (
+            GROK_IMAGE,
+            SEEDREAM,
+            SEEDANCE,
+            SEEDANCE_5,
+            GLM_IMAGE,
+            GPT_IMAGE,
+            QWEN_IMAGE,
+        ):
             with self.subTest(model=model):
                 cfg = get_model_config(model)
                 cost = compute_session_cost(model, self._zero_usage(), image_count=1)
@@ -1078,6 +1319,32 @@ class TestPerImageBilling(unittest.TestCase):
                 default = cfg.image_resolutions[cfg.image_default_resolution]
                 self.assertEqual(default.per_image_price_usd, cfg.per_image_price_usd)
                 self.assertEqual(default.aspect_ratios, cfg.image_aspect_ratios)
+
+    def test_qwen_image_tiers_and_reference_images_are_billed(self):
+        # WaveSpeed bills $0.04 / $0.075 per 1k / 2k output image, plus
+        # $0.003 per input image on an edit.
+        usage = self._zero_usage()
+        cases = [
+            ({}, Decimal("0.04")),
+            ({"resolution": "2K"}, Decimal("0.075")),
+            ({"reference_count": 3}, Decimal("0.049")),
+            ({"resolution": "2K", "reference_count": 1}, Decimal("0.078")),
+        ]
+        for kwargs, expected in cases:
+            with self.subTest(**kwargs):
+                cost = compute_session_cost(QWEN_IMAGE, usage, image_count=1, **kwargs)
+                self.assertEqual(cost.cost_usd, expected)
+
+    def test_reference_images_free_on_models_without_a_reference_price(self):
+        usage = self._zero_usage()
+        cost = compute_session_cost(SEEDREAM, usage, image_count=1, reference_count=3)
+        self.assertEqual(cost.cost_usd, get_model_config(SEEDREAM).per_image_price_usd)
+
+    def test_reference_images_not_billed_when_no_image_was_produced(self):
+        cost = compute_session_cost(
+            QWEN_IMAGE, self._zero_usage(), image_count=0, reference_count=3
+        )
+        self.assertEqual(cost.cost_opg, 0)
 
     def test_cost_scales_with_image_count(self):
         cfg = get_model_config(GROK_IMAGE)

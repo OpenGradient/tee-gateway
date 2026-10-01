@@ -17,6 +17,11 @@ owns everything specific to that flow:
     ride out-of-band under the message ``images`` key), signed and billed flat
     per generated image.
 
+WaveSpeed is the exception to the single-call shape: it runs generation as an
+async prediction the gateway submits and polls (``_generate_wavespeed``), and
+takes reference images as URLs only, so inline ones are uploaded to its storage
+first. Its result is fetched and inlined like any other hosted URL.
+
 Per-provider request quirks (response format, ``n`` support, reference-image
 editing, extra params) live in the model registry, keeping this code flat.
 """
@@ -29,7 +34,7 @@ import logging
 import time
 import uuid
 from typing import Any, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 from flask import Response
@@ -59,6 +64,7 @@ _IMAGE_CLIENT_ATTRS = {
     "x-ai": "xai_http_client",
     "bytedance": "bytedance_http_client",
     "zai": "zai_http_client",
+    "wavespeed": "wavespeed_http_client",
 }
 
 # Bounds on the URL fetch (egress hardening). Provider images are well under the
@@ -82,6 +88,33 @@ _FETCH_RETRY_DELAYS_SECONDS = (1.0, 2.0, 4.0)
 # Cap on how much of a provider error body is copied into an exception message
 # (and from there into logs and the client-facing error payload).
 _MAX_ERROR_DETAIL_CHARS = 600
+
+# WaveSpeed polling. Its docs ask for no more than one result query every 2s,
+# backing off toward 5-10s for long tasks; Qwen Image 3.0 Pro takes ~80s.
+_WAVESPEED_POLL_INITIAL_SECONDS = 2.0
+_WAVESPEED_POLL_MAX_SECONDS = 5.0
+# How long one request waits for its prediction before failing as a provider
+# timeout (504). An abandoned prediction may still complete and be billed by
+# WaveSpeed; the client is not charged for it. Kept under chat-api's 210s relay
+# read timeout: the image stream is silent until the final frame, so waiting
+# past it would only finish generations no one is still connected to receive.
+_WAVESPEED_DEADLINE_SECONDS = 180.0
+# Consecutive failed result queries tolerated before giving up, so one blip
+# does not throw away a generation that is already paid for upstream.
+_WAVESPEED_MAX_POLL_ERRORS = 3
+_WAVESPEED_FAILED_STATUSES = frozenset({"failed", "cancelled", "timeout", "deleted"})
+
+# Keyless client for PUTting reference images to WaveSpeed's signed upload URL.
+# The API key must never be sent there, so this is not the provider client.
+_wavespeed_upload_client: Optional[httpx.Client] = None
+
+
+class ProviderTaskError(httpx.HTTPError):
+    """A provider rejected or failed an async task without an HTTP error status.
+
+    Subclasses ``httpx.HTTPError`` so ``errors.describe_exception`` classifies
+    it as a provider failure (502) rather than a bug in the enclave.
+    """
 
 
 def _provider_error_detail(resp: httpx.Response) -> str:
@@ -390,6 +423,196 @@ def validate_resolution(model: str, resolution: Optional[str]) -> None:
         cfg.image_tier(resolution)
 
 
+def _forwarded_references(cfg: Any, reference_images: Optional[List[str]]) -> list[str]:
+    """The reference images a request actually sends to its provider.
+
+    Non-empty strings only, capped at the model's ``image_max_references``, and
+    empty for models that take no references. WaveSpeed only accepts URLs, so
+    an inline reference that does not decode (and so cannot be uploaded) is
+    dropped here. Shared by generation and billing, which charges per
+    reference forwarded on models that price them.
+    """
+    if not reference_images or not cfg.image_supports_reference:
+        return []
+    refs = [r for r in reference_images if isinstance(r, str) and r]
+    if cfg.provider == "wavespeed":
+        refs = [r for r in refs if not r.startswith("data:") or _decode_data_uri(r)]
+    return refs[: cfg.image_max_references]
+
+
+def _wavespeed_data(resp: httpx.Response) -> dict[str, Any]:
+    """Unwrap WaveSpeed's ``{"code", "message", "data"}`` envelope.
+
+    WaveSpeed reports some failures in the body ``code`` as well as the HTTP
+    status, so both are checked.
+    """
+    _raise_for_status_with_detail(resp)
+    body = resp.json()
+    if not isinstance(body, dict):
+        raise ProviderTaskError("WaveSpeed returned a non-object response")
+    code = body.get("code")
+    if code is not None and code != 200:
+        message = str(body.get("message") or "no message")[:_MAX_ERROR_DETAIL_CHARS]
+        raise ProviderTaskError(f"WaveSpeed error {code}: {message}")
+    data = body.get("data")
+    if not isinstance(data, dict):
+        raise ProviderTaskError("WaveSpeed response has no data object")
+    return data
+
+
+def _wavespeed_reference_url(client: httpx.Client, ref: str, index: int) -> str:
+    """Return a URL WaveSpeed can read for one reference image.
+
+    A plain URL is passed through for WaveSpeed to fetch itself (as with
+    ByteDance; the enclave never dereferences client URLs). An inline ``data:``
+    reference is uploaded first: an authenticated request for a short-lived
+    upload ticket, then a keyless PUT of the bytes to the ticket's signed URL.
+    That URL is a temporary credential, so it is never put in an error or log.
+    """
+    decoded = _decode_data_uri(ref)
+    if decoded is None:
+        return ref
+    raw, mime = decoded
+    ext = _IMAGE_MIME_EXT.get(mime, "png")
+    ticket = _wavespeed_data(
+        client.post(
+            "/media/uploads",
+            json={
+                "filename": f"image_{index}.{ext}",
+                "size": len(raw),
+                "content_type": mime,
+            },
+        )
+    )
+    upload = ticket.get("upload")
+    download_url = ticket.get("download_url")
+    upload_url = upload.get("url") if isinstance(upload, dict) else None
+    if not isinstance(upload_url, str) or not isinstance(download_url, str):
+        raise ProviderTaskError("WaveSpeed upload ticket is missing its URLs")
+    if urlparse(upload_url).scheme != "https":
+        raise ProviderTaskError("WaveSpeed upload ticket has a non-https upload URL")
+    headers = upload.get("headers") if isinstance(upload, dict) else None
+    method = upload.get("method") if isinstance(upload, dict) else None
+
+    global _wavespeed_upload_client
+    if _wavespeed_upload_client is None:
+        _wavespeed_upload_client = httpx.Client(
+            timeout=httpx.Timeout(timeout=120.0, connect=15.0),
+            follow_redirects=False,
+        )
+    resp = _wavespeed_upload_client.request(
+        str(method or "PUT"),
+        upload_url,
+        content=raw,
+        headers={str(k): str(v) for k, v in (headers or {}).items()},
+    )
+    if not resp.is_success:
+        raise ProviderTaskError(
+            f"WaveSpeed reference upload failed with HTTP {resp.status_code}"
+        )
+    return download_url
+
+
+def _wavespeed_wait(client: httpx.Client, prediction_id: str) -> list[Any]:
+    """Poll a WaveSpeed prediction until it completes; return its outputs."""
+    result_path = f"/predictions/{quote(prediction_id, safe='')}/result"
+    deadline = time.monotonic() + _WAVESPEED_DEADLINE_SECONDS
+    delay = _WAVESPEED_POLL_INITIAL_SECONDS
+    poll_errors = 0
+    while True:
+        # Nothing is ready at submit time, so sleep before the first query too.
+        time.sleep(delay)
+        try:
+            data = _wavespeed_data(client.get(result_path))
+            poll_errors = 0
+        except (httpx.TransportError, httpx.HTTPStatusError) as e:
+            transient = isinstance(e, httpx.TransportError) or (
+                e.response.status_code in _FETCH_RETRY_STATUS_CODES | {429}
+            )
+            poll_errors += 1
+            if not transient or poll_errors >= _WAVESPEED_MAX_POLL_ERRORS:
+                raise
+            logger.warning("WaveSpeed result query failed, retrying: %s", e)
+            data = {}
+        status = data.get("status")
+        if status == "completed":
+            outputs = data.get("outputs")
+            return outputs if isinstance(outputs, list) else []
+        if status in _WAVESPEED_FAILED_STATUSES:
+            error = str(data.get("error") or "no error message")
+            raise ProviderTaskError(
+                f"WaveSpeed prediction {status}: {error[:_MAX_ERROR_DETAIL_CHARS]}"
+            )
+        if time.monotonic() + delay > deadline:
+            raise httpx.TimeoutException(
+                "WaveSpeed prediction did not complete within "
+                f"{int(_WAVESPEED_DEADLINE_SECONDS)}s"
+            )
+        delay = min(delay * 1.5, _WAVESPEED_POLL_MAX_SECONDS)
+
+
+def _wavespeed_delete(client: httpx.Client, prediction_id: str) -> None:
+    """Best-effort delete of a finished prediction.
+
+    WaveSpeed keeps a prediction's request (the prompt) and outputs in the
+    account's history; deleting it once the image is inside the enclave drops
+    both, leaving only the id and billing record. A still-running prediction
+    cannot be deleted and is skipped by WaveSpeed. Never fails the request.
+    """
+    try:
+        _wavespeed_data(
+            client.post("/predictions/delete", json={"ids": [prediction_id]})
+        )
+    except Exception as e:
+        logger.warning("Could not delete WaveSpeed prediction: %s", e)
+
+
+def _generate_wavespeed(
+    cfg: Any,
+    client: httpx.Client,
+    prompt: str,
+    refs: list[str],
+    aspect_ratio: Optional[str],
+    resolution: Optional[str],
+) -> list[str]:
+    """Run one WaveSpeed image prediction and return its images as data URIs.
+
+    Submitted to ``image_edit_model`` when there are references (WaveSpeed
+    serves text-to-image and edit as separate model endpoints), else to
+    ``api_name``. One image per prediction; ``n`` is not a WaveSpeed field.
+    With references and no ratio, the edit endpoint keeps the first
+    reference's shape.
+    """
+    model_path = cfg.image_edit_model if refs and cfg.image_edit_model else cfg.api_name
+    payload: dict[str, Any] = {"prompt": prompt}
+    if cfg.image_extra_params:
+        payload.update(cfg.image_extra_params)
+    tier = cfg.image_tier(resolution)
+    if tier is not None:
+        payload.update(tier.extra_params)
+    payload.update(aspect_ratio_params(cfg, aspect_ratio, resolution=resolution))
+    if refs:
+        payload["images"] = [
+            _wavespeed_reference_url(client, ref, i) for i, ref in enumerate(refs)
+        ]
+
+    prediction = _wavespeed_data(client.post(f"/{model_path}", json=payload))
+    prediction_id = prediction.get("id")
+    if not isinstance(prediction_id, str) or not prediction_id:
+        raise ProviderTaskError("WaveSpeed did not return a prediction id")
+    try:
+        outputs = _wavespeed_wait(client, prediction_id)
+        images: list[str] = []
+        for output in outputs:
+            if isinstance(output, str) and output.startswith(("https://", "http://")):
+                images.append(_fetch_url_as_data_uri(output))
+            else:
+                logger.warning("Skipping non-URL WaveSpeed output")
+        return images
+    finally:
+        _wavespeed_delete(client, prediction_id)
+
+
 def generate_images(
     model: str,
     prompt: str,
@@ -434,11 +657,9 @@ def generate_images(
 
     # n is clamped to the OpenAI-compatible providers' documented 1..10 range.
     count = max(1, min(int(n), 10))
-    # Filter references to non-empty strings and cap at the providers' 10-image
-    # limit; only kept for models that accept reference images.
-    refs: Optional[list[str]] = None
-    if reference_images and cfg.image_supports_reference:
-        refs = [r for r in reference_images if isinstance(r, str) and r][:10] or None
+    # Only kept for models that accept reference images, capped at the model's
+    # own limit (10 unless the registry says otherwise).
+    refs: Optional[list[str]] = _forwarded_references(cfg, reference_images) or None
 
     logger.info(
         "Generating %d image(s) - Provider: %s, Model: %s",
@@ -446,6 +667,12 @@ def generate_images(
         provider,
         cfg.api_name,
     )
+
+    if provider == "wavespeed":
+        task_images = _generate_wavespeed(
+            cfg, client, prompt, refs or [], aspect_ratio, resolution
+        )
+        return task_images, len(task_images)
 
     # Two delivery paths, picked by the model's config: multipart file uploads to
     # a dedicated edits endpoint, or the JSON generations endpoint (with inline
@@ -605,6 +832,11 @@ def _run_image_generation(
         usage,
         image_count=image_count,
         resolution=chat_request.resolution,
+        reference_count=len(
+            _forwarded_references(
+                get_model_config(chat_request.model), reference_images
+            )
+        ),
     )
 
     return {

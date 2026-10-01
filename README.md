@@ -40,10 +40,10 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 | ByteDance | seed-1.6, seed-1.8, seed-2.0-lite, dola-seed-2.0-mini, deepseek-v4-flash, deepseek-v4-pro, glm-5.2 |
 | OpenRouter | hy4-preview, hermes-4-405b, hy3 |
 
-Image generation: gpt-image-2, gpt-image-2.5-flare, gpt-image-2.5-sunburst,
-gemini-2.5-flash-image, gemini-3.1-flash-image, grok-2-image,
-grok-imagine-image-2.0, seedream-4.0, seedream-5.0-lite, seedance-4.5,
-seedance-5.0, glm-image.
+Image generation: qwen-image-3.0-pro (via WaveSpeed), gpt-image-2,
+gpt-image-2.5-flare, gpt-image-2.5-sunburst, gemini-2.5-flash-image,
+gemini-3.1-flash-image, grok-2-image, grok-imagine-image-2.0, seedream-4.0,
+seedream-5.0-lite, seedance-4.5, seedance-5.0, glm-image.
 
 Some retired models stay registered so older SDK versions keep working; see
 "Supported Providers" in CLAUDE.md. `tee_gateway/model_registry.py` is the
@@ -65,6 +65,7 @@ export XAI_API_KEY=...
 export ARK_API_KEY=...   # BytePlus / ByteDance ModelArk
 export OPENROUTER_API_KEY=...  # OpenRouter
 export ZAI_API_KEY=...   # Z.ai Model API
+export WAVESPEED_API_KEY=...  # WaveSpeed (qwen-image-3.0-pro)
 
 # Run server (starts the Flask/connexion app on port 8000)
 make test-local          # Werkzeug dev server (development only)
@@ -418,6 +419,7 @@ Clients use an x402-compatible client (e.g., the [x402 SDK](https://github.com/o
 | `ARK_API_KEY` | - | BytePlus / ByteDance ModelArk API key (injected as `bytedance_api_key`) |
 | `OPENROUTER_API_KEY` | - | OpenRouter API key (injected as `openrouter_api_key`) |
 | `ZAI_API_KEY` | - | Z.ai Model API key (injected as `zai_api_key`) |
+| `WAVESPEED_API_KEY` | - | WaveSpeed API key (injected as `wavespeed_api_key`) |
 | `EVM_PAYMENT_ADDRESS` | - | Wallet address to receive x402 payments |
 | `FACILITATOR_URL` | see `tee_gateway/__main__.py` | x402 payment facilitator endpoint |
 

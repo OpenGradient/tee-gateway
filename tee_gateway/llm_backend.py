@@ -62,6 +62,10 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # the subscription Coding Plan endpoint at /api/coding/paas/v4.
 ZAI_BASE_URL = "https://api.z.ai/api/paas/v4"
 
+# WaveSpeed REST API. Image models are submitted to /{model_id} as async
+# predictions and polled at /predictions/{id}/result (see image_generation).
+WAVESPEED_BASE_URL = "https://api.wavespeed.ai/api/v3"
+
 # Shared synchronous HTTP clients for each provider.
 # Initialized to None; built by set_provider_config() after key injection.
 openai_http_client: Optional[httpx.Client] = None
@@ -69,6 +73,7 @@ xai_http_client: Optional[httpx.Client] = None
 bytedance_http_client: Optional[httpx.Client] = None
 openrouter_http_client: Optional[httpx.Client] = None
 zai_http_client: Optional[httpx.Client] = None
+wavespeed_http_client: Optional[httpx.Client] = None
 
 
 _provider_config: Optional[ProviderConfig] = None
@@ -77,13 +82,14 @@ _provider_config: Optional[ProviderConfig] = None
 def set_provider_config(config: ProviderConfig) -> None:
     """Store the provider config and rebuild HTTP clients. Called once after key injection."""
     global _provider_config, openai_http_client, xai_http_client, bytedance_http_client
-    global openrouter_http_client, zai_http_client
+    global openrouter_http_client, zai_http_client, wavespeed_http_client
 
     old_openai = openai_http_client
     old_xai = xai_http_client
     old_bytedance = bytedance_http_client
     old_openrouter = openrouter_http_client
     old_zai = zai_http_client
+    old_wavespeed = wavespeed_http_client
 
     openai_http_client = httpx.Client(
         base_url="https://api.openai.com/v1",
@@ -132,6 +138,14 @@ def set_provider_config(config: ProviderConfig) -> None:
         http2=True,
         follow_redirects=False,
     )
+    wavespeed_http_client = httpx.Client(
+        base_url=WAVESPEED_BASE_URL,
+        headers={"Authorization": f"Bearer {config.wavespeed_api_key or ''}"},
+        timeout=_TIMEOUT,
+        limits=_LIMITS,
+        http2=True,
+        follow_redirects=False,
+    )
 
     # Web search runs inside the enclave against Exa rather than through any
     # provider's native tool, so its client is built here alongside them.
@@ -154,6 +168,8 @@ def set_provider_config(config: ProviderConfig) -> None:
         old_openrouter.close()
     if old_zai is not None:
         old_zai.close()
+    if old_wavespeed is not None:
+        old_wavespeed.close()
 
 
 def get_provider_config() -> Optional[ProviderConfig]:

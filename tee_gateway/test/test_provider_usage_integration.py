@@ -76,6 +76,7 @@ IMAGE_MODELS = (
     _ProviderCase("xAI", "grok-imagine-image", "XAI_API_KEY"),
     _ProviderCase("ByteDance", "seedream-5.0-lite", "ARK_API_KEY"),
     _ProviderCase("Z.ai", "glm-image", "ZAI_API_KEY"),
+    _ProviderCase("WaveSpeed", "qwen-image-3.0-pro", "WAVESPEED_API_KEY"),
 )
 
 CHAT_MODELS = PROVIDER_SMOKE_MODELS + NEW_CHAT_MODELS
@@ -258,6 +259,7 @@ class TestLiveProviderUsageBilling(unittest.TestCase):
                 bytedance_api_key=os.environ["ARK_API_KEY"],
                 openrouter_api_key=os.environ["OPENROUTER_API_KEY"],
                 zai_api_key=os.environ["ZAI_API_KEY"],
+                wavespeed_api_key=os.environ["WAVESPEED_API_KEY"],
             )
         )
         set_price_feed(_FixedPriceFeed())  # type: ignore[arg-type]

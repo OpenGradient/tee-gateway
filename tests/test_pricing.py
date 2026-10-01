@@ -686,6 +686,38 @@ class TestModelRegistry(unittest.TestCase):
         self.assertTrue(cfg.image_generation)
         self.assertEqual(cfg.per_image_price_usd, Decimal("0.015"))
 
+    # ── WaveSpeed ────────────────────────────────────────────────────────────
+
+    def test_qwen_image_3_0_pro_resolves(self):
+        cfg = get_model_config("qwen-image-3.0-pro")
+        self.assertEqual(cfg.provider, "wavespeed")
+        self.assertEqual(cfg.api_name, "alibaba/qwen-image-3.0-pro/text-to-image")
+        self.assertEqual(cfg.image_edit_model, "alibaba/qwen-image-3.0-pro/edit")
+        self.assertTrue(cfg.image_generation)
+        # WaveSpeed's model pages: $0.04 per 1k image, $0.075 per 2k image,
+        # $0.003 per input image on edits (1-3 of them).
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.04"))
+        self.assertEqual(cfg.image_default_resolution, "1K")
+        self.assertEqual(
+            {k: t.per_image_price_usd for k, t in cfg.image_resolutions.items()},
+            {"1K": Decimal("0.04"), "2K": Decimal("0.075")},
+        )
+        self.assertEqual(cfg.per_reference_image_price_usd, Decimal("0.003"))
+        self.assertEqual(cfg.image_max_references, 3)
+
+    def test_qwen_image_3_0_pro_aliases_resolve(self):
+        for alias in (
+            "qwen-image-3-0-pro",
+            "qwen-image-3-pro",
+            "alibaba/qwen-image-3.0-pro",
+            "alibaba/qwen-image-3.0-pro/text-to-image",
+            "Qwen-Image-3.0-Pro",
+        ):
+            with self.subTest(alias=alias):
+                self.assertEqual(
+                    get_model_config(alias), get_model_config("qwen-image-3.0-pro")
+                )
+
     # ── Errors ───────────────────────────────────────────────────────────────
 
     def test_unknown_model_raises(self):

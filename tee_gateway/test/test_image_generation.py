@@ -545,7 +545,15 @@ class TestWaveSpeedImageGeneration(unittest.TestCase):
         self.assertEqual(path, "/alibaba/qwen-image-3.0-pro/text-to-image")
         # One image per prediction: WaveSpeed has no `n`, and the default
         # (1k) tier is always sent so the billed tier is never left implicit.
-        self.assertEqual(body, {"prompt": "a lighthouse at dusk", "resolution": "1k"})
+        # Prompt expansion is off on every request.
+        self.assertEqual(
+            body,
+            {
+                "prompt": "a lighthouse at dusk",
+                "resolution": "1k",
+                "enable_prompt_expansion": False,
+            },
+        )
         self.assertEqual(client.gets, [_WS_RESULT_PATH, _WS_RESULT_PATH])
         self.fetch.assert_called_once_with(_WS_OUTPUT)
         self.assertIn(("/predictions/delete", {"ids": [_WS_PREDICTION]}), client.posts)
@@ -592,6 +600,8 @@ class TestWaveSpeedImageGeneration(unittest.TestCase):
         )
         # No ratio picked: the edit keeps the first reference's shape.
         self.assertNotIn("aspect_ratio", body)
+        # Edits carry the same fixed params as text-to-image.
+        self.assertIs(body["enable_prompt_expansion"], False)
         uploads = [b for p, b in client.posts if p == "/media/uploads"]
         self.assertEqual(
             uploads,

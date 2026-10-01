@@ -1116,6 +1116,7 @@ class SupportedModel(Enum):
         image_edit_model="alibaba/qwen-image-3.0-pro/edit",
         image_max_references=3,
         per_reference_image_price_usd=Decimal("0.003"),
+        image_extra_params={"enable_prompt_expansion": False},
         image_aspect_ratios=_WAVESPEED_QWEN_IMAGE_ASPECT_RATIOS,
         image_resolutions={
             "1K": ImageResolutionTier(

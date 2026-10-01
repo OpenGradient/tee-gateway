@@ -201,7 +201,8 @@ URL, which is a credential and is never logged), plain URLs are passed
 through, and at most `image_max_references` (3) are sent. Its input images are
 billed too — `per_reference_image_price_usd` ($0.003 each) on top of the
 per-image price, counted from the references actually forwarded. One image
-per prediction; `n` is ignored.
+per prediction; `n` is ignored. Every Qwen request sends
+`enable_prompt_expansion: false` (`image_extra_params`).
 
 ### Web Search
 

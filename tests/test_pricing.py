@@ -289,6 +289,16 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.output_price_usd, Decimal("0.00005"))
         self.assertTrue(cfg.responses_api_for_tools)
 
+    def test_gpt_6_1_sol_resolves(self):
+        for name in ("gpt-6.1-sol", "gpt-6-1-sol"):
+            cfg = get_model_config(name)
+            self.assertEqual(cfg.provider, "openai")
+            self.assertEqual(cfg.api_name, "gpt-6.1-sol")
+            self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
+            self.assertEqual(cfg.output_price_usd, Decimal("0.00001"))
+            self.assertTrue(cfg.responses_api_for_tools)
+            self.assertFalse(cfg.supports_temperature)
+
     def test_gpt_6_sol_resolves(self):
         cfg = get_model_config("gpt-6-sol")
         self.assertEqual(cfg.provider, "openai")
@@ -843,6 +853,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(cost, expected)
         # 1000*0.00001 + 500*0.00005 = 0.01 + 0.025 = 0.035 USD = 3.5e16 wei
         self.assertEqual(cost, 35_000_000_000_000_000)
+
+    def test_gpt_6_1_sol_cost(self):
+        cost = self._calc("gpt-6.1-sol", 1000, 500)
+        expected = _expected_cost_opg("gpt-6.1-sol", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.000002 + 500*0.00001 = 0.002 + 0.005 = 0.007 USD = 7e15 wei
+        self.assertEqual(cost, 7_000_000_000_000_000)
 
     def test_gpt_6_sol_cost(self):
         cost = self._calc("gpt-6-sol", 1000, 500)

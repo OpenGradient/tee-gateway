@@ -454,6 +454,21 @@ class SupportedModel(Enum):
         responses_api_for_tools=True,
         supports_temperature=False,
     )
+    # GPT-6.1 Sol (released 2026-09-29) replaces gpt-6-sol after a week: same
+    # $2/$10 per MTok, better coding/agentic scores. gpt-6-sol stays registered
+    # so existing callers keep resolving. Docs published so far do not list
+    # parameter restrictions; it is a reasoning-first GPT-6 model whose
+    # sibling rejects `temperature`, so supports_temperature=False (omitting a
+    # field nothing varies is cheap; sending a rejected one fails every
+    # request). Same Responses-API-for-tools routing as the rest of GPT-6.
+    GPT_6_1_SOL = ModelConfig(
+        provider="openai",
+        api_name="gpt-6.1-sol",
+        input_price_usd=Decimal("0.000002"),
+        output_price_usd=Decimal("0.00001"),
+        responses_api_for_tools=True,
+        supports_temperature=False,
+    )
     # GPT-6 Sol and GPT-6 Luna — cheaper GPT-6-family siblings of Astra
     # (released 2026-09-22), not a continuation of gpt-5.6-sol/terra/luna
     # (those stay registered as-is). Sol targets coding/complex-reasoning
@@ -1178,6 +1193,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gpt-5.6-terra": SupportedModel.GPT_5_6_TERRA,
     "gpt-5.6-luna": SupportedModel.GPT_5_6_LUNA,
     "gpt-6-astra": SupportedModel.GPT_6_ASTRA,
+    "gpt-6.1-sol": SupportedModel.GPT_6_1_SOL,
+    "gpt-6-1-sol": SupportedModel.GPT_6_1_SOL,
     "gpt-6-sol": SupportedModel.GPT_6_SOL,
     "gpt-6-luna": SupportedModel.GPT_6_LUNA,
     "gpt-image-2": SupportedModel.GPT_IMAGE_2,

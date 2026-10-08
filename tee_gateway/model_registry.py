@@ -288,6 +288,28 @@ _WAVESPEED_QWEN_IMAGE_ASPECT_RATIOS: dict[str, str] = {
     )
 }
 
+# Qwen-Image-2512 on WaveSpeed takes explicit pixels (``"W*H"``, 256-1536 per
+# side) rather than a ratio. These are Qwen's recommended 2512 sizes (~1.76 MP);
+# the ones with a side over WaveSpeed's 1536 cap are scaled down to fit.
+_WAVESPEED_QWEN_IMAGE_2512_SIZES: dict[str, str] = {
+    "1:1": "1328*1328",
+    "16:9": "1536*864",
+    "9:16": "864*1536",
+    "4:3": "1472*1104",
+    "3:4": "1104*1472",
+    "3:2": "1536*1024",
+    "2:3": "1024*1536",
+}
+
+# English rendering of Qwen's recommended negative prompt for 2512 (model
+# card); it targets the waxy, over-smoothed "AI look".
+_QWEN_IMAGE_2512_NEGATIVE_PROMPT = (
+    "Low resolution, low quality, distorted limbs, malformed fingers, "
+    "oversaturated colors, wax-figure appearance, lack of facial detail, "
+    "excessive smoothness, AI-looking artifacts, chaotic composition, blurry "
+    "or warped text."
+)
+
 _GEMINI_IMAGE_ASPECT_RATIOS: dict[str, str] = {
     ratio: ratio
     for ratio in (
@@ -1160,6 +1182,44 @@ class SupportedModel(Enum):
         },
         image_default_resolution="1K",
     )
+    # Qwen-Image-2512 (Alibaba's open-weights, Apache-2.0 image model) with
+    # Danrisi's "Lenovo UltraReal" realism LoRA (Civitai 1662740 / version
+    # 2106185; the Hugging Face copy below is byte-identical, Apache-2.0),
+    # served by WaveSpeed's 2512 LoRA endpoint, which loads the LoRA from the
+    # URL per prediction. Settings follow Danrisi's own workflow for this LoRA:
+    # strength 1.0, 50 steps, CFG 2.5, at Qwen's native 1328x1328 when no ratio
+    # is sent, plus Qwen's recommended negative prompt. WaveSpeed documents only
+    # prompt / size / loras / seed for this endpoint; steps, guidance and the
+    # negative prompt are sent on top. Text-to-image only (the endpoint takes
+    # no reference images). Flat $0.025 per image (WaveSpeed's LoRA endpoint
+    # price, regardless of size or LoRA count).
+    QWEN_IMAGE_2512_LENOVO = ModelConfig(
+        provider="wavespeed",
+        api_name="wavespeed-ai/qwen-image/text-to-image-2512-lora",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.025"),
+        image_response_format=None,
+        image_send_n=False,
+        image_extra_params={
+            "loras": [
+                {
+                    "path": "https://huggingface.co/Danrisi/Lenovo_Qwen/resolve/"
+                    "main/lenovo.safetensors",
+                    "scale": 1.0,
+                }
+            ],
+            "num_inference_steps": 50,
+            "guidance_scale": 2.5,
+            "negative_prompt": _QWEN_IMAGE_2512_NEGATIVE_PROMPT,
+            # Default when the request sends no aspect_ratio; a ratio's size
+            # replaces it.
+            "size": _WAVESPEED_QWEN_IMAGE_2512_SIZES["1:1"],
+        },
+        image_aspect_ratios=_WAVESPEED_QWEN_IMAGE_2512_SIZES,
+        image_aspect_ratio_param="size",
+    )
 
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──
     # grok-3 was retired on 2026-05-15 alongside the slugs above and is
@@ -1312,6 +1372,7 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "qwen-image-3-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
     "alibaba/qwen-image-3.0-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
     "alibaba/qwen-image-3.0-pro/text-to-image": SupportedModel.QWEN_IMAGE_3_0_PRO,
+    "qwen-image-2512-lenovo": SupportedModel.QWEN_IMAGE_2512_LENOVO,
     # Legacy — not in current SDK, retained for older SDK versions
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
     "grok-3-mini": SupportedModel.GROK_3_MINI,

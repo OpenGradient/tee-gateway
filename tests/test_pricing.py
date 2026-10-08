@@ -736,6 +736,20 @@ class TestModelRegistry(unittest.TestCase):
                     get_model_config(alias), get_model_config("qwen-image-3.0-pro")
                 )
 
+    def test_qwen_image_2512_lenovo_resolves(self):
+        cfg = get_model_config("qwen-image-2512-lenovo")
+        self.assertEqual(cfg.provider, "wavespeed")
+        self.assertEqual(
+            cfg.api_name, "wavespeed-ai/qwen-image/text-to-image-2512-lora"
+        )
+        self.assertTrue(cfg.image_generation)
+        # WaveSpeed's 2512 LoRA endpoint: flat $0.025 per image, any size.
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.025"))
+        self.assertIsNone(cfg.image_resolutions)
+        self.assertFalse(cfg.image_supports_reference)
+        self.assertIsNone(cfg.per_reference_image_price_usd)
+        self.assertEqual(get_model_config("Qwen-Image-2512-Lenovo"), cfg)
+
     # ── Errors ───────────────────────────────────────────────────────────────
 
     def test_unknown_model_raises(self):

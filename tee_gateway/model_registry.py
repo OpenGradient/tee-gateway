@@ -583,6 +583,20 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.000015"),
         supports_temperature=False,
     )
+    # Claude Haiku 5.5 — successor to Haiku 4.5, released 2026-10-07. Priced by
+    # prompt length: $0.10/$0.50 per MTok for prompts up to 100k tokens,
+    # $0.50/$2.50 above (platform.claude.com/docs/en/about-claude/pricing).
+    # The registry has one rate per model, so this carries the <=100k tier;
+    # prompts over 100k tokens are under-billed by 5x until a length-tiered
+    # rate exists. Adaptive thinking; a non-default temperature/top_p/top_k
+    # returns HTTP 400, so supports_temperature=False.
+    CLAUDE_HAIKU_5_5 = ModelConfig(
+        provider="anthropic",
+        api_name="claude-haiku-5-5",
+        input_price_usd=Decimal("0.0000001"),
+        output_price_usd=Decimal("0.0000005"),
+        supports_temperature=False,
+    )
     CLAUDE_HAIKU_4_5 = ModelConfig(
         provider="anthropic",
         api_name="claude-haiku-4-5-20251001",
@@ -739,6 +753,20 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.000003"),
         image_output=True,
         image_output_price_usd=Decimal("0.00006"),
+        image_aspect_ratios=_GEMINI_IMAGE_ASPECT_RATIOS,
+    )
+    # Native image generation ("nano banana 2.1"), successor to Nano Banana 2,
+    # released 2026-10-06. Google bills output at two rates: text/thinking at
+    # $7.50/MTok and images at $30/MTok ($0.0336/0.0504/0.113 per 1K/2K/4K
+    # image); input (text/image) is $1.50/MTok
+    # (ai.google.dev/gemini-api/docs/pricing). The API id has no `-image` suffix.
+    GEMINI_NANO_BANANA_2_1 = ModelConfig(
+        provider="google",
+        api_name="gemini-nano-banana-2.1",
+        input_price_usd=Decimal("0.0000015"),
+        output_price_usd=Decimal("0.0000075"),
+        image_output=True,
+        image_output_price_usd=Decimal("0.00003"),
         image_aspect_ratios=_GEMINI_IMAGE_ASPECT_RATIOS,
     )
     GEMINI_3_5_FLASH = ModelConfig(
@@ -1192,6 +1220,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "claude-sonnet-5-5": SupportedModel.CLAUDE_SONNET_5_5,
     "claude-sonnet-5.5": SupportedModel.CLAUDE_SONNET_5_5,
     "claude-sonnet-5": SupportedModel.CLAUDE_SONNET_5,
+    "claude-haiku-5-5": SupportedModel.CLAUDE_HAIKU_5_5,
+    "claude-haiku-5.5": SupportedModel.CLAUDE_HAIKU_5_5,
     "claude-haiku-4-5": SupportedModel.CLAUDE_HAIKU_4_5,
     "claude-opus-4-5": SupportedModel.CLAUDE_OPUS_4_5,
     "claude-opus-4-6": SupportedModel.CLAUDE_OPUS_4_6,
@@ -1211,6 +1241,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-3.1-pro-preview": SupportedModel.GEMINI_3_1_PRO_PREVIEW,
     "gemini-2.5-flash-image": SupportedModel.GEMINI_2_5_FLASH_IMAGE,
     "gemini-3.1-flash-image": SupportedModel.GEMINI_3_1_FLASH_IMAGE,
+    "gemini-nano-banana-2.1": SupportedModel.GEMINI_NANO_BANANA_2_1,
+    "gemini-nano-banana-2-1": SupportedModel.GEMINI_NANO_BANANA_2_1,
     "gemini-3.5-flash": SupportedModel.GEMINI_3_5_FLASH,
     "gemini-3.5-flash-lite": SupportedModel.GEMINI_3_5_FLASH_LITE,
     "gemini-3.6-flash": SupportedModel.GEMINI_3_6_FLASH,

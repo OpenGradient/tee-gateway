@@ -1051,9 +1051,7 @@ class SupportedModel(Enum):
     )
 
     # ── OpenRouter (OpenAI-compatible) ──────────────────────────────────
-    # DeepSeek V4 Pro 0813, routed through OpenRouter, pinned to Phala. Billed
-    # at Phala's undiscounted list price (api.redpill.ai/v1/models); OpenRouter
-    # currently shows it 34% off, and that discount can end.
+    # DeepSeek V4 Pro 0813, routed through OpenRouter, pinned to Phala.
     DEEPSEEK_V4_PRO = ModelConfig(
         provider="openrouter",
         api_name="deepseek/deepseek-v4-pro-0813",

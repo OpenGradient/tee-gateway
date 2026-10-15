@@ -135,6 +135,9 @@ class ModelConfig:
     # function tools together (preserving reasoning rather than disabling it).
     # OpenAI provider only; ignored elsewhere.
     responses_api_for_tools: bool = False
+    # OpenRouter provider slug to pin the model to (fallbacks off). ``None``
+    # routes to the cheapest provider.
+    openrouter_provider: Optional[str] = None
 
     def image_tier(self, resolution: Optional[str]) -> Optional[ImageResolutionTier]:
         """The tier a request runs at, or ``None`` for a single-resolution model.
@@ -957,12 +960,6 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.00000014"),
         output_price_usd=Decimal("0.00000028"),
     )
-    DEEPSEEK_V4_PRO = ModelConfig(
-        provider="bytedance",
-        api_name="deepseek-v4-pro-260425",
-        input_price_usd=Decimal("0.00000174"),
-        output_price_usd=Decimal("0.00000348"),
-    )
     # Seedream 4.0 image generation via ModelArk's OpenAI-compatible
     # /images/generations endpoint. Billed at a flat $0.03 per generated image;
     # token prices unused.
@@ -1054,6 +1051,14 @@ class SupportedModel(Enum):
     )
 
     # ── OpenRouter (OpenAI-compatible) ──────────────────────────────────
+    # DeepSeek V4 Pro 0813, routed through OpenRouter, pinned to Phala.
+    DEEPSEEK_V4_PRO = ModelConfig(
+        provider="openrouter",
+        api_name="deepseek/deepseek-v4-pro-0813",
+        input_price_usd=Decimal("0.00000145"),
+        output_price_usd=Decimal("0.00000436"),
+        openrouter_provider="phala",
+    )
     # Tencent Hy4 Preview — 770B-parameter (49B active) open-weight MoE,
     # open-sourced 2026-08-28, aimed at coding agents and long-horizon
     # tool-use with a 1,048,576-token context window. Routed through
@@ -1280,8 +1285,6 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "dola-seed-2-0-mini": SupportedModel.DOLA_SEED_2_0_MINI,
     "deepseek-v4-flash-260425": SupportedModel.DEEPSEEK_V4_FLASH,
     "deepseek-v4-flash": SupportedModel.DEEPSEEK_V4_FLASH,
-    "deepseek-v4-pro-260425": SupportedModel.DEEPSEEK_V4_PRO,
-    "deepseek-v4-pro": SupportedModel.DEEPSEEK_V4_PRO,
     "seedream-4-0-250828": SupportedModel.SEEDREAM_4_0,
     "seedream-4.0": SupportedModel.SEEDREAM_4_0,
     "seedream-4-0": SupportedModel.SEEDREAM_4_0,
@@ -1293,7 +1296,12 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "ep-20260803211347-hq9k8": SupportedModel.SEEDANCE_5_0,
     "seedance-5.0": SupportedModel.SEEDANCE_5_0,
     "seedance-5-0": SupportedModel.SEEDANCE_5_0,
-    # Nous Research models routed through OpenRouter
+    # Routed through OpenRouter
+    "deepseek-v4-pro": SupportedModel.DEEPSEEK_V4_PRO,
+    "deepseek-v4-pro-0813": SupportedModel.DEEPSEEK_V4_PRO,
+    "deepseek/deepseek-v4-pro-0813": SupportedModel.DEEPSEEK_V4_PRO,
+    # Former ModelArk id
+    "deepseek-v4-pro-260425": SupportedModel.DEEPSEEK_V4_PRO,
     "hermes-4-405b": SupportedModel.HERMES_4_405B,
     "nousresearch/hermes-4-405b": SupportedModel.HERMES_4_405B,
     "hy3": SupportedModel.HY3,

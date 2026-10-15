@@ -587,16 +587,22 @@ class TestModelRegistry(unittest.TestCase):
 
     def test_deepseek_v4_pro_resolves(self):
         cfg = get_model_config("deepseek-v4-pro")
-        self.assertEqual(cfg.provider, "bytedance")
-        self.assertEqual(cfg.api_name, "deepseek-v4-pro-260425")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.00000174"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.00000348"))
+        self.assertEqual(cfg.provider, "openrouter")
+        self.assertEqual(cfg.api_name, "deepseek/deepseek-v4-pro-0813")
+        self.assertEqual(cfg.openrouter_provider, "phala")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00000145"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00000436"))
 
     def test_deepseek_v4_pro_aliases_resolve(self):
-        self.assertEqual(
-            get_model_config("deepseek-v4-pro-260425"),
-            get_model_config("deepseek-v4-pro"),
-        )
+        for alias in (
+            "deepseek-v4-pro-0813",
+            "deepseek/deepseek-v4-pro-0813",
+            "deepseek-v4-pro-260425",
+        ):
+            with self.subTest(alias=alias):
+                self.assertEqual(
+                    get_model_config(alias), get_model_config("deepseek-v4-pro")
+                )
 
     def test_seedream_5_0_lite_resolves(self):
         cfg = get_model_config("seedream-5.0-lite")
@@ -1120,8 +1126,8 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         cost = self._calc("deepseek-v4-pro", 1000, 500)
         expected = _expected_cost_opg("deepseek-v4-pro", 1000, 500)
         self.assertEqual(cost, expected)
-        # 1000*0.00000174 + 500*0.00000348 = 0.00174 + 0.00174 = 0.00348 USD
-        self.assertEqual(cost, 3_480_000_000_000_000)
+        # 1000*0.00000145 + 500*0.00000436 = 0.00145 + 0.00218 = 0.00363 USD
+        self.assertEqual(cost, 3_630_000_000_000_000)
 
     # ── OpenRouter ─────────────────────────────────────────────────────────
 

@@ -117,6 +117,23 @@ class ProviderTaskError(httpx.HTTPError):
     """
 
 
+class UndeliveredImagesError(ProviderTaskError):
+    """The provider generated (and billed) images, but none could be fetched.
+
+    ``generated_count`` is what the provider charged for;
+    :func:`_run_image_generation` prices it into ``billable_cost`` so a
+    responder that can still report a cost (the streaming error frame) bills it.
+    """
+
+    def __init__(self, generated_count: int):
+        super().__init__(
+            f"Provider generated {generated_count} image(s) but none could be "
+            "fetched from its CDN"
+        )
+        self.generated_count = generated_count
+        self.billable_cost: Optional[Any] = None
+
+
 def _provider_error_detail(resp: httpx.Response) -> str:
     """Extract a compact human-readable detail from a provider error response.
 
@@ -235,6 +252,27 @@ def _fetch_url_as_data_uri(url: str) -> str:
         logger.warning("Image URL fetch failed, retrying in %.0fs: %s", delay, reason)
         time.sleep(delay)
     return _fetch_url_once(_image_fetch_client, url)  # last attempt: raise as-is
+
+
+def _fetch_generated_image(url: str) -> Optional[str]:
+    """Fetch one provider-generated image, or ``None`` when it can't be fetched.
+
+    The provider has already billed the image by the time its URL is here, so
+    one bad fetch must not discard the request's other images, or the record
+    of what was generated: billing counts generated images, not fetched ones.
+    """
+    try:
+        return _fetch_url_as_data_uri(url)
+    except Exception as e:
+        logger.warning("Dropping a generated image that could not be fetched: %s", e)
+        return None
+
+
+def _delivered(images: list[str], generated_count: int) -> tuple[list[str], int]:
+    """``(images, generated_count)``, refusing a generation none of which arrived."""
+    if generated_count and not images:
+        raise UndeliveredImagesError(generated_count)
+    return images, generated_count
 
 
 def _fetch_url_once(client: httpx.Client, url: str) -> str:
@@ -574,9 +612,10 @@ def _generate_wavespeed(
     refs: list[str],
     aspect_ratio: Optional[str],
     resolution: Optional[str],
-) -> list[str]:
-    """Run one WaveSpeed image prediction and return its images as data URIs.
+) -> tuple[list[str], int]:
+    """Run one WaveSpeed image prediction; return its images as data URIs.
 
+    Returns ``(data_uris, generated_count)`` like :func:`generate_images`.
     Submitted to ``image_edit_model`` when there are references (WaveSpeed
     serves text-to-image and edit as separate model endpoints), else to
     ``api_name``. One image per prediction; ``n`` is not a WaveSpeed field.
@@ -603,12 +642,16 @@ def _generate_wavespeed(
     try:
         outputs = _wavespeed_wait(client, prediction_id)
         images: list[str] = []
+        generated = 0
         for output in outputs:
             if isinstance(output, str) and output.startswith(("https://", "http://")):
-                images.append(_fetch_url_as_data_uri(output))
+                generated += 1
+                image = _fetch_generated_image(output)
+                if image is not None:
+                    images.append(image)
             else:
                 logger.warning("Skipping non-URL WaveSpeed output")
-        return images
+        return _delivered(images, generated)
     finally:
         _wavespeed_delete(client, prediction_id)
 
@@ -641,7 +684,10 @@ def generate_images(
 
     Returns ``(data_uris, image_count)``. Every entry is a ``data:`` URI — when a
     provider returns a hosted URL instead of inline bytes, the gateway fetches it
-    so the client always receives bytes. The count drives per-image billing.
+    so the client always receives bytes. The count drives per-image billing and
+    is what the provider generated, which is what it charged for: an image whose
+    fetch fails is dropped from ``data_uris`` but still counted. When none can
+    be fetched, ``UndeliveredImagesError`` carries the count instead.
     """
     cfg = get_model_config(model)
     provider = cfg.provider
@@ -669,10 +715,9 @@ def generate_images(
     )
 
     if provider == "wavespeed":
-        task_images = _generate_wavespeed(
+        return _generate_wavespeed(
             cfg, client, prompt, refs or [], aspect_ratio, resolution
         )
-        return task_images, len(task_images)
 
     # Two delivery paths, picked by the model's config: multipart file uploads to
     # a dedicated edits endpoint, or the JSON generations endpoint (with inline
@@ -716,16 +761,21 @@ def generate_images(
     data = resp.json().get("data", []) or []
 
     images: list[str] = []
+    generated = 0
     for item in data:
         if not isinstance(item, dict):
             continue
         b64 = item.get("b64_json")
         if b64:
+            generated += 1
             images.append(f"data:image/jpeg;base64,{b64}")
         elif item.get("url"):
-            images.append(_fetch_url_as_data_uri(item["url"]))
+            generated += 1
+            image = _fetch_generated_image(item["url"])
+            if image is not None:
+                images.append(image)
 
-    return images, len(images)
+    return _delivered(images, generated)
 
 
 def _extract_image_inputs(langchain_messages: list) -> tuple[str, list[str]]:
@@ -809,45 +859,64 @@ def _run_image_generation(
     an empty output; the image bytes ride out-of-band inside the OHTTP envelope.
     Billing is flat per generated image. Returns the pieces the streaming and
     non-streaming responders assemble into their respective envelopes.
+
+    The cost is worked out as soon as the provider answers, since that is when
+    it billed us. Anything that fails after that point re-raises with the cost
+    on the exception as ``billable_cost``, for a responder that can still
+    report it (see :func:`create_image_generation_streaming_response`).
     """
     langchain_messages = llm_backend.convert_messages(chat_request.messages)
     prompt, reference_images = _extract_image_inputs(langchain_messages)
-    images, image_count = generate_images(
-        chat_request.model,
-        prompt,
-        n=chat_request.n or 1,
-        reference_images=reference_images,
-        aspect_ratio=chat_request.aspect_ratio,
-        resolution=chat_request.resolution,
-    )
-
-    timestamp = int(time.time())
-    msg_hash, input_hash_hex, output_hash_hex = compute_tee_msg_hash(
-        request_bytes, "", timestamp
-    )
-    tee_keys = get_tee_keys()
     usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-    cost = compute_session_cost(
-        chat_request.model,
-        usage,
-        image_count=image_count,
-        resolution=chat_request.resolution,
-        reference_count=len(
-            _forwarded_references(
-                get_model_config(chat_request.model), reference_images
-            )
-        ),
-    )
+
+    def cost_of(image_count: int) -> Any:
+        return compute_session_cost(
+            chat_request.model,
+            usage,
+            image_count=image_count,
+            resolution=chat_request.resolution,
+            reference_count=len(
+                _forwarded_references(
+                    get_model_config(chat_request.model), reference_images
+                )
+            ),
+        )
+
+    try:
+        images, image_count = generate_images(
+            chat_request.model,
+            prompt,
+            n=chat_request.n or 1,
+            reference_images=reference_images,
+            aspect_ratio=chat_request.aspect_ratio,
+            resolution=chat_request.resolution,
+        )
+    except UndeliveredImagesError as e:
+        e.billable_cost = cost_of(e.generated_count)
+        raise
+    cost = cost_of(image_count)
+
+    try:
+        timestamp = int(time.time())
+        msg_hash, input_hash_hex, output_hash_hex = compute_tee_msg_hash(
+            request_bytes, "", timestamp
+        )
+        tee_keys = get_tee_keys()
+        tee_signature = tee_keys.sign_data(msg_hash)
+        tee_id = f"0x{tee_keys.get_tee_id()}"
+    except Exception as e:
+        e.billable_cost = cost  # type: ignore[attr-defined]
+        raise
 
     return {
         "images": images,
         "usage": usage,
         "opengradient": cost.model_dump(mode="json") if cost is not None else None,
-        "tee_signature": tee_keys.sign_data(msg_hash),
+        "tee_signature": tee_signature,
         "tee_request_hash": input_hash_hex,
         "tee_output_hash": output_hash_hex,
         "tee_timestamp": timestamp,
-        "tee_id": f"0x{tee_keys.get_tee_id()}",
+        "tee_id": tee_id,
     }
 
 
@@ -931,6 +1000,11 @@ def create_image_generation_streaming_response(
             # is already 200, so this classified payload is the only channel
             # left to say whether the provider or the enclave failed.
             error_payload = describe_exception(e, fallback="Stream processing failed")
+            # A failure after the provider generated the images still owes
+            # what it charged; the last SSE frame is the one billing reads.
+            billable_cost = getattr(e, "billable_cost", None)
+            if billable_cost is not None:
+                error_payload["opengradient"] = billable_cost.model_dump(mode="json")
             yield f"data: {json.dumps(error_payload)}\n\n"
 
     return Response(

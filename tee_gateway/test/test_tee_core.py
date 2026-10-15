@@ -1035,3 +1035,32 @@ class TestTemperatureOmission(unittest.TestCase):
             with self.subTest(model=cfg.api_name):
                 model = get_chat_model_cached(cfg.api_name, 0.0, 1024)
                 self.assertIsNone(model.temperature)
+
+
+class TestOpenRouterProviderRouting(unittest.TestCase):
+    """OpenRouter models route by price unless the registry pins a provider."""
+
+    _saved_config: Optional[ProviderConfig] = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._saved_config = get_provider_config()
+        set_provider_config(ProviderConfig(openrouter_api_key="test-openrouter-key"))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._saved_config is not None:
+            set_provider_config(cls._saved_config)
+        get_chat_model_cached.cache_clear()
+
+    def test_deepseek_v4_pro_pinned_to_phala(self):
+        model = get_chat_model_cached("deepseek-v4-pro", 0.0, 1024)
+        self.assertEqual(model.model_name, "deepseek/deepseek-v4-pro-0813")
+        self.assertEqual(
+            model.extra_body,
+            {"provider": {"order": ["phala"], "allow_fallbacks": False}},
+        )
+
+    def test_unpinned_model_sorts_by_price(self):
+        model = get_chat_model_cached("hy3", 0.0, 1024)
+        self.assertEqual(model.extra_body, {"provider": {"sort": "price"}})

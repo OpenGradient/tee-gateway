@@ -353,7 +353,13 @@ def get_chat_model_cached(
             http_client=openrouter_http_client,
             api_key=SecretStr(config.openrouter_api_key),
             base_url=OPENROUTER_BASE_URL,
-            extra_body={"provider": {"sort": "price"}},
+            extra_body={
+                "provider": (
+                    {"order": [cfg.openrouter_provider], "allow_fallbacks": False}
+                    if cfg.openrouter_provider
+                    else {"sort": "price"}
+                )
+            },
             streaming=True,
             stream_usage=True,
         )  # type: ignore [call-arg]

@@ -34,6 +34,7 @@ SEEDANCE_5 = "seedance-5.0"
 GLM_IMAGE = "glm-image"
 GPT_IMAGE = "gpt-image-2"
 QWEN_IMAGE = "qwen-image-3.0-pro"
+QWEN_IMAGE_2512_LENOVO = "qwen-image-2512-lenovo"
 
 
 def _mock_response(data: list[dict]) -> MagicMock:
@@ -684,6 +685,64 @@ class TestWaveSpeedImageGeneration(unittest.TestCase):
         with patch.object(llm_backend, "wavespeed_http_client", None):
             with self.assertRaises(RuntimeError):
                 generate_images(QWEN_IMAGE, "p")
+
+    # ── Qwen-Image-2512 + Lenovo LoRA ────────────────────────────────────
+
+    def _run_2512_lenovo(self, client: _WaveSpeedClient, **kwargs):
+        with patch.object(llm_backend, "wavespeed_http_client", client):
+            return generate_images(QWEN_IMAGE_2512_LENOVO, "a quiet street", **kwargs)
+
+    def test_2512_lenovo_sends_lora_and_workflow_settings(self):
+        client = _WaveSpeedClient([_ws_prediction("completed", outputs=[_WS_OUTPUT])])
+        images, count = self._run_2512_lenovo(client)
+
+        self.assertEqual(count, 1)
+        path, body = client.submitted()
+        self.assertEqual(path, "/wavespeed-ai/qwen-image/text-to-image-2512-lora")
+        self.assertEqual(body["prompt"], "a quiet street")
+        self.assertEqual(
+            body["loras"],
+            [
+                {
+                    "path": "https://huggingface.co/Danrisi/Lenovo_Qwen/resolve/"
+                    "main/lenovo.safetensors",
+                    "scale": 1.0,
+                }
+            ],
+        )
+        self.assertEqual(body["num_inference_steps"], 50)
+        self.assertEqual(body["guidance_scale"], 2.5)
+        self.assertIn("wax-figure appearance", body["negative_prompt"])
+        # No ratio: Qwen's native square.
+        self.assertEqual(body["size"], "1328*1328")
+        self.assertNotIn("aspect_ratio", body)
+        self.assertNotIn("n", body)
+
+    def test_2512_lenovo_maps_ratio_to_pixel_size(self):
+        client = _WaveSpeedClient([_ws_prediction("completed", outputs=[_WS_OUTPUT])])
+        self._run_2512_lenovo(client, aspect_ratio="16:9")
+        _, body = client.submitted()
+        # Native 1664x928 scaled to WaveSpeed's 1536 px cap.
+        self.assertEqual(body["size"], "1536*864")
+
+    def test_2512_lenovo_rejects_unsupported_ratio_and_resolution(self):
+        client = _WaveSpeedClient([])
+        with self.assertRaisesRegex(ValueError, "Unsupported aspect_ratio"):
+            self._run_2512_lenovo(client, aspect_ratio="21:9")
+        with self.assertRaisesRegex(ValueError, "resolution"):
+            self._run_2512_lenovo(client, resolution="2K")
+        self.assertEqual(client.posts, [])
+
+    def test_2512_lenovo_ignores_reference_images(self):
+        client = _WaveSpeedClient([_ws_prediction("completed", outputs=[_WS_OUTPUT])])
+        self._run_2512_lenovo(
+            client, reference_images=["https://example.com/photo.jpg"]
+        )
+        path, body = client.submitted()
+        # Text-to-image only: same endpoint, nothing uploaded or forwarded.
+        self.assertEqual(path, "/wavespeed-ai/qwen-image/text-to-image-2512-lora")
+        self.assertNotIn("images", body)
+        self.assertNotIn("/media/uploads", [p for p, _ in client.posts])
 
 
 class TestProviderErrorDetail(unittest.TestCase):

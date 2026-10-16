@@ -94,3 +94,15 @@ def child_exit(server, worker):  # noqa: ANN001 - gunicorn hook signature
         worker.pid,
     )
     server.halt(reason="gateway worker exited", exit_status=1)
+
+
+def on_starting(server):
+    from tee_gateway.error_logging import install_error_export
+
+    install_error_export(server.log.error_log)
+
+
+def post_fork(server, worker):
+    from tee_gateway.error_logging import install_error_export
+
+    install_error_export(server.log.error_log)

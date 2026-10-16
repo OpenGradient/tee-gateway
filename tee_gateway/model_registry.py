@@ -33,6 +33,11 @@ class ImageResolutionTier:
     # ModelArk the bare ``size`` keyword). Merged after ``image_extra_params``
     # and before the ratio override, so an explicit ratio still wins.
     extra_params: Mapping[str, Any] = field(default_factory=dict)
+    # USD per reference image forwarded at this tier, for providers whose
+    # input-image charge scales with the output size (WaveSpeed bills Krea 3
+    # references at the output's megapixels). ``None`` falls back to
+    # ``ModelConfig.per_reference_image_price_usd``.
+    per_reference_image_price_usd: Optional[Decimal] = None
 
 
 @dataclass(frozen=True)
@@ -289,6 +294,36 @@ _WAVESPEED_QWEN_IMAGE_ASPECT_RATIOS: dict[str, str] = {
         "9:21",
         "21:9",
     )
+}
+
+# WaveSpeed's Krea 3 takes explicit ``width*height`` sizes (multiples of 16)
+# and bills by them: $0.03 per started megapixel (1,048,576 px) of output, and
+# the same again for each reference image. Every size in a table stays at or
+# under its tier's billed area — 1 MP for 1K, 4 MP for 2K — so the flat tier
+# price is never below what WaveSpeed charges. The ratio set is Krea's own.
+_WAVESPEED_KREA_1K_SIZES: dict[str, str] = {
+    "1:1": "1024*1024",
+    "4:3": "1152*864",
+    "3:4": "864*1152",
+    "3:2": "1248*832",
+    "2:3": "832*1248",
+    "16:9": "1360*768",
+    "9:16": "768*1360",
+    "5:4": "1136*912",
+    "4:5": "912*1136",
+    "21:9": "1536*656",
+}
+_WAVESPEED_KREA_2K_SIZES: dict[str, str] = {
+    "1:1": "2048*2048",
+    "4:3": "2304*1728",
+    "3:4": "1728*2304",
+    "3:2": "2496*1664",
+    "2:3": "1664*2496",
+    "16:9": "2720*1536",
+    "9:16": "1536*2720",
+    "5:4": "2272*1824",
+    "4:5": "1824*2272",
+    "21:9": "3072*1312",
 }
 
 _GEMINI_IMAGE_ASPECT_RATIOS: dict[str, str] = {
@@ -1127,6 +1162,48 @@ class SupportedModel(Enum):
     )
 
     # ── WaveSpeed (async prediction API) ────────────────────────────────
+    # Krea 3 — Krea's image editing model, served through WaveSpeed as two
+    # model endpoints (text-to-image, and edit with 1-8 references). Every
+    # request runs the quality variant ("berry", not the faster "jam") at
+    # reasoning_level "medium" ("high" is not offered on WaveSpeed); neither
+    # choice changes the price. WaveSpeed's published billing formula is
+    # $0.03 x output megapixels x (1 + reference count), with an omitted
+    # `size` billed as 1024*1024, so references are priced per tier at the
+    # tier's output price: 1K $0.03 + $0.03/ref, 2K $0.12 + $0.12/ref. 1K
+    # omits `size` when no ratio is asked for (text-to-image defaults to
+    # 1024*1024; edits keep the first reference's framing); 2K has no such
+    # automatic mode, so without a ratio it is square.
+    KREA_3 = ModelConfig(
+        provider="wavespeed",
+        api_name="krea/v3/text-to-image",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.03"),
+        image_response_format=None,
+        image_send_n=False,
+        image_supports_reference=True,
+        image_edit_model="krea/v3/edit",
+        image_max_references=8,
+        per_reference_image_price_usd=Decimal("0.03"),
+        image_extra_params={"model": "berry", "reasoning_level": "medium"},
+        image_aspect_ratios=_WAVESPEED_KREA_1K_SIZES,
+        image_aspect_ratio_param="size",
+        image_resolutions={
+            "1K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.03"),
+                aspect_ratios=_WAVESPEED_KREA_1K_SIZES,
+                per_reference_image_price_usd=Decimal("0.03"),
+            ),
+            "2K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.12"),
+                aspect_ratios=_WAVESPEED_KREA_2K_SIZES,
+                extra_params={"size": "2048*2048"},
+                per_reference_image_price_usd=Decimal("0.12"),
+            ),
+        },
+        image_default_resolution="1K",
+    )
     # Qwen Image 3.0 Pro — Alibaba's flagship image model, served through
     # WaveSpeed rather than Alibaba Cloud Model Studio. WaveSpeed exposes it as
     # two model endpoints, text-to-image and edit (1-3 reference images), both
@@ -1315,6 +1392,11 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "ep-20260803211658-fwpzs": SupportedModel.GLM_5_2,
     "glm-image": SupportedModel.GLM_IMAGE,
     # WaveSpeed
+    "krea-3": SupportedModel.KREA_3,
+    "krea-v3": SupportedModel.KREA_3,
+    "krea3": SupportedModel.KREA_3,
+    "krea/v3": SupportedModel.KREA_3,
+    "krea/v3/text-to-image": SupportedModel.KREA_3,
     "qwen-image-3.0-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
     "qwen-image-3-0-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
     "qwen-image-3-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,

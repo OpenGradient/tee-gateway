@@ -40,7 +40,7 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 | ByteDance | seed-1.6, seed-1.8, seed-2.0-lite, dola-seed-2.0-mini, deepseek-v4-flash, deepseek-v4-pro, glm-5.2 |
 | OpenRouter | hy4-preview, hermes-4-405b, hy3 |
 
-Image generation: qwen-image-3.0-pro (via WaveSpeed), gpt-image-2,
+Image generation: krea-3 and qwen-image-3.0-pro (via WaveSpeed), gpt-image-2,
 gpt-image-2.5-flare, gpt-image-2.5-sunburst, gemini-2.5-flash-image,
 gemini-nano-banana-2.1, gemini-3.1-flash-image, grok-2-image, grok-imagine-image-2.0, seedream-4.0,
 seedream-5.0-lite, seedance-4.5, seedance-5.0, glm-image.
@@ -65,7 +65,7 @@ export XAI_API_KEY=...
 export ARK_API_KEY=...   # BytePlus / ByteDance ModelArk
 export OPENROUTER_API_KEY=...  # OpenRouter
 export ZAI_API_KEY=...   # Z.ai Model API
-export WAVESPEED_API_KEY=...  # WaveSpeed (qwen-image-3.0-pro)
+export WAVESPEED_API_KEY=...  # WaveSpeed (krea-3, qwen-image-3.0-pro)
 
 # Run server (starts the Flask/connexion app on port 8000)
 make test-local          # Werkzeug dev server (development only)

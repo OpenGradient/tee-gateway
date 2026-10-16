@@ -34,6 +34,7 @@ SEEDANCE_5 = "seedance-5.0"
 GLM_IMAGE = "glm-image"
 GPT_IMAGE = "gpt-image-2"
 QWEN_IMAGE = "qwen-image-3.0-pro"
+KREA_3 = "krea-3"
 
 
 def _mock_response(data: list[dict]) -> MagicMock:
@@ -575,6 +576,51 @@ class TestWaveSpeedImageGeneration(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported resolution"):
             self._run(client, resolution="4K")
         self.assertEqual(client.posts, [])
+
+    def test_krea_3_sends_berry_at_medium_reasoning(self):
+        client = _WaveSpeedClient([_ws_prediction("completed", outputs=[_WS_OUTPUT])])
+        with patch.object(llm_backend, "wavespeed_http_client", client):
+            generate_images(KREA_3, "a lighthouse at dusk")
+        path, body = client.submitted()
+        self.assertEqual(path, "/krea/v3/text-to-image")
+        # The 1K default sends no size, which WaveSpeed bills as 1024*1024.
+        self.assertEqual(
+            body,
+            {
+                "prompt": "a lighthouse at dusk",
+                "model": "berry",
+                "reasoning_level": "medium",
+            },
+        )
+
+    def test_krea_3_ratio_and_tier_select_the_size(self):
+        cases = [
+            ({"aspect_ratio": "16:9"}, "1360*768"),
+            ({"resolution": "2K"}, "2048*2048"),
+            ({"aspect_ratio": "16:9", "resolution": "2K"}, "2720*1536"),
+        ]
+        for kwargs, size in cases:
+            with self.subTest(**kwargs):
+                client = _WaveSpeedClient(
+                    [_ws_prediction("completed", outputs=[_WS_OUTPUT])]
+                )
+                with patch.object(llm_backend, "wavespeed_http_client", client):
+                    generate_images(KREA_3, "p", **kwargs)
+                _, body = client.submitted()
+                self.assertEqual(body["size"], size)
+                self.assertNotIn("aspect_ratio", body)
+
+    def test_krea_3_edit_uses_the_edit_model_and_keeps_framing(self):
+        client = _WaveSpeedClient([_ws_prediction("completed", outputs=[_WS_OUTPUT])])
+        with patch.object(llm_backend, "wavespeed_http_client", client):
+            generate_images(
+                KREA_3, "p", reference_images=["https://example.com/photo.jpg"]
+            )
+        path, body = client.submitted()
+        self.assertEqual(path, "/krea/v3/edit")
+        self.assertEqual(body["images"], ["https://example.com/photo.jpg"])
+        # No size at 1K, so the edit keeps the reference's framing.
+        self.assertNotIn("size", body)
 
     def test_edit_uploads_inline_references_and_uses_the_edit_model(self):
         client = _WaveSpeedClient([_ws_prediction("completed", outputs=[_WS_OUTPUT])])
@@ -1297,6 +1343,7 @@ class TestPerImageBilling(unittest.TestCase):
             GLM_IMAGE,
             GPT_IMAGE,
             QWEN_IMAGE,
+            KREA_3,
         ):
             with self.subTest(model=model):
                 cfg = get_model_config(model)
@@ -1329,6 +1376,11 @@ class TestPerImageBilling(unittest.TestCase):
                 default = cfg.image_resolutions[cfg.image_default_resolution]
                 self.assertEqual(default.per_image_price_usd, cfg.per_image_price_usd)
                 self.assertEqual(default.aspect_ratios, cfg.image_aspect_ratios)
+                if default.per_reference_image_price_usd is not None:
+                    self.assertEqual(
+                        default.per_reference_image_price_usd,
+                        cfg.per_reference_image_price_usd,
+                    )
 
     def test_qwen_image_tiers_and_reference_images_are_billed(self):
         # WaveSpeed bills $0.04 / $0.075 per 1k / 2k output image, plus
@@ -1343,6 +1395,21 @@ class TestPerImageBilling(unittest.TestCase):
         for kwargs, expected in cases:
             with self.subTest(**kwargs):
                 cost = compute_session_cost(QWEN_IMAGE, usage, image_count=1, **kwargs)
+                self.assertEqual(cost.cost_usd, expected)
+
+    def test_krea_3_references_are_billed_at_the_tier_output_price(self):
+        # WaveSpeed: $0.03 x output MP x (1 + references); 1K = 1 MP, 2K = 4 MP.
+        usage = self._zero_usage()
+        cases = [
+            ({}, Decimal("0.03")),
+            ({"reference_count": 1}, Decimal("0.06")),
+            ({"reference_count": 8}, Decimal("0.27")),
+            ({"resolution": "2K"}, Decimal("0.12")),
+            ({"resolution": "2K", "reference_count": 1}, Decimal("0.24")),
+        ]
+        for kwargs, expected in cases:
+            with self.subTest(**kwargs):
+                cost = compute_session_cost(KREA_3, usage, image_count=1, **kwargs)
                 self.assertEqual(cost.cost_usd, expected)
 
     def test_reference_images_free_on_models_without_a_reference_price(self):

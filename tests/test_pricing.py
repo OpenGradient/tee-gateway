@@ -742,6 +742,55 @@ class TestModelRegistry(unittest.TestCase):
                     get_model_config(alias), get_model_config("qwen-image-3.0-pro")
                 )
 
+    def test_krea_3_resolves(self):
+        cfg = get_model_config("krea-3")
+        self.assertEqual(cfg.provider, "wavespeed")
+        self.assertEqual(cfg.api_name, "krea/v3/text-to-image")
+        self.assertEqual(cfg.image_edit_model, "krea/v3/edit")
+        self.assertTrue(cfg.image_generation)
+        # Quality variant at medium reasoning on every request; neither is billed.
+        self.assertEqual(
+            dict(cfg.image_extra_params),
+            {"model": "berry", "reasoning_level": "medium"},
+        )
+        # WaveSpeed's formula: $0.03 x output MP x (1 + references).
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.03"))
+        self.assertEqual(cfg.per_reference_image_price_usd, Decimal("0.03"))
+        self.assertEqual(cfg.image_default_resolution, "1K")
+        self.assertEqual(
+            {
+                k: (t.per_image_price_usd, t.per_reference_image_price_usd)
+                for k, t in cfg.image_resolutions.items()
+            },
+            {
+                "1K": (Decimal("0.03"), Decimal("0.03")),
+                "2K": (Decimal("0.12"), Decimal("0.12")),
+            },
+        )
+        self.assertEqual(cfg.image_max_references, 8)
+
+    def test_krea_3_aliases_resolve(self):
+        for alias in (
+            "krea-v3",
+            "krea3",
+            "krea/v3",
+            "krea/v3/text-to-image",
+            "Krea-3",
+        ):
+            with self.subTest(alias=alias):
+                self.assertEqual(get_model_config(alias), get_model_config("krea-3"))
+
+    def test_krea_3_sizes_stay_within_the_billed_tier_area(self):
+        # WaveSpeed rounds each side up to 16 and bills per 1,048,576 px, so a
+        # size over the tier's area would be billed above the tier price.
+        cfg = get_model_config("krea-3")
+        for tier, megapixels in (("1K", 1), ("2K", 4)):
+            for ratio, size in cfg.image_resolutions[tier].aspect_ratios.items():
+                with self.subTest(tier=tier, ratio=ratio):
+                    w, h = (int(v) for v in size.split("*"))
+                    self.assertEqual((w % 16, h % 16), (0, 0))
+                    self.assertLessEqual(w * h, megapixels * 1_048_576)
+
     # ── Errors ───────────────────────────────────────────────────────────────
 
     def test_unknown_model_raises(self):

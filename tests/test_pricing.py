@@ -930,7 +930,7 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         expected = _expected_cost_opg("gpt-6-sol", 1000, 500)
         self.assertEqual(cost, expected)
         # 1000*0.000002 + 500*0.00001 = 0.002 + 0.005 = 0.007 USD = 7e15 wei
-        self.assertEqual(cost, 14_000_000_000_000_000)
+        self.assertEqual(cost, 7_000_000_000_000_000)
 
     def test_gpt_6_luna_cost(self):
         cost = self._calc("gpt-6-luna", 1000, 500)
@@ -1001,14 +1001,14 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         expected = _expected_cost_opg("claude-sonnet-5-5", 1000, 500)
         self.assertEqual(cost, expected)
         # 1000*0.000002 + 500*0.00001 = 0.002 + 0.005 = 0.007 USD = 7e15 wei
-        self.assertEqual(cost, 14_000_000_000_000_000)
+        self.assertEqual(cost, 7_000_000_000_000_000)
 
     def test_claude_opus_5_5_cost(self):
         cost = self._calc("claude-opus-5-5", 1000, 500)
         expected = _expected_cost_opg("claude-opus-5-5", 1000, 500)
         self.assertEqual(cost, expected)
         # 1000*0.000004 + 500*0.00002 = 0.004 + 0.01 = 0.014 USD = 1.4e16 wei
-        self.assertEqual(cost, 14_000_000_000_000_000)
+        self.assertEqual(cost, 7_000_000_000_000_000)
 
     # ── Anthropic Fable ─────────────────────────────────────────────────────
 

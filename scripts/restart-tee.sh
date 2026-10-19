@@ -10,7 +10,7 @@ Options:
   --no-build            Skip make clean/make image and only restart.
   --no-health           Skip make health after start.
   --min-free-gb GB      Require at least this much free disk before build/run. Default: 20.
-  --follow              Tail nohup.out after starting.
+  --follow              Tail nohup.out and logs/tee-errors.log after starting.
   -h, --help            Show this help.
 
 Examples:
@@ -133,6 +133,7 @@ require_cmd make
 require_cmd nitro-cli
 require_cmd sudo
 require_cmd lsof
+require_cmd python3
 
 log "Repo: $REPO_DIR"
 
@@ -172,6 +173,17 @@ fi
 log "Checking free disk space before Docker load / EIF build"
 require_free_disk "$REPO_DIR" "$MIN_FREE_GB"
 
+# Console output is unavailable in production attestation mode. The image's
+# ERROR/CRITICAL handler exports content-free diagnostics over vsock to this
+# persistent host collector. Start it before the enclave so startup errors
+# are captured too. Repeated restarts reuse the collector; files append and
+# rotate at 10 MiB (five backups), independently of nohup.out.
+log "Starting error-only enclave log collector"
+python3 "$REPO_DIR/tee_gateway/error_logging.py" --collect "$REPO_DIR/logs/tee-errors.log"
+if [ "$DO_BUILD" -eq 0 ]; then
+  log "Error export requires an image previously built with the error handler."
+fi
+
 log "Starting enclave in background"
 nohup make run > nohup.out 2>&1 &
 run_pid="$!"
@@ -202,8 +214,9 @@ fi
 log "Current enclave state"
 nitro-cli describe-enclaves || true
 
-log "Restart complete. Logs: $REPO_DIR/nohup.out"
+log "Restart complete. Startup logs: $REPO_DIR/nohup.out"
+log "Enclave errors: $REPO_DIR/logs/tee-errors.log"
 
 if [ "$FOLLOW_LOGS" -eq 1 ]; then
-  tail -f nohup.out
+  tail -F nohup.out logs/tee-errors.log
 fi

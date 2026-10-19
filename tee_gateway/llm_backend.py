@@ -251,14 +251,22 @@ def get_chat_model_cached(
                 response_modalities=[Modality.TEXT, Modality.IMAGE],
             )
 
-        return ChatGoogleGenerativeAI(
+        # Unlike the other langchain-<provider> packages, langchain-google-genai
+        # types `temperature` as a plain float (default 0.7) and rejects None at
+        # construction. Build without it, then clear it: the field is not
+        # re-validated on assignment, and a None temperature is dropped from the
+        # outgoing GenerationConfig, so the request carries no temperature.
+        google_llm = ChatGoogleGenerativeAI(
             model=api_name,
             google_api_key=config.google_api_key,
-            temperature=effective_temp,
+            **({} if effective_temp is None else {"temperature": effective_temp}),
             max_output_tokens=max_tokens,
             thinking_budget=cfg.thinking_budget,
             include_thoughts=False if cfg.thinking_budget is not None else None,
         )
+        if effective_temp is None:
+            google_llm.temperature = None  # type: ignore[assignment]
+        return google_llm
 
     elif provider == "openai":
         if not config.openai_api_key:

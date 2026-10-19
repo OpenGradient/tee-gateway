@@ -1017,6 +1017,14 @@ class TestTemperatureOmission(unittest.TestCase):
         model = get_chat_model_cached("claude-opus-5", 0.0, 1024)
         self.assertIsNone(model.temperature)
 
+    def test_gemini_4_argon_omits_temperature(self):
+        """langchain-google-genai rejects temperature=None at construction, so
+        the Google path has to clear it afterwards — and it must then be absent
+        from the generation config actually sent."""
+        model = get_chat_model_cached("gemini-4-argon", 0.0, 1024)
+        self.assertIsNone(model.temperature)
+        self.assertIsNone(model._prepare_params(stop=None).temperature)
+
     def test_temperature_supporting_model_keeps_it(self):
         model = get_chat_model_cached("gpt-4.1", 0.0, 1024)
         self.assertEqual(model.temperature, 0.0)

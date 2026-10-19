@@ -407,8 +407,8 @@ class TestModelRegistry(unittest.TestCase):
         cfg = get_model_config("gemini-4-argon")
         self.assertEqual(cfg.provider, "google")
         self.assertEqual(cfg.api_name, "gemini-4-argon")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.00001"))
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000004"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00002"))
         self.assertFalse(cfg.supports_temperature)
 
     def test_gemini_3_1_flash_image_resolves(self):
@@ -1075,7 +1075,7 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
     def test_gemini_4_argon_cost(self):
         cost = self._calc("gemini-4-argon", 1000, 500)
         self.assertEqual(cost, _expected_cost_opg("gemini-4-argon", 1000, 500))
-        self.assertEqual(cost, 7_000_000_000_000_000)
+        self.assertEqual(cost, 14_000_000_000_000_000)
 
     # ── xAI Grok ────────────────────────────────────────────────────────────
 

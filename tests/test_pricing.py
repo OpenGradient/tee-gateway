@@ -1008,7 +1008,7 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         expected = _expected_cost_opg("claude-opus-5-5", 1000, 500)
         self.assertEqual(cost, expected)
         # 1000*0.000004 + 500*0.00002 = 0.004 + 0.01 = 0.014 USD = 1.4e16 wei
-        self.assertEqual(cost, 7_000_000_000_000_000)
+        self.assertEqual(cost, 14_000_000_000_000_000)
 
     # ── Anthropic Fable ─────────────────────────────────────────────────────
 

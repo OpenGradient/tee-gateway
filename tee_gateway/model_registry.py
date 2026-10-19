@@ -838,6 +838,21 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.00000075"),
         output_price_usd=Decimal("0.00000375"),
     )
+    # Gemini 4 Argon — Google's flagship (generally available on the paid
+    # Gemini API 2026-10-13; text/image/video/audio/PDF in, text out, 1M
+    # context). Priced at Google's introductory $2/$10 per MTok, which ends
+    # 2026-11-30; from 2026-12-01 the standard rate is $4/$20 and this entry
+    # MUST be repriced then (ai.google.dev/gemini-api/docs/pricing). Google's
+    # model page lists no sampling-parameter support, so per the add-gateway-model
+    # rule for undocumented new models it is registered with
+    # supports_temperature=False rather than risk a 400 on every request.
+    GEMINI_4_ARGON = ModelConfig(
+        provider="google",
+        api_name="gemini-4-argon",
+        input_price_usd=Decimal("0.000002"),
+        output_price_usd=Decimal("0.00001"),
+        supports_temperature=False,
+    )
 
     # ── xAI Grok ────────────────────────────────────────────────────────
     # Grok 4.7 — xAI's newest flagship (released 2026-09-21), a larger base
@@ -1330,6 +1345,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-3.6-flash": SupportedModel.GEMINI_3_6_FLASH,
     "gemini-3.7-flash": SupportedModel.GEMINI_3_7_FLASH,
     "gemini-3.8-flash": SupportedModel.GEMINI_3_8_FLASH,
+    "gemini-4-argon": SupportedModel.GEMINI_4_ARGON,
+    "gemini-4.0-argon": SupportedModel.GEMINI_4_ARGON,
     # xAI
     "grok-4.7": SupportedModel.GROK_4_7,
     "grok-4.6": SupportedModel.GROK_4_6,

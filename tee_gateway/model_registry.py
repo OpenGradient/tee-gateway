@@ -840,17 +840,17 @@ class SupportedModel(Enum):
     )
     # Gemini 4 Argon — Google's flagship (generally available on the paid
     # Gemini API 2026-10-13; text/image/video/audio/PDF in, text out, 1M
-    # context). Priced at Google's introductory $2/$10 per MTok, which ends
-    # 2026-11-30; from 2026-12-01 the standard rate is $4/$20 and this entry
-    # MUST be repriced then (ai.google.dev/gemini-api/docs/pricing). Google's
+    # context). Priced at Google's standard $4/$20 per MTok, NOT the
+    # introductory $2/$10 that runs to 2026-11-30 (never price at promotional
+    # rates; ai.google.dev/gemini-api/docs/pricing). Google's
     # model page lists no sampling-parameter support, so per the add-gateway-model
     # rule for undocumented new models it is registered with
     # supports_temperature=False rather than risk a 400 on every request.
     GEMINI_4_ARGON = ModelConfig(
         provider="google",
         api_name="gemini-4-argon",
-        input_price_usd=Decimal("0.000002"),
-        output_price_usd=Decimal("0.00001"),
+        input_price_usd=Decimal("0.000004"),
+        output_price_usd=Decimal("0.00002"),
         supports_temperature=False,
     )
 

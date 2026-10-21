@@ -48,7 +48,7 @@ from tee_gateway.moderation import (
     moderate_messages,
     should_moderate_model,
 )
-from tee_gateway.pricing import compute_session_cost
+from tee_gateway.pricing import SessionCost, compute_session_cost
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,68 @@ def _split_text_and_images(content: Any) -> tuple[str, list[str]]:
         else:
             text_parts.append(item.get("text", "") or "")
     return ("".join(text_parts), images)
+
+
+# Characters per token when a token count has to be estimated. English prose
+# runs ~4; code and non-Latin scripts run fewer characters per token, so 4
+# undercounts them, which errs toward undercharging rather than overcharging.
+_ESTIMATED_CHARS_PER_TOKEN = 4
+
+
+def _estimate_tokens(text: str) -> int:
+    return -(-len(text) // _ESTIMATED_CHARS_PER_TOKEN)
+
+
+def _tool_call_text(buffered_tool_calls: dict) -> str:
+    """The tool-call names and arguments a stream produced, as plain text."""
+    return "".join(
+        call["function"]["name"] + call["function"]["arguments"]
+        for call in buffered_tool_calls.values()
+    )
+
+
+def _partial_stream_cost(
+    model: str,
+    langchain_messages: list,
+    usage: dict | None,
+    streamed_text: str,
+) -> SessionCost | None:
+    """What a stream that died mid-way cost, so the error frame can bill it.
+
+    Uses the provider's own token counts where it sent them before failing
+    (Anthropic reports input tokens up front, Gemini and xAI report as they
+    go), and otherwise estimates: the prompt from the messages' text, the
+    output from what was streamed. Images and unstreamed reasoning tokens
+    aren't counted, so an estimate only ever undercharges. ``None`` when the
+    provider produced nothing at all — a request refused before any work.
+    """
+    usage = usage or {}
+    reported_input = int(usage.get("input_tokens", 0) or 0)
+    reported_output = int(usage.get("output_tokens", 0) or 0)
+    if not (streamed_text or reported_input or reported_output):
+        return None
+
+    prompt_tokens = reported_input or _estimate_tokens(
+        "".join(_split_text_and_images(m.content)[0] for m in langchain_messages)
+    )
+    completion_tokens = max(reported_output, _estimate_tokens(streamed_text))
+    logger.warning(
+        "Billing partial stream after provider error model=%s prompt_tokens=%d "
+        "(%s) completion_tokens=%d (%s)",
+        model,
+        prompt_tokens,
+        "reported" if reported_input else "estimated",
+        completion_tokens,
+        "reported" if reported_output >= completion_tokens else "estimated",
+    )
+    return compute_session_cost(
+        model,
+        {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "reasoning_tokens": int(usage.get("reasoning", 0) or 0),
+        },
+    )
 
 
 def create_chat_completion(body):
@@ -904,6 +966,16 @@ def _create_streaming_response(
                 error_payload = describe_exception(
                     e, fallback="Stream processing failed"
                 )
+                # The provider bills for what it did before the stream died,
+                # and the last SSE frame is the one billing reads.
+                partial_cost = _partial_stream_cost(
+                    chat_request.model,
+                    langchain_messages,
+                    final_usage,
+                    full_content + _tool_call_text(buffered_tool_calls),
+                )
+                if partial_cost is not None:
+                    error_payload["opengradient"] = partial_cost.model_dump(mode="json")
                 yield f"data: {json.dumps(error_payload)}\n\n"
 
         return Response(

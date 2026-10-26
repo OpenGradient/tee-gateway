@@ -62,6 +62,11 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # the subscription Coding Plan endpoint at /api/coding/paas/v4.
 ZAI_BASE_URL = "https://api.z.ai/api/paas/v4"
 
+# abliteration.ai OpenAI-compatible endpoint; ChatOpenAI appends
+# /chat/completions. Streams report usage (incl. reasoning tokens) in a final
+# chunk when stream_options.include_usage is set, which stream_usage does.
+ABLITERATION_BASE_URL = "https://api.abliteration.ai/v1"
+
 # WaveSpeed REST API. Image models are submitted to /{model_id} as async
 # predictions and polled at /predictions/{id}/result (see image_generation).
 WAVESPEED_BASE_URL = "https://api.wavespeed.ai/api/v3"
@@ -73,6 +78,7 @@ xai_http_client: Optional[httpx.Client] = None
 bytedance_http_client: Optional[httpx.Client] = None
 openrouter_http_client: Optional[httpx.Client] = None
 zai_http_client: Optional[httpx.Client] = None
+abliteration_http_client: Optional[httpx.Client] = None
 wavespeed_http_client: Optional[httpx.Client] = None
 
 
@@ -83,12 +89,14 @@ def set_provider_config(config: ProviderConfig) -> None:
     """Store the provider config and rebuild HTTP clients. Called once after key injection."""
     global _provider_config, openai_http_client, xai_http_client, bytedance_http_client
     global openrouter_http_client, zai_http_client, wavespeed_http_client
+    global abliteration_http_client
 
     old_openai = openai_http_client
     old_xai = xai_http_client
     old_bytedance = bytedance_http_client
     old_openrouter = openrouter_http_client
     old_zai = zai_http_client
+    old_abliteration = abliteration_http_client
     old_wavespeed = wavespeed_http_client
 
     openai_http_client = httpx.Client(
@@ -138,6 +146,14 @@ def set_provider_config(config: ProviderConfig) -> None:
         http2=True,
         follow_redirects=False,
     )
+    abliteration_http_client = httpx.Client(
+        base_url=ABLITERATION_BASE_URL,
+        headers={"Authorization": f"Bearer {config.abliteration_api_key or ''}"},
+        timeout=_TIMEOUT,
+        limits=_LIMITS,
+        http2=True,
+        follow_redirects=False,
+    )
     wavespeed_http_client = httpx.Client(
         base_url=WAVESPEED_BASE_URL,
         headers={"Authorization": f"Bearer {config.wavespeed_api_key or ''}"},
@@ -168,6 +184,8 @@ def set_provider_config(config: ProviderConfig) -> None:
         old_openrouter.close()
     if old_zai is not None:
         old_zai.close()
+    if old_abliteration is not None:
+        old_abliteration.close()
     if old_wavespeed is not None:
         old_wavespeed.close()
 
@@ -386,6 +404,24 @@ def get_chat_model_cached(
             http_client=zai_http_client,
             api_key=SecretStr(config.zai_api_key),
             base_url=ZAI_BASE_URL,
+            streaming=True,
+            stream_usage=True,
+        )  # type: ignore [call-arg]
+
+    elif provider == "abliteration":
+        if not config.abliteration_api_key:
+            raise ValueError("abliteration_api_key not set in ProviderConfig")
+
+        if abliteration_http_client is None:
+            raise RuntimeError("abliteration.ai HTTP client has not been initialized")
+
+        return ChatOpenAI(
+            model=api_name,
+            temperature=effective_temp,
+            max_tokens=max_tokens,
+            http_client=abliteration_http_client,
+            api_key=SecretStr(config.abliteration_api_key),
+            base_url=ABLITERATION_BASE_URL,
             streaming=True,
             stream_usage=True,
         )  # type: ignore [call-arg]

@@ -56,6 +56,9 @@ PROVIDER_SMOKE_MODELS = (
     _ProviderCase("ByteDance", "deepseek-v4-flash", "ARK_API_KEY"),
     _ProviderCase("OpenRouter", "hy3", "OPENROUTER_API_KEY"),
     _ProviderCase("Z.ai", "glm-5.2", "ZAI_API_KEY"),
+    _ProviderCase(
+        "abliteration.ai", "abliterated-model-large-v2", "ABLITERATION_API_KEY"
+    ),
 )
 
 # The newest model per provider — one each, so the run stays cheap. Replace a
@@ -259,6 +262,7 @@ class TestLiveProviderUsageBilling(unittest.TestCase):
                 bytedance_api_key=os.environ["ARK_API_KEY"],
                 openrouter_api_key=os.environ["OPENROUTER_API_KEY"],
                 zai_api_key=os.environ["ZAI_API_KEY"],
+                abliteration_api_key=os.environ["ABLITERATION_API_KEY"],
                 wavespeed_api_key=os.environ["WAVESPEED_API_KEY"],
             )
         )

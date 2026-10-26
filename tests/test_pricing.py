@@ -718,6 +718,25 @@ class TestModelRegistry(unittest.TestCase):
         self.assertTrue(cfg.image_generation)
         self.assertEqual(cfg.per_image_price_usd, Decimal("0.015"))
 
+    # ── abliteration.ai ──────────────────────────────────────────────────────
+
+    def test_abliterated_large_v2_resolves(self):
+        cfg = get_model_config("abliterated-model-large-v2")
+        self.assertEqual(cfg.provider, "abliteration")
+        self.assertEqual(cfg.api_name, "abliterated-model-large-v2")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000003"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000005"))
+
+    def test_abliterated_large_v2_aliases_resolve(self):
+        for alias in (
+            "abliterated-large-v2",
+            "abliteration/abliterated-model-large-v2",
+        ):
+            self.assertEqual(
+                get_model_config(alias),
+                get_model_config("abliterated-model-large-v2"),
+            )
+
     # ── WaveSpeed ────────────────────────────────────────────────────────────
 
     def test_qwen_image_3_0_pro_resolves(self):
@@ -1198,6 +1217,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(
             self._calc("hy3", 1000, 500),
             396_000_000_000_000,
+        )
+
+    def test_abliterated_large_v2_cost(self):
+        # 1000*0.000003 + 500*0.000005 = 0.003 + 0.0025 = 0.0055 USD
+        self.assertEqual(
+            self._calc("abliterated-model-large-v2", 1000, 500),
+            5_500_000_000_000_000,
         )
 
     def test_hy4_preview_cost(self):

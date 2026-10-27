@@ -90,6 +90,24 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.000003"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000015"))
 
+    def test_claude_haiku_5_5_resolves(self):
+        cfg = get_model_config("claude-haiku-5-5")
+        self.assertEqual(cfg.provider, "anthropic")
+        self.assertEqual(cfg.api_name, "claude-haiku-5-5")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000001"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000005"))
+        # Non-default temperature/top_p/top_k return HTTP 400
+        self.assertFalse(cfg.supports_temperature)
+
+    def test_gemini_nano_banana_2_1_resolves(self):
+        cfg = get_model_config("gemini-nano-banana-2.1")
+        self.assertEqual(cfg.provider, "google")
+        self.assertEqual(cfg.api_name, "gemini-nano-banana-2.1")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000015"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000075"))
+        self.assertTrue(cfg.image_output)
+        self.assertEqual(cfg.image_output_price_usd, Decimal("0.00003"))
+
     def test_claude_sonnet_5_5_resolves(self):
         cfg = get_model_config("claude-sonnet-5-5")
         self.assertEqual(cfg.provider, "anthropic")
@@ -289,6 +307,16 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.output_price_usd, Decimal("0.00005"))
         self.assertTrue(cfg.responses_api_for_tools)
 
+    def test_gpt_6_1_terra_resolves(self):
+        for name in ("gpt-6.1-terra", "gpt-6-1-terra"):
+            cfg = get_model_config(name)
+            self.assertEqual(cfg.provider, "openai")
+            self.assertEqual(cfg.api_name, "gpt-6.1-terra")
+            self.assertEqual(cfg.input_price_usd, Decimal("0.000001"))
+            self.assertEqual(cfg.output_price_usd, Decimal("0.000005"))
+            self.assertTrue(cfg.responses_api_for_tools)
+            self.assertFalse(cfg.supports_temperature)
+
     def test_gpt_6_1_sol_resolves(self):
         for name in ("gpt-6.1-sol", "gpt-6-1-sol"):
             cfg = get_model_config(name)
@@ -394,6 +422,14 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.api_name, "gemini-3.8-flash")
         self.assertEqual(cfg.input_price_usd, Decimal("0.00000075"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.00000375"))
+
+    def test_gemini_4_argon_resolves(self):
+        cfg = get_model_config("gemini-4-argon")
+        self.assertEqual(cfg.provider, "google")
+        self.assertEqual(cfg.api_name, "gemini-4-argon")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000004"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00002"))
+        self.assertFalse(cfg.supports_temperature)
 
     def test_gemini_3_1_flash_image_resolves(self):
         cfg = get_model_config("gemini-3.1-flash-image")
@@ -579,16 +615,22 @@ class TestModelRegistry(unittest.TestCase):
 
     def test_deepseek_v4_pro_resolves(self):
         cfg = get_model_config("deepseek-v4-pro")
-        self.assertEqual(cfg.provider, "bytedance")
-        self.assertEqual(cfg.api_name, "deepseek-v4-pro-260425")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.00000174"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.00000348"))
+        self.assertEqual(cfg.provider, "openrouter")
+        self.assertEqual(cfg.api_name, "deepseek/deepseek-v4-pro-0813")
+        self.assertEqual(cfg.openrouter_provider, "phala")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.00000145"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00000436"))
 
     def test_deepseek_v4_pro_aliases_resolve(self):
-        self.assertEqual(
-            get_model_config("deepseek-v4-pro-260425"),
-            get_model_config("deepseek-v4-pro"),
-        )
+        for alias in (
+            "deepseek-v4-pro-0813",
+            "deepseek/deepseek-v4-pro-0813",
+            "deepseek-v4-pro-260425",
+        ):
+            with self.subTest(alias=alias):
+                self.assertEqual(
+                    get_model_config(alias), get_model_config("deepseek-v4-pro")
+                )
 
     def test_seedream_5_0_lite_resolves(self):
         cfg = get_model_config("seedream-5.0-lite")
@@ -695,6 +737,87 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.api_name, "glm-image")
         self.assertTrue(cfg.image_generation)
         self.assertEqual(cfg.per_image_price_usd, Decimal("0.015"))
+
+    # ── WaveSpeed ────────────────────────────────────────────────────────────
+
+    def test_qwen_image_3_0_pro_resolves(self):
+        cfg = get_model_config("qwen-image-3.0-pro")
+        self.assertEqual(cfg.provider, "wavespeed")
+        self.assertEqual(cfg.api_name, "alibaba/qwen-image-3.0-pro/text-to-image")
+        self.assertEqual(cfg.image_edit_model, "alibaba/qwen-image-3.0-pro/edit")
+        self.assertTrue(cfg.image_generation)
+        # WaveSpeed's model pages: $0.04 per 1k image, $0.075 per 2k image,
+        # $0.003 per input image on edits (1-3 of them).
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.04"))
+        self.assertEqual(cfg.image_default_resolution, "1K")
+        self.assertEqual(
+            {k: t.per_image_price_usd for k, t in cfg.image_resolutions.items()},
+            {"1K": Decimal("0.04"), "2K": Decimal("0.075")},
+        )
+        self.assertEqual(cfg.per_reference_image_price_usd, Decimal("0.003"))
+        self.assertEqual(cfg.image_max_references, 3)
+
+    def test_qwen_image_3_0_pro_aliases_resolve(self):
+        for alias in (
+            "qwen-image-3-0-pro",
+            "qwen-image-3-pro",
+            "alibaba/qwen-image-3.0-pro",
+            "alibaba/qwen-image-3.0-pro/text-to-image",
+            "Qwen-Image-3.0-Pro",
+        ):
+            with self.subTest(alias=alias):
+                self.assertEqual(
+                    get_model_config(alias), get_model_config("qwen-image-3.0-pro")
+                )
+
+    def test_krea_3_resolves(self):
+        cfg = get_model_config("krea-3")
+        self.assertEqual(cfg.provider, "wavespeed")
+        self.assertEqual(cfg.api_name, "krea/v3/text-to-image")
+        self.assertEqual(cfg.image_edit_model, "krea/v3/edit")
+        self.assertTrue(cfg.image_generation)
+        # Quality variant at medium reasoning on every request; neither is billed.
+        self.assertEqual(
+            dict(cfg.image_extra_params),
+            {"model": "berry", "reasoning_level": "medium"},
+        )
+        # WaveSpeed's formula: $0.03 x output MP x (1 + references).
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.03"))
+        self.assertEqual(cfg.per_reference_image_price_usd, Decimal("0.03"))
+        self.assertEqual(cfg.image_default_resolution, "1K")
+        self.assertEqual(
+            {
+                k: (t.per_image_price_usd, t.per_reference_image_price_usd)
+                for k, t in cfg.image_resolutions.items()
+            },
+            {
+                "1K": (Decimal("0.03"), Decimal("0.03")),
+                "2K": (Decimal("0.12"), Decimal("0.12")),
+            },
+        )
+        self.assertEqual(cfg.image_max_references, 8)
+
+    def test_krea_3_aliases_resolve(self):
+        for alias in (
+            "krea-v3",
+            "krea3",
+            "krea/v3",
+            "krea/v3/text-to-image",
+            "Krea-3",
+        ):
+            with self.subTest(alias=alias):
+                self.assertEqual(get_model_config(alias), get_model_config("krea-3"))
+
+    def test_krea_3_sizes_stay_within_the_billed_tier_area(self):
+        # WaveSpeed rounds each side up to 16 and bills per 1,048,576 px, so a
+        # size over the tier's area would be billed above the tier price.
+        cfg = get_model_config("krea-3")
+        for tier, megapixels in (("1K", 1), ("2K", 4)):
+            for ratio, size in cfg.image_resolutions[tier].aspect_ratios.items():
+                with self.subTest(tier=tier, ratio=ratio):
+                    w, h = (int(v) for v in size.split("*"))
+                    self.assertEqual((w % 16, h % 16), (0, 0))
+                    self.assertLessEqual(w * h, megapixels * 1_048_576)
 
     # ── Errors ───────────────────────────────────────────────────────────────
 
@@ -822,6 +945,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         # 1000*0.00001 + 500*0.00005 = 0.01 + 0.025 = 0.035 USD = 3.5e16 wei
         self.assertEqual(cost, 35_000_000_000_000_000)
 
+    def test_gpt_6_1_terra_cost(self):
+        cost = self._calc("gpt-6.1-terra", 1000, 500)
+        expected = _expected_cost_opg("gpt-6.1-terra", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.000001 + 500*0.000005 = 0.001 + 0.0025 = 0.0035 USD = 3.5e15 wei
+        self.assertEqual(cost, 3_500_000_000_000_000)
+
     def test_gpt_6_1_sol_cost(self):
         cost = self._calc("gpt-6.1-sol", 1000, 500)
         expected = _expected_cost_opg("gpt-6.1-sol", 1000, 500)
@@ -892,6 +1022,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(cost, expected)
         # Same price tier as opus-4-5/4-6/4-7/4-8: 1000*0.000005 + 500*0.000025 = 0.0175 USD
         self.assertEqual(cost, 17_500_000_000_000_000)
+
+    def test_claude_haiku_5_5_cost(self):
+        cost = self._calc("claude-haiku-5-5", 1000, 500)
+        expected = _expected_cost_opg("claude-haiku-5-5", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.0000001 + 500*0.0000005 = 0.0001 + 0.00025 = 0.00035 USD = 3.5e14 wei
+        self.assertEqual(cost, 350_000_000_000_000)
 
     def test_claude_sonnet_5_5_cost(self):
         cost = self._calc("claude-sonnet-5-5", 1000, 500)
@@ -968,6 +1105,11 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         cost = self._calc("gemini-3.8-flash", 1000, 500)
         self.assertEqual(cost, _expected_cost_opg("gemini-3.8-flash", 1000, 500))
         self.assertEqual(cost, 2_625_000_000_000_000)
+
+    def test_gemini_4_argon_cost(self):
+        cost = self._calc("gemini-4-argon", 1000, 500)
+        self.assertEqual(cost, _expected_cost_opg("gemini-4-argon", 1000, 500))
+        self.assertEqual(cost, 14_000_000_000_000_000)
 
     # ── xAI Grok ────────────────────────────────────────────────────────────
 
@@ -1080,8 +1222,8 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         cost = self._calc("deepseek-v4-pro", 1000, 500)
         expected = _expected_cost_opg("deepseek-v4-pro", 1000, 500)
         self.assertEqual(cost, expected)
-        # 1000*0.00000174 + 500*0.00000348 = 0.00174 + 0.00174 = 0.00348 USD
-        self.assertEqual(cost, 3_480_000_000_000_000)
+        # 1000*0.00000145 + 500*0.00000436 = 0.00145 + 0.00218 = 0.00363 USD
+        self.assertEqual(cost, 3_630_000_000_000_000)
 
     # ── OpenRouter ─────────────────────────────────────────────────────────
 

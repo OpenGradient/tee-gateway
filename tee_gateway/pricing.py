@@ -50,7 +50,11 @@ class SessionCost(BaseModel):
 
 
 def compute_session_cost(
-    model: str, usage: dict, image_count: int = 0, resolution: str | None = None
+    model: str,
+    usage: dict,
+    image_count: int = 0,
+    resolution: str | None = None,
+    reference_count: int = 0,
 ) -> SessionCost | None:
     """Compute the settled cost for a completed inference request.
 
@@ -110,6 +114,19 @@ def compute_session_cost(
             if images and per_image is not None
             else Decimal(0)
         )
+        # Providers that bill input images on edits (WaveSpeed) charge per
+        # reference forwarded, on top of the output images. Only billed when
+        # the request produced images, like the output price itself.
+        # A tier may set its own reference price (WaveSpeed's Krea 3 bills a
+        # reference at the output's size).
+        references = max(0, int(reference_count))
+        per_reference = (
+            tier.per_reference_image_price_usd
+            if tier is not None and tier.per_reference_image_price_usd is not None
+            else cfg.per_reference_image_price_usd
+        )
+        if images and references and per_reference is not None:
+            image_usd += Decimal(references) * per_reference
         raw_usd += image_usd
 
         token_price_usd = get_price_feed().get_price()

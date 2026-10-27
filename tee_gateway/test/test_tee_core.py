@@ -1017,6 +1017,14 @@ class TestTemperatureOmission(unittest.TestCase):
         model = get_chat_model_cached("claude-opus-5", 0.0, 1024)
         self.assertIsNone(model.temperature)
 
+    def test_gemini_4_argon_omits_temperature(self):
+        """langchain-google-genai rejects temperature=None at construction, so
+        the Google path has to clear it afterwards — and it must then be absent
+        from the generation config actually sent."""
+        model = get_chat_model_cached("gemini-4-argon", 0.0, 1024)
+        self.assertIsNone(model.temperature)
+        self.assertIsNone(model._prepare_params(stop=None).temperature)
+
     def test_temperature_supporting_model_keeps_it(self):
         model = get_chat_model_cached("gpt-4.1", 0.0, 1024)
         self.assertEqual(model.temperature, 0.0)
@@ -1035,3 +1043,32 @@ class TestTemperatureOmission(unittest.TestCase):
             with self.subTest(model=cfg.api_name):
                 model = get_chat_model_cached(cfg.api_name, 0.0, 1024)
                 self.assertIsNone(model.temperature)
+
+
+class TestOpenRouterProviderRouting(unittest.TestCase):
+    """OpenRouter models route by price unless the registry pins a provider."""
+
+    _saved_config: Optional[ProviderConfig] = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._saved_config = get_provider_config()
+        set_provider_config(ProviderConfig(openrouter_api_key="test-openrouter-key"))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._saved_config is not None:
+            set_provider_config(cls._saved_config)
+        get_chat_model_cached.cache_clear()
+
+    def test_deepseek_v4_pro_pinned_to_phala(self):
+        model = get_chat_model_cached("deepseek-v4-pro", 0.0, 1024)
+        self.assertEqual(model.model_name, "deepseek/deepseek-v4-pro-0813")
+        self.assertEqual(
+            model.extra_body,
+            {"provider": {"order": ["phala"], "allow_fallbacks": False}},
+        )
+
+    def test_unpinned_model_sorts_by_price(self):
+        model = get_chat_model_cached("hy3", 0.0, 1024)
+        self.assertEqual(model.extra_body, {"provider": {"sort": "price"}})

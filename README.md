@@ -33,17 +33,17 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 
 | Provider | Models |
 |----------|--------|
-| OpenAI | gpt-6.1-sol, gpt-6-sol, gpt-6-luna, gpt-6-astra, gpt-4.1, gpt-4.1-mini, gpt-5, gpt-5-mini, gpt-5.2, gpt-5.4, gpt-5.5, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, o3 |
-| Anthropic | claude-sonnet-5-5, claude-fable-5-1, claude-fable-5, claude-opus-5-5, claude-opus-5, claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-opus-4-5, claude-sonnet-5, claude-sonnet-4-6, claude-sonnet-4-5, claude-haiku-4-5 |
-| Google | gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-flash-preview, gemini-3.1-pro-preview |
+| OpenAI | gpt-6.1-terra, gpt-6.1-sol, gpt-6-sol, gpt-6-luna, gpt-6-astra, gpt-4.1, gpt-4.1-mini, gpt-5, gpt-5-mini, gpt-5.2, gpt-5.4, gpt-5.5, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, o3 |
+| Anthropic | claude-haiku-5-5, claude-sonnet-5-5, claude-fable-5-1, claude-fable-5, claude-opus-5-5, claude-opus-5, claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-opus-4-5, claude-sonnet-5, claude-sonnet-4-6, claude-sonnet-4-5, claude-haiku-4-5 |
+| Google | gemini-4-argon, gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-flash-preview, gemini-3.1-pro-preview |
 | xAI | grok-4.7, grok-4.6, grok-4.5, grok-4.3, grok-4.20-reasoning, grok-4.20-non-reasoning |
 | ByteDance | seed-1.6, seed-1.8, seed-2.0-lite, dola-seed-2.0-mini, deepseek-v4-flash, deepseek-v4-pro, glm-5.2 |
 | OpenRouter | hy4-preview, hermes-4-405b, hy3 |
 
-Image generation: gpt-image-2, gpt-image-2.5-flare, gpt-image-2.5-sunburst,
-gemini-2.5-flash-image, gemini-3.1-flash-image, grok-2-image,
-grok-imagine-image-2.0, seedream-4.0, seedream-5.0-lite, seedance-4.5,
-seedance-5.0, glm-image.
+Image generation: krea-3 and qwen-image-3.0-pro (via WaveSpeed), gpt-image-2,
+gpt-image-2.5-flare, gpt-image-2.5-sunburst, gemini-2.5-flash-image,
+gemini-nano-banana-2.1, gemini-3.1-flash-image, grok-2-image, grok-imagine-image-2.0, seedream-4.0,
+seedream-5.0-lite, seedance-4.5, seedance-5.0, glm-image.
 
 Some retired models stay registered so older SDK versions keep working; see
 "Supported Providers" in CLAUDE.md. `tee_gateway/model_registry.py` is the
@@ -65,6 +65,7 @@ export XAI_API_KEY=...
 export ARK_API_KEY=...   # BytePlus / ByteDance ModelArk
 export OPENROUTER_API_KEY=...  # OpenRouter
 export ZAI_API_KEY=...   # Z.ai Model API
+export WAVESPEED_API_KEY=...  # WaveSpeed (krea-3, qwen-image-3.0-pro)
 
 # Run server (starts the Flask/connexion app on port 8000)
 make test-local          # Werkzeug dev server (development only)
@@ -418,6 +419,7 @@ Clients use an x402-compatible client (e.g., the [x402 SDK](https://github.com/o
 | `ARK_API_KEY` | - | BytePlus / ByteDance ModelArk API key (injected as `bytedance_api_key`) |
 | `OPENROUTER_API_KEY` | - | OpenRouter API key (injected as `openrouter_api_key`) |
 | `ZAI_API_KEY` | - | Z.ai Model API key (injected as `zai_api_key`) |
+| `WAVESPEED_API_KEY` | - | WaveSpeed API key (injected as `wavespeed_api_key`) |
 | `EVM_PAYMENT_ADDRESS` | - | Wallet address to receive x402 payments |
 | `FACILITATOR_URL` | see `tee_gateway/__main__.py` | x402 payment facilitator endpoint |
 

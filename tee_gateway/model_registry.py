@@ -33,12 +33,17 @@ class ImageResolutionTier:
     # ModelArk the bare ``size`` keyword). Merged after ``image_extra_params``
     # and before the ratio override, so an explicit ratio still wins.
     extra_params: Mapping[str, Any] = field(default_factory=dict)
+    # USD per reference image forwarded at this tier, for providers whose
+    # input-image charge scales with the output size (WaveSpeed bills Krea 3
+    # references at the output's megapixels). ``None`` falls back to
+    # ``ModelConfig.per_reference_image_price_usd``.
+    per_reference_image_price_usd: Optional[Decimal] = None
 
 
 @dataclass(frozen=True)
 class ModelConfig:
     # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" |
-    # "openrouter" | "zai"
+    # "openrouter" | "zai" | "wavespeed"
     provider: str
     api_name: str  # model name sent to provider API
     input_price_usd: Decimal  # USD per token
@@ -84,6 +89,19 @@ class ModelConfig:
     #     Used by OpenAI gpt-image, whose editing/compositing lives on a separate
     #     endpoint from text-to-image generation.
     image_edit_endpoint: Optional[str] = None
+    # WaveSpeed splits a model into separate text-to-image and edit model
+    # endpoints (``…/text-to-image`` vs ``…/edit``). When set, a request that
+    # carries reference images is submitted to this model path instead of
+    # ``api_name``. WaveSpeed provider only.
+    image_edit_model: Optional[str] = None
+    # Most reference images the endpoint accepts. Providers reject a request
+    # over their cap rather than truncating it, so the gateway forwards at most
+    # this many (the first ones, in the order the client sent them).
+    image_max_references: int = 10
+    # Flat USD price per reference image forwarded to the provider, for
+    # providers that bill input images on edits. Added on top of the per-output
+    # image price; ``None`` means references are not billed.
+    per_reference_image_price_usd: Optional[Decimal] = None
     # Static extra params merged verbatim into the request payload (e.g. size,
     # watermark). Keyed by field name; values must be JSON-serializable.
     image_extra_params: Optional[Mapping[str, Any]] = None
@@ -122,6 +140,9 @@ class ModelConfig:
     # function tools together (preserving reasoning rather than disabling it).
     # OpenAI provider only; ignored elsewhere.
     responses_api_for_tools: bool = False
+    # OpenRouter provider slug to pin the model to (fallbacks off). ``None``
+    # routes to the cheapest provider.
+    openrouter_provider: Optional[str] = None
 
     def image_tier(self, resolution: Optional[str]) -> Optional[ImageResolutionTier]:
         """The tier a request runs at, or ``None`` for a single-resolution model.
@@ -249,6 +270,60 @@ _GPT_IMAGE_ASPECT_SIZES: dict[str, str] = {
     "16:9": "1536x864",
     "9:16": "864x1536",
     "21:9": "1792x768",
+}
+
+# WaveSpeed's aspect_ratio enum for Qwen Image 3.0 Pro (text-to-image and edit
+# share it). WaveSpeed maps ratio + resolution tier to pixels itself, so both
+# tiers use the same table and the values pass through unchanged.
+_WAVESPEED_QWEN_IMAGE_ASPECT_RATIOS: dict[str, str] = {
+    ratio: ratio
+    for ratio in (
+        "1:1",
+        "1:2",
+        "2:1",
+        "1:3",
+        "3:1",
+        "2:3",
+        "3:2",
+        "3:4",
+        "4:3",
+        "4:5",
+        "5:4",
+        "9:16",
+        "16:9",
+        "9:21",
+        "21:9",
+    )
+}
+
+# WaveSpeed's Krea 3 takes explicit ``width*height`` sizes (multiples of 16)
+# and bills by them: $0.03 per started megapixel (1,048,576 px) of output, and
+# the same again for each reference image. Every size in a table stays at or
+# under its tier's billed area — 1 MP for 1K, 4 MP for 2K — so the flat tier
+# price is never below what WaveSpeed charges. The ratio set is Krea's own.
+_WAVESPEED_KREA_1K_SIZES: dict[str, str] = {
+    "1:1": "1024*1024",
+    "4:3": "1152*864",
+    "3:4": "864*1152",
+    "3:2": "1248*832",
+    "2:3": "832*1248",
+    "16:9": "1360*768",
+    "9:16": "768*1360",
+    "5:4": "1136*912",
+    "4:5": "912*1136",
+    "21:9": "1536*656",
+}
+_WAVESPEED_KREA_2K_SIZES: dict[str, str] = {
+    "1:1": "2048*2048",
+    "4:3": "2304*1728",
+    "3:4": "1728*2304",
+    "3:2": "2496*1664",
+    "2:3": "1664*2496",
+    "16:9": "2720*1536",
+    "9:16": "1536*2720",
+    "5:4": "2272*1824",
+    "4:5": "1824*2272",
+    "21:9": "3072*1312",
 }
 
 _GEMINI_IMAGE_ASPECT_RATIOS: dict[str, str] = {
@@ -417,6 +492,20 @@ class SupportedModel(Enum):
         responses_api_for_tools=True,
         supports_temperature=False,
     )
+    # GPT-6.1 Terra (released 2026-10-26) replaces gpt-5.6-terra: $1/$5 per MTok
+    # (https://openai.com/index/introducing-gpt-6-1-terra/), under half the old
+    # $2.5/$15 the registry bills for it. gpt-5.6-terra stays registered so
+    # existing callers keep resolving. Parameter restrictions are not listed in
+    # the launch docs; it is a GPT-6.1 reasoning model like Sol, so it takes the
+    # same supports_temperature=False and Responses-API-for-tools settings.
+    GPT_6_1_TERRA = ModelConfig(
+        provider="openai",
+        api_name="gpt-6.1-terra",
+        input_price_usd=Decimal("0.000001"),
+        output_price_usd=Decimal("0.000005"),
+        responses_api_for_tools=True,
+        supports_temperature=False,
+    )
     # GPT-6.1 Sol (released 2026-09-29) replaces gpt-6-sol after a week: same
     # $2/$10 per MTok, better coding/agentic scores. gpt-6-sol stays registered
     # so existing callers keep resolving. Docs published so far do not list
@@ -559,6 +648,20 @@ class SupportedModel(Enum):
         api_name="claude-sonnet-5",
         input_price_usd=Decimal("0.000003"),
         output_price_usd=Decimal("0.000015"),
+        supports_temperature=False,
+    )
+    # Claude Haiku 5.5 — successor to Haiku 4.5, released 2026-10-07. Priced by
+    # prompt length: $0.10/$0.50 per MTok for prompts up to 100k tokens,
+    # $0.50/$2.50 above (platform.claude.com/docs/en/about-claude/pricing).
+    # The registry has one rate per model, so this carries the <=100k tier;
+    # prompts over 100k tokens are under-billed by 5x until a length-tiered
+    # rate exists. Adaptive thinking; a non-default temperature/top_p/top_k
+    # returns HTTP 400, so supports_temperature=False.
+    CLAUDE_HAIKU_5_5 = ModelConfig(
+        provider="anthropic",
+        api_name="claude-haiku-5-5",
+        input_price_usd=Decimal("0.0000001"),
+        output_price_usd=Decimal("0.0000005"),
         supports_temperature=False,
     )
     CLAUDE_HAIKU_4_5 = ModelConfig(
@@ -719,6 +822,20 @@ class SupportedModel(Enum):
         image_output_price_usd=Decimal("0.00006"),
         image_aspect_ratios=_GEMINI_IMAGE_ASPECT_RATIOS,
     )
+    # Native image generation ("nano banana 2.1"), successor to Nano Banana 2,
+    # released 2026-10-06. Google bills output at two rates: text/thinking at
+    # $7.50/MTok and images at $30/MTok ($0.0336/0.0504/0.113 per 1K/2K/4K
+    # image); input (text/image) is $1.50/MTok
+    # (ai.google.dev/gemini-api/docs/pricing). The API id has no `-image` suffix.
+    GEMINI_NANO_BANANA_2_1 = ModelConfig(
+        provider="google",
+        api_name="gemini-nano-banana-2.1",
+        input_price_usd=Decimal("0.0000015"),
+        output_price_usd=Decimal("0.0000075"),
+        image_output=True,
+        image_output_price_usd=Decimal("0.00003"),
+        image_aspect_ratios=_GEMINI_IMAGE_ASPECT_RATIOS,
+    )
     GEMINI_3_5_FLASH = ModelConfig(
         provider="google",
         api_name="gemini-3.5-flash",
@@ -749,6 +866,21 @@ class SupportedModel(Enum):
         api_name="gemini-3.8-flash",
         input_price_usd=Decimal("0.00000075"),
         output_price_usd=Decimal("0.00000375"),
+    )
+    # Gemini 4 Argon — Google's flagship (generally available on the paid
+    # Gemini API 2026-10-13; text/image/video/audio/PDF in, text out, 1M
+    # context). Priced at Google's standard $4/$20 per MTok, NOT the
+    # introductory $2/$10 that runs to 2026-11-30 (never price at promotional
+    # rates; ai.google.dev/gemini-api/docs/pricing). Google's
+    # model page lists no sampling-parameter support, so per the add-gateway-model
+    # rule for undocumented new models it is registered with
+    # supports_temperature=False rather than risk a 400 on every request.
+    GEMINI_4_ARGON = ModelConfig(
+        provider="google",
+        api_name="gemini-4-argon",
+        input_price_usd=Decimal("0.000004"),
+        output_price_usd=Decimal("0.00002"),
+        supports_temperature=False,
     )
 
     # ── xAI Grok ────────────────────────────────────────────────────────
@@ -907,12 +1039,6 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.00000014"),
         output_price_usd=Decimal("0.00000028"),
     )
-    DEEPSEEK_V4_PRO = ModelConfig(
-        provider="bytedance",
-        api_name="deepseek-v4-pro-260425",
-        input_price_usd=Decimal("0.00000174"),
-        output_price_usd=Decimal("0.00000348"),
-    )
     # Seedream 4.0 image generation via ModelArk's OpenAI-compatible
     # /images/generations endpoint. Billed at a flat $0.03 per generated image;
     # token prices unused.
@@ -1004,6 +1130,14 @@ class SupportedModel(Enum):
     )
 
     # ── OpenRouter (OpenAI-compatible) ──────────────────────────────────
+    # DeepSeek V4 Pro 0813, routed through OpenRouter, pinned to Phala.
+    DEEPSEEK_V4_PRO = ModelConfig(
+        provider="openrouter",
+        api_name="deepseek/deepseek-v4-pro-0813",
+        input_price_usd=Decimal("0.00000145"),
+        output_price_usd=Decimal("0.00000436"),
+        openrouter_provider="phala",
+    )
     # Tencent Hy4 Preview — 770B-parameter (49B active) open-weight MoE,
     # open-sourced 2026-08-28, aimed at coding agents and long-horizon
     # tool-use with a 1,048,576-token context window. Routed through
@@ -1071,6 +1205,88 @@ class SupportedModel(Enum):
         image_aspect_ratio_param="size",
     )
 
+    # ── WaveSpeed (async prediction API) ────────────────────────────────
+    # Krea 3 — Krea's image editing model, served through WaveSpeed as two
+    # model endpoints (text-to-image, and edit with 1-8 references). Every
+    # request runs the quality variant ("berry", not the faster "jam") at
+    # reasoning_level "medium" ("high" is not offered on WaveSpeed); neither
+    # choice changes the price. WaveSpeed's published billing formula is
+    # $0.03 x output megapixels x (1 + reference count), with an omitted
+    # `size` billed as 1024*1024, so references are priced per tier at the
+    # tier's output price: 1K $0.03 + $0.03/ref, 2K $0.12 + $0.12/ref. 1K
+    # omits `size` when no ratio is asked for (text-to-image defaults to
+    # 1024*1024; edits keep the first reference's framing); 2K has no such
+    # automatic mode, so without a ratio it is square.
+    KREA_3 = ModelConfig(
+        provider="wavespeed",
+        api_name="krea/v3/text-to-image",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.03"),
+        image_response_format=None,
+        image_send_n=False,
+        image_supports_reference=True,
+        image_edit_model="krea/v3/edit",
+        image_max_references=8,
+        per_reference_image_price_usd=Decimal("0.03"),
+        image_extra_params={"model": "berry", "reasoning_level": "medium"},
+        image_aspect_ratios=_WAVESPEED_KREA_1K_SIZES,
+        image_aspect_ratio_param="size",
+        image_resolutions={
+            "1K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.03"),
+                aspect_ratios=_WAVESPEED_KREA_1K_SIZES,
+                per_reference_image_price_usd=Decimal("0.03"),
+            ),
+            "2K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.12"),
+                aspect_ratios=_WAVESPEED_KREA_2K_SIZES,
+                extra_params={"size": "2048*2048"},
+                per_reference_image_price_usd=Decimal("0.12"),
+            ),
+        },
+        image_default_resolution="1K",
+    )
+    # Qwen Image 3.0 Pro — Alibaba's flagship image model, served through
+    # WaveSpeed rather than Alibaba Cloud Model Studio. WaveSpeed exposes it as
+    # two model endpoints, text-to-image and edit (1-3 reference images), both
+    # run as async predictions the gateway submits and polls (see
+    # image_generation._generate_wavespeed). One image per prediction, so `n`
+    # is not sent. Priced from WaveSpeed's model pages: $0.04 per 1k image,
+    # $0.075 per 2k image, plus $0.003 per input image on edits. WaveSpeed's
+    # `resolution` field ("1k" / "2k") is what it bills by, so it is exposed as
+    # resolution tiers; omitted means 1k.
+    QWEN_IMAGE_3_0_PRO = ModelConfig(
+        provider="wavespeed",
+        api_name="alibaba/qwen-image-3.0-pro/text-to-image",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.04"),
+        image_response_format=None,
+        image_send_n=False,
+        image_supports_reference=True,
+        image_edit_model="alibaba/qwen-image-3.0-pro/edit",
+        image_max_references=3,
+        per_reference_image_price_usd=Decimal("0.003"),
+        image_extra_params={"enable_prompt_expansion": False},
+        image_aspect_ratios=_WAVESPEED_QWEN_IMAGE_ASPECT_RATIOS,
+        image_resolutions={
+            "1K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.04"),
+                aspect_ratios=_WAVESPEED_QWEN_IMAGE_ASPECT_RATIOS,
+                extra_params={"resolution": "1k"},
+            ),
+            "2K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.075"),
+                aspect_ratios=_WAVESPEED_QWEN_IMAGE_ASPECT_RATIOS,
+                extra_params={"resolution": "2k"},
+            ),
+        },
+        image_default_resolution="1K",
+    )
+
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──
     # grok-3 was retired on 2026-05-15 alongside the slugs above and is
     # redirected to grok-4.3 (reasoning effort "none"), billed at grok-4.3's
@@ -1116,6 +1332,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gpt-5.6-terra": SupportedModel.GPT_5_6_TERRA,
     "gpt-5.6-luna": SupportedModel.GPT_5_6_LUNA,
     "gpt-6-astra": SupportedModel.GPT_6_ASTRA,
+    "gpt-6.1-terra": SupportedModel.GPT_6_1_TERRA,
+    "gpt-6-1-terra": SupportedModel.GPT_6_1_TERRA,
     "gpt-6.1-sol": SupportedModel.GPT_6_1_SOL,
     "gpt-6-1-sol": SupportedModel.GPT_6_1_SOL,
     "gpt-6-sol": SupportedModel.GPT_6_SOL,
@@ -1132,6 +1350,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "claude-sonnet-5-5": SupportedModel.CLAUDE_SONNET_5_5,
     "claude-sonnet-5.5": SupportedModel.CLAUDE_SONNET_5_5,
     "claude-sonnet-5": SupportedModel.CLAUDE_SONNET_5,
+    "claude-haiku-5-5": SupportedModel.CLAUDE_HAIKU_5_5,
+    "claude-haiku-5.5": SupportedModel.CLAUDE_HAIKU_5_5,
     "claude-haiku-4-5": SupportedModel.CLAUDE_HAIKU_4_5,
     "claude-opus-4-5": SupportedModel.CLAUDE_OPUS_4_5,
     "claude-opus-4-6": SupportedModel.CLAUDE_OPUS_4_6,
@@ -1151,11 +1371,15 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-3.1-pro-preview": SupportedModel.GEMINI_3_1_PRO_PREVIEW,
     "gemini-2.5-flash-image": SupportedModel.GEMINI_2_5_FLASH_IMAGE,
     "gemini-3.1-flash-image": SupportedModel.GEMINI_3_1_FLASH_IMAGE,
+    "gemini-nano-banana-2.1": SupportedModel.GEMINI_NANO_BANANA_2_1,
+    "gemini-nano-banana-2-1": SupportedModel.GEMINI_NANO_BANANA_2_1,
     "gemini-3.5-flash": SupportedModel.GEMINI_3_5_FLASH,
     "gemini-3.5-flash-lite": SupportedModel.GEMINI_3_5_FLASH_LITE,
     "gemini-3.6-flash": SupportedModel.GEMINI_3_6_FLASH,
     "gemini-3.7-flash": SupportedModel.GEMINI_3_7_FLASH,
     "gemini-3.8-flash": SupportedModel.GEMINI_3_8_FLASH,
+    "gemini-4-argon": SupportedModel.GEMINI_4_ARGON,
+    "gemini-4.0-argon": SupportedModel.GEMINI_4_ARGON,
     # xAI
     "grok-4.7": SupportedModel.GROK_4_7,
     "grok-4.6": SupportedModel.GROK_4_6,
@@ -1188,8 +1412,6 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "dola-seed-2-0-mini": SupportedModel.DOLA_SEED_2_0_MINI,
     "deepseek-v4-flash-260425": SupportedModel.DEEPSEEK_V4_FLASH,
     "deepseek-v4-flash": SupportedModel.DEEPSEEK_V4_FLASH,
-    "deepseek-v4-pro-260425": SupportedModel.DEEPSEEK_V4_PRO,
-    "deepseek-v4-pro": SupportedModel.DEEPSEEK_V4_PRO,
     "seedream-4-0-250828": SupportedModel.SEEDREAM_4_0,
     "seedream-4.0": SupportedModel.SEEDREAM_4_0,
     "seedream-4-0": SupportedModel.SEEDREAM_4_0,
@@ -1201,7 +1423,12 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "ep-20260803211347-hq9k8": SupportedModel.SEEDANCE_5_0,
     "seedance-5.0": SupportedModel.SEEDANCE_5_0,
     "seedance-5-0": SupportedModel.SEEDANCE_5_0,
-    # Nous Research models routed through OpenRouter
+    # Routed through OpenRouter
+    "deepseek-v4-pro": SupportedModel.DEEPSEEK_V4_PRO,
+    "deepseek-v4-pro-0813": SupportedModel.DEEPSEEK_V4_PRO,
+    "deepseek/deepseek-v4-pro-0813": SupportedModel.DEEPSEEK_V4_PRO,
+    # Former ModelArk id
+    "deepseek-v4-pro-260425": SupportedModel.DEEPSEEK_V4_PRO,
     "hermes-4-405b": SupportedModel.HERMES_4_405B,
     "nousresearch/hermes-4-405b": SupportedModel.HERMES_4_405B,
     "hy3": SupportedModel.HY3,
@@ -1214,6 +1441,17 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "glm-5.2": SupportedModel.GLM_5_2,
     "ep-20260803211658-fwpzs": SupportedModel.GLM_5_2,
     "glm-image": SupportedModel.GLM_IMAGE,
+    # WaveSpeed
+    "krea-3": SupportedModel.KREA_3,
+    "krea-v3": SupportedModel.KREA_3,
+    "krea3": SupportedModel.KREA_3,
+    "krea/v3": SupportedModel.KREA_3,
+    "krea/v3/text-to-image": SupportedModel.KREA_3,
+    "qwen-image-3.0-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
+    "qwen-image-3-0-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
+    "qwen-image-3-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
+    "alibaba/qwen-image-3.0-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
+    "alibaba/qwen-image-3.0-pro/text-to-image": SupportedModel.QWEN_IMAGE_3_0_PRO,
     # Legacy — not in current SDK, retained for older SDK versions
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
     "grok-3-mini": SupportedModel.GROK_3_MINI,

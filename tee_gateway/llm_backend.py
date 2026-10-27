@@ -62,6 +62,10 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # the subscription Coding Plan endpoint at /api/coding/paas/v4.
 ZAI_BASE_URL = "https://api.z.ai/api/paas/v4"
 
+# WaveSpeed REST API. Image models are submitted to /{model_id} as async
+# predictions and polled at /predictions/{id}/result (see image_generation).
+WAVESPEED_BASE_URL = "https://api.wavespeed.ai/api/v3"
+
 # Shared synchronous HTTP clients for each provider.
 # Initialized to None; built by set_provider_config() after key injection.
 openai_http_client: Optional[httpx.Client] = None
@@ -69,6 +73,7 @@ xai_http_client: Optional[httpx.Client] = None
 bytedance_http_client: Optional[httpx.Client] = None
 openrouter_http_client: Optional[httpx.Client] = None
 zai_http_client: Optional[httpx.Client] = None
+wavespeed_http_client: Optional[httpx.Client] = None
 
 
 _provider_config: Optional[ProviderConfig] = None
@@ -77,13 +82,14 @@ _provider_config: Optional[ProviderConfig] = None
 def set_provider_config(config: ProviderConfig) -> None:
     """Store the provider config and rebuild HTTP clients. Called once after key injection."""
     global _provider_config, openai_http_client, xai_http_client, bytedance_http_client
-    global openrouter_http_client, zai_http_client
+    global openrouter_http_client, zai_http_client, wavespeed_http_client
 
     old_openai = openai_http_client
     old_xai = xai_http_client
     old_bytedance = bytedance_http_client
     old_openrouter = openrouter_http_client
     old_zai = zai_http_client
+    old_wavespeed = wavespeed_http_client
 
     openai_http_client = httpx.Client(
         base_url="https://api.openai.com/v1",
@@ -132,6 +138,14 @@ def set_provider_config(config: ProviderConfig) -> None:
         http2=True,
         follow_redirects=False,
     )
+    wavespeed_http_client = httpx.Client(
+        base_url=WAVESPEED_BASE_URL,
+        headers={"Authorization": f"Bearer {config.wavespeed_api_key or ''}"},
+        timeout=_TIMEOUT,
+        limits=_LIMITS,
+        http2=True,
+        follow_redirects=False,
+    )
 
     # Web search runs inside the enclave against Exa rather than through any
     # provider's native tool, so its client is built here alongside them.
@@ -154,6 +168,8 @@ def set_provider_config(config: ProviderConfig) -> None:
         old_openrouter.close()
     if old_zai is not None:
         old_zai.close()
+    if old_wavespeed is not None:
+        old_wavespeed.close()
 
 
 def get_provider_config() -> Optional[ProviderConfig]:
@@ -235,14 +251,22 @@ def get_chat_model_cached(
                 response_modalities=[Modality.TEXT, Modality.IMAGE],
             )
 
-        return ChatGoogleGenerativeAI(
+        # Unlike the other langchain-<provider> packages, langchain-google-genai
+        # types `temperature` as a plain float (default 0.7) and rejects None at
+        # construction. Build without it, then clear it: the field is not
+        # re-validated on assignment, and a None temperature is dropped from the
+        # outgoing GenerationConfig, so the request carries no temperature.
+        google_llm = ChatGoogleGenerativeAI(
             model=api_name,
             google_api_key=config.google_api_key,
-            temperature=effective_temp,
+            **({} if effective_temp is None else {"temperature": effective_temp}),
             max_output_tokens=max_tokens,
             thinking_budget=cfg.thinking_budget,
             include_thoughts=False if cfg.thinking_budget is not None else None,
         )
+        if effective_temp is None:
+            google_llm.temperature = None  # type: ignore[assignment]
+        return google_llm
 
     elif provider == "openai":
         if not config.openai_api_key:
@@ -337,7 +361,13 @@ def get_chat_model_cached(
             http_client=openrouter_http_client,
             api_key=SecretStr(config.openrouter_api_key),
             base_url=OPENROUTER_BASE_URL,
-            extra_body={"provider": {"sort": "price"}},
+            extra_body={
+                "provider": (
+                    {"order": [cfg.openrouter_provider], "allow_fallbacks": False}
+                    if cfg.openrouter_provider
+                    else {"sort": "price"}
+                )
+            },
             streaming=True,
             stream_usage=True,
         )  # type: ignore [call-arg]

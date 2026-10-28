@@ -6,7 +6,7 @@ class CreateChatCompletionRequest:
         messages=None,
         model=None,
         store=False,
-        reasoning_effort="medium",
+        reasoning_effort=None,
         metadata=None,
         frequency_penalty=0,
         logit_bias=None,

@@ -218,11 +218,13 @@ def get_chat_model_cached(
     temperature: float,
     max_tokens: int,
     force_responses_api: bool = False,
+    reasoning_effort: Optional[str] = None,
 ):
     """Get cached chat model instance using the injected ProviderConfig.
 
-    Models are cached by (model, temperature, max_tokens, force_responses_api)
-    tuple. Cache is cleared by set_provider_config() after key injection.
+    Models are cached by (model, temperature, max_tokens, force_responses_api,
+    reasoning_effort) tuple. Cache is cleared by set_provider_config() after
+    key injection.
 
     Web search needs nothing here: it is a plain function tool the gateway binds
     and executes itself (see web_search.py), not a provider feature that has to
@@ -233,6 +235,14 @@ def get_chat_model_cached(
     its default ``reasoning_effort`` on Chat Completions, so the chat controller
     sets this flag for those models when tools are bound. Ignored by non-OpenAI
     providers.
+
+    ``reasoning_effort`` is the request's own field (see
+    ``REASONING_EFFORTS``), translated once per provider rather than per
+    model: the OpenAI-compatible providers take it as-is, except ModelArk's
+    ``"none"`` (its documented off switch is ``thinking: disabled``) and
+    OpenRouter (its ``reasoning`` object). ``None`` sends nothing, leaving the
+    provider's default. Anthropic and Google don't translate it yet and ignore
+    it. A value the model doesn't support is the provider's 400 to give.
     """
     config = _provider_config
     if config is None:
@@ -297,6 +307,8 @@ def get_chat_model_cached(
         # model rejects function tools + its default reasoning_effort on Chat
         # Completions (gpt-5.6 family).
         openai_kwargs: dict[str, Any] = {}
+        if reasoning_effort is not None:
+            openai_kwargs["reasoning_effort"] = reasoning_effort
         if force_responses_api:
             openai_kwargs["use_responses_api"] = True
             openai_kwargs["output_version"] = "responses/v1"
@@ -343,6 +355,7 @@ def get_chat_model_cached(
             temperature=effective_temp,
             max_tokens=max_tokens,
             http_client=xai_http_client,
+            reasoning_effort=reasoning_effort,
             streaming=True,
             stream_usage=True,
         )
@@ -361,8 +374,13 @@ def get_chat_model_cached(
             http_client=bytedance_http_client,
             api_key=SecretStr(config.bytedance_api_key),
             base_url=BYTEDANCE_BASE_URL,
+            # ModelArk rejects reasoning_effort alongside thinking: disabled,
+            # so "none" is sent as the switch alone.
+            reasoning_effort=(reasoning_effort if reasoning_effort != "none" else None),
             extra_body=(
-                {"thinking": {"type": "disabled"}} if cfg.disable_thinking else None
+                {"thinking": {"type": "disabled"}}
+                if reasoning_effort == "none"
+                else None
             ),
             streaming=True,
             stream_usage=True,
@@ -388,7 +406,11 @@ def get_chat_model_cached(
                     if cfg.openrouter_provider
                     else {"sort": "price"}
                 ),
-                **({"reasoning": {"effort": "none"}} if cfg.disable_thinking else {}),
+                **(
+                    {"reasoning": {"effort": reasoning_effort}}
+                    if reasoning_effort is not None
+                    else {}
+                ),
             },
             streaming=True,
             stream_usage=True,
@@ -408,6 +430,7 @@ def get_chat_model_cached(
             http_client=zai_http_client,
             api_key=SecretStr(config.zai_api_key),
             base_url=ZAI_BASE_URL,
+            reasoning_effort=reasoning_effort,
             streaming=True,
             stream_usage=True,
         )  # type: ignore [call-arg]
@@ -426,12 +449,32 @@ def get_chat_model_cached(
             http_client=abliteration_http_client,
             api_key=SecretStr(config.abliteration_api_key),
             base_url=ABLITERATION_BASE_URL,
+            reasoning_effort=reasoning_effort,
             streaming=True,
             stream_usage=True,
         )  # type: ignore [call-arg]
 
     else:
         raise ValueError(f"Unsupported provider: {provider}")
+
+
+# Values a request's ``reasoning_effort`` may take: the union of what the
+# providers we translate it for accept. Which of them a given model supports is
+# the provider's call, not a list kept here.
+REASONING_EFFORTS = frozenset(
+    {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+)
+
+
+def validate_reasoning_effort(value: Any) -> None:
+    """Raise ``ValueError`` unless ``value`` is absent or a known effort."""
+    if value is None:
+        return
+    if not isinstance(value, str) or value not in REASONING_EFFORTS:
+        raise ValueError(
+            f"Unsupported reasoning_effort {value!r}; "
+            f"supported: {', '.join(sorted(REASONING_EFFORTS))}"
+        )
 
 
 def _parse_data_uri(uri: str) -> Optional[tuple[str, str]]:

@@ -193,6 +193,74 @@ class TestAspectRatioRequests(unittest.TestCase):
         self.assertIn("choices", result)
 
 
+class TestReasoningEffortRequests(unittest.TestCase):
+    """``reasoning_effort`` is validated, forwarded, and signed when sent."""
+
+    def _request(self, **extra):
+        body = {
+            "model": "deepseek-v4-flash",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": False,
+        }
+        body.update(extra)
+        return body
+
+    def test_none_passes_schema_validation(self):
+        resp = (
+            _build_app()
+            .test_client()
+            .post(
+                "/v1/chat/completions",
+                data=json.dumps(self._request(reasoning_effort="none")),
+                content_type="application/json",
+                headers={"Authorization": "Bearer test"},
+            )
+        )
+        self.assertNotEqual(400, resp.status_code, resp.data.decode("utf-8"))
+
+    @patch("tee_gateway.controllers.chat_controller.connexion")
+    def test_unknown_effort_is_a_400(self, mock_connexion):
+        mock_connexion.request.is_json = True
+        mock_connexion.request.get_json.return_value = self._request(
+            reasoning_effort="extreme"
+        )
+
+        result, status = create_chat_completion(None)
+
+        self.assertEqual(400, status)
+        self.assertEqual("Invalid reasoning_effort", result["error"])
+
+    @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
+    @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")
+    @patch("tee_gateway.controllers.chat_controller.connexion")
+    def test_effort_reaches_the_model_factory(
+        self, mock_connexion, mock_get_model, mock_get_tee_keys
+    ):
+        mock_connexion.request.is_json = True
+        mock_connexion.request.get_json.return_value = self._request(
+            reasoning_effort="none"
+        )
+        mock_get_model.return_value = _mock_image_model()
+        mock_get_tee_keys.return_value = _mock_tee_keys()
+
+        create_chat_completion(None)
+
+        self.assertEqual("none", mock_get_model.call_args.kwargs["reasoning_effort"])
+
+    def test_signed_hash_covers_effort_only_when_sent(self):
+        from tee_gateway.controllers.chat_controller import (
+            _chat_request_to_dict,
+            _parse_chat_request,
+        )
+
+        plain = _chat_request_to_dict(_parse_chat_request(self._request()))
+        self.assertNotIn("reasoning_effort", plain)
+        sent = _chat_request_to_dict(
+            _parse_chat_request(self._request(reasoning_effort="low"))
+        )
+        self.assertEqual("low", sent["reasoning_effort"])
+
+
 def _mock_image_model() -> Mock:
     """A LangChain chat model stand-in that returns one inline image."""
     response = Mock()

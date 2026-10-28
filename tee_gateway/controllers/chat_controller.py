@@ -31,6 +31,7 @@ from tee_gateway.llm_backend import (
     extract_usage,
     non_streaming_invoke_kwargs,
     validate_attachments,
+    validate_reasoning_effort,
     AttachmentValidationError,
     canonical_user_content,
 )
@@ -113,6 +114,10 @@ def create_chat_completion(body):
         validate_resolution(chat_request.model, chat_request.resolution)
     except ValueError as e:
         return {"error": "Invalid resolution", "message": str(e)}, 400
+    try:
+        validate_reasoning_effort(chat_request.reasoning_effort)
+    except ValueError as e:
+        return {"error": "Invalid reasoning_effort", "message": str(e)}, 400
     try:
         validate_aspect_ratio(
             chat_request.model, chat_request.aspect_ratio, chat_request.resolution
@@ -311,6 +316,7 @@ def _create_non_streaming_response(
             force_responses_api=_needs_responses_api_for_tools(
                 provider, cfg, tools_list
             ),
+            reasoning_effort=chat_request.reasoning_effort,
         )
 
         # Bind user tools and/or the native web search tool if requested.
@@ -500,6 +506,7 @@ def _create_streaming_response(
             force_responses_api=_needs_responses_api_for_tools(
                 provider, cfg, tools_list
             ),
+            reasoning_effort=chat_request.reasoning_effort,
         )
 
         # Bind user tools and/or the native web search tool if requested.
@@ -992,6 +999,8 @@ def _chat_request_to_dict(chat_request: CreateChatCompletionRequest) -> dict:
         d["aspect_ratio"] = chat_request.aspect_ratio
     if chat_request.resolution:
         d["resolution"] = chat_request.resolution
+    if chat_request.reasoning_effort is not None:
+        d["reasoning_effort"] = chat_request.reasoning_effort
     return d
 
 
@@ -1017,6 +1026,7 @@ def _parse_chat_request(chat_request_dict: dict) -> CreateChatCompletionRequest:
         web_search=chat_request_dict.get("web_search", False),
         aspect_ratio=chat_request_dict.get("aspect_ratio"),
         resolution=chat_request_dict.get("resolution"),
+        reasoning_effort=chat_request_dict.get("reasoning_effort"),
     )
 
 

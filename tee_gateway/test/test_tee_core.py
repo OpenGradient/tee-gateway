@@ -1066,9 +1066,49 @@ class TestOpenRouterProviderRouting(unittest.TestCase):
         self.assertEqual(model.model_name, "deepseek/deepseek-v4-pro-0813")
         self.assertEqual(
             model.extra_body,
-            {"provider": {"order": ["phala"], "allow_fallbacks": False}},
+            {
+                "provider": {"order": ["phala"], "allow_fallbacks": False},
+                "reasoning": {"effort": "none"},
+            },
         )
 
     def test_unpinned_model_sorts_by_price(self):
         model = get_chat_model_cached("hy3", 0.0, 1024)
         self.assertEqual(model.extra_body, {"provider": {"sort": "price"}})
+
+
+class TestDisableThinking(unittest.TestCase):
+    """``disable_thinking`` becomes each provider's own off switch."""
+
+    _saved_config: Optional[ProviderConfig] = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._saved_config = get_provider_config()
+        set_provider_config(
+            ProviderConfig(
+                bytedance_api_key="test-bytedance-key",
+                openrouter_api_key="test-openrouter-key",
+            )
+        )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._saved_config is not None:
+            set_provider_config(cls._saved_config)
+        get_chat_model_cached.cache_clear()
+
+    def test_deepseek_v4_flash_thinking_disabled(self):
+        model = get_chat_model_cached("deepseek-v4-flash", 0.0, 1024)
+        self.assertEqual(model.extra_body, {"thinking": {"type": "disabled"}})
+
+    def test_bytedance_model_without_flag_sends_nothing(self):
+        model = get_chat_model_cached("glm-5.2", 0.0, 1024)
+        self.assertIsNone(model.extra_body)
+
+    def test_flag_only_on_providers_that_honour_it(self):
+        for supported in SupportedModel:
+            cfg = supported.value
+            if cfg.disable_thinking:
+                with self.subTest(model=cfg.api_name):
+                    self.assertIn(cfg.provider, ("bytedance", "openrouter"))

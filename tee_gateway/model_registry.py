@@ -143,6 +143,12 @@ class ModelConfig:
     # OpenRouter provider slug to pin the model to (fallbacks off). ``None``
     # routes to the cheapest provider.
     openrouter_provider: Optional[str] = None
+    # Turn the model's reasoning off: ModelArk ``thinking: {"type":
+    # "disabled"}``, OpenRouter ``reasoning: {"effort": "none"}``. Both
+    # providers default reasoning models to thinking on. ByteDance and
+    # OpenRouter only; a test pins that nothing else sets it, since other
+    # providers would silently ignore it.
+    disable_thinking: bool = False
 
     def image_tier(self, resolution: Optional[str]) -> Optional[ImageResolutionTier]:
         """The tier a request runs at, or ``None`` for a single-resolution model.
@@ -1004,11 +1010,14 @@ class SupportedModel(Enum):
         input_price_usd=Decimal("0.0000001"),
         output_price_usd=Decimal("0.0000004"),
     )
+    # Thinking off, like V4 Pro: at the default effort ("high", the lowest
+    # ModelArk offers for V4) it spent most of each reply reasoning.
     DEEPSEEK_V4_FLASH = ModelConfig(
         provider="bytedance",
         api_name="deepseek-v4-flash-260425",
         input_price_usd=Decimal("0.00000014"),
         output_price_usd=Decimal("0.00000028"),
+        disable_thinking=True,
     )
     # Seedream 4.0 image generation via ModelArk's OpenAI-compatible
     # /images/generations endpoint. Billed at a flat $0.03 per generated image;
@@ -1102,12 +1111,16 @@ class SupportedModel(Enum):
 
     # ── OpenRouter (OpenAI-compatible) ──────────────────────────────────
     # DeepSeek V4 Pro 0813, routed through OpenRouter, pinned to Phala.
+    # Thinking off: at its default effort ("high") every reply opened with a
+    # long reasoning pass. Reasoning is not mandatory on this slug ("none" is
+    # in OpenRouter's supported_efforts for it).
     DEEPSEEK_V4_PRO = ModelConfig(
         provider="openrouter",
         api_name="deepseek/deepseek-v4-pro-0813",
         input_price_usd=Decimal("0.00000145"),
         output_price_usd=Decimal("0.00000436"),
         openrouter_provider="phala",
+        disable_thinking=True,
     )
     # Tencent Hy4 Preview — 770B-parameter (49B active) open-weight MoE,
     # open-sourced 2026-08-28, aimed at coding agents and long-horizon

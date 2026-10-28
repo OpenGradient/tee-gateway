@@ -361,6 +361,9 @@ def get_chat_model_cached(
             http_client=bytedance_http_client,
             api_key=SecretStr(config.bytedance_api_key),
             base_url=BYTEDANCE_BASE_URL,
+            extra_body=(
+                {"thinking": {"type": "disabled"}} if cfg.disable_thinking else None
+            ),
             streaming=True,
             stream_usage=True,
         )  # type: ignore [call-arg]
@@ -384,7 +387,8 @@ def get_chat_model_cached(
                     {"order": [cfg.openrouter_provider], "allow_fallbacks": False}
                     if cfg.openrouter_provider
                     else {"sort": "price"}
-                )
+                ),
+                **({"reasoning": {"effort": "none"}} if cfg.disable_thinking else {}),
             },
             streaming=True,
             stream_usage=True,

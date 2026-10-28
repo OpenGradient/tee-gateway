@@ -30,6 +30,7 @@ class ProviderConfig:
     bytedance_api_key: Optional[str] = None
     openrouter_api_key: Optional[str] = None
     zai_api_key: Optional[str] = None
+    abliteration_api_key: Optional[str] = None
     wavespeed_api_key: Optional[str] = None
     # Exa, which backs the `web_search` tool the gateway executes inside the
     # enclave for every model (see web_search.py). Not an LLM provider, so it is
@@ -54,6 +55,8 @@ class ProviderConfig:
             providers.append("openrouter")
         if self.zai_api_key:
             providers.append("zai")
+        if self.abliteration_api_key:
+            providers.append("abliteration")
         if self.wavespeed_api_key:
             providers.append("wavespeed")
         return providers

@@ -43,7 +43,7 @@ class ImageResolutionTier:
 @dataclass(frozen=True)
 class ModelConfig:
     # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" |
-    # "openrouter" | "zai" | "wavespeed"
+    # "openrouter" | "zai" | "abliteration" | "wavespeed"
     provider: str
     api_name: str  # model name sent to provider API
     input_price_usd: Decimal  # USD per token
@@ -1176,6 +1176,20 @@ class SupportedModel(Enum):
         image_aspect_ratio_param="size",
     )
 
+    # ── abliteration.ai (OpenAI-compatible) ─────────────────────────────
+    # Abliterated Large v2: 1M-token context, text input, a reasoning model
+    # (thinking arrives in `reasoning`, counted in reasoning_tokens). Prices
+    # from abliteration.ai/pricing and its /v1/models: $3.00 input, $5.00
+    # output per 1M tokens. /v1/models lists temperature among the supported
+    # sampling parameters (0-2), and temperature 0, tools and streamed usage
+    # were confirmed against the live API, so no restriction flags.
+    ABLITERATED_LARGE_V2 = ModelConfig(
+        provider="abliteration",
+        api_name="abliterated-model-large-v2",
+        input_price_usd=Decimal("0.000003"),
+        output_price_usd=Decimal("0.000005"),
+    )
+
     # ── WaveSpeed (async prediction API) ────────────────────────────────
     # Krea 3 — Krea's image editing model, served through WaveSpeed as two
     # model endpoints (text-to-image, and edit with 1-8 references). Every
@@ -1408,6 +1422,10 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "glm-5.2": SupportedModel.GLM_5_2,
     "ep-20260803211658-fwpzs": SupportedModel.GLM_5_2,
     "glm-image": SupportedModel.GLM_IMAGE,
+    # abliteration.ai
+    "abliterated-model-large-v2": SupportedModel.ABLITERATED_LARGE_V2,
+    "abliterated-large-v2": SupportedModel.ABLITERATED_LARGE_V2,
+    "abliteration/abliterated-model-large-v2": SupportedModel.ABLITERATED_LARGE_V2,
     # WaveSpeed
     "krea-3": SupportedModel.KREA_3,
     "krea-v3": SupportedModel.KREA_3,

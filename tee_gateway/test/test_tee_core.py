@@ -1107,8 +1107,8 @@ class TestReasoningEffortTranslation(unittest.TestCase):
         self.assertNotIn("reasoning_effort", model._default_params)
 
     def test_modelark_level_is_sent_as_is(self):
-        model = get_chat_model_cached("deepseek-v4-flash", 0.0, 1024, False, "max")
-        self.assertEqual(model._default_params["reasoning_effort"], "max")
+        model = get_chat_model_cached("deepseek-v4-flash", 0.0, 1024, False, "high")
+        self.assertEqual(model._default_params["reasoning_effort"], "high")
         self.assertIsNone(model.extra_body)
 
     def test_openrouter_uses_its_reasoning_object(self):

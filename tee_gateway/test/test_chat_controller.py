@@ -222,13 +222,14 @@ class TestReasoningEffortRequests(unittest.TestCase):
     def test_unknown_effort_is_a_400(self, mock_connexion):
         mock_connexion.request.is_json = True
         mock_connexion.request.get_json.return_value = self._request(
-            reasoning_effort="extreme"
+            reasoning_effort="max"
         )
 
         result, status = create_chat_completion(None)
 
         self.assertEqual(400, status)
         self.assertEqual("Invalid reasoning_effort", result["error"])
+        self.assertIn("supported: none, low, medium, high", result["message"])
 
     @patch("tee_gateway.controllers.chat_controller.get_tee_keys")
     @patch("tee_gateway.controllers.chat_controller.get_chat_model_cached")

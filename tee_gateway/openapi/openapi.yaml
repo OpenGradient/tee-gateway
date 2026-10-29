@@ -2932,12 +2932,9 @@ components:
             request hash when sent.
           enum:
           - none
-          - minimal
           - low
           - medium
           - high
-          - xhigh
-          - max
           title: reasoning_effort
           type: string
         metadata:

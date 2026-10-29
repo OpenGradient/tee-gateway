@@ -458,12 +458,13 @@ def get_chat_model_cached(
         raise ValueError(f"Unsupported provider: {provider}")
 
 
-# Values a request's ``reasoning_effort`` may take: the union of what the
-# providers we translate it for accept. Which of them a given model supports is
-# the provider's call, not a list kept here.
-REASONING_EFFORTS = frozenset(
-    {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
-)
+# Values a request's ``reasoning_effort`` may take, lowest first: off, then
+# three levels. Deliberately OpenAI's standard names, which every provider we
+# translate for accepts as-is; finer levels some providers offer (minimal,
+# xhigh, max) are not exposed. Which of the four a given model supports is the
+# provider's call, not a list kept here (DeepSeek V4, for one, rounds low and
+# medium up to high).
+REASONING_EFFORTS = ("none", "low", "medium", "high")
 
 
 def validate_reasoning_effort(value: Any) -> None:
@@ -473,7 +474,7 @@ def validate_reasoning_effort(value: Any) -> None:
     if not isinstance(value, str) or value not in REASONING_EFFORTS:
         raise ValueError(
             f"Unsupported reasoning_effort {value!r}; "
-            f"supported: {', '.join(sorted(REASONING_EFFORTS))}"
+            f"supported: {', '.join(REASONING_EFFORTS)}"
         )
 
 

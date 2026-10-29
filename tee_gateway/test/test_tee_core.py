@@ -1061,12 +1061,12 @@ class TestOpenRouterProviderRouting(unittest.TestCase):
             set_provider_config(cls._saved_config)
         get_chat_model_cached.cache_clear()
 
-    def test_deepseek_v4_pro_pinned_to_wafer(self):
+    def test_deepseek_v4_pro_pinned_to_together(self):
         model = get_chat_model_cached("deepseek-v4-pro", 0.0, 1024)
         self.assertEqual(model.model_name, "deepseek/deepseek-v4-pro-0813")
         self.assertEqual(
             model.extra_body,
-            {"provider": {"order": ["wafer"], "allow_fallbacks": False}},
+            {"provider": {"order": ["together"], "allow_fallbacks": False}},
         )
 
     def test_unpinned_model_sorts_by_price(self):
@@ -1116,7 +1116,7 @@ class TestReasoningEffortTranslation(unittest.TestCase):
         self.assertEqual(model.extra_body["reasoning"], {"effort": "none"})
         self.assertEqual(
             model.extra_body["provider"],
-            {"order": ["wafer"], "allow_fallbacks": False},
+            {"order": ["together"], "allow_fallbacks": False},
         )
 
     def test_openai_takes_it_as_is(self):

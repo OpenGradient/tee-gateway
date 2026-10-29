@@ -1101,16 +1101,14 @@ class SupportedModel(Enum):
     )
 
     # ── OpenRouter (OpenAI-compatible) ──────────────────────────────────
-    # DeepSeek V4 Pro 0813, routed through OpenRouter, pinned to Wafer (mxfp4).
-    # The "wafer" slug covers both of Wafer's OpenRouter endpoints, wafer/us
-    # ($0.115 in) and wafer/mxfp4 ($0.285 in), both $4.30 out per MTok; input
-    # is priced at the higher of the two so either one is covered.
+    # DeepSeek V4 Pro 0813, routed through OpenRouter, pinned to Together
+    # ($1.32 in / $3.96 out per MTok).
     DEEPSEEK_V4_PRO = ModelConfig(
         provider="openrouter",
         api_name="deepseek/deepseek-v4-pro-0813",
-        input_price_usd=Decimal("0.000000285"),
-        output_price_usd=Decimal("0.0000043"),
-        openrouter_provider="wafer",
+        input_price_usd=Decimal("0.00000132"),
+        output_price_usd=Decimal("0.00000396"),
+        openrouter_provider="together",
     )
     # Tencent Hy4 Preview — 770B-parameter (49B active) open-weight MoE,
     # open-sourced 2026-08-28, aimed at coding agents and long-horizon

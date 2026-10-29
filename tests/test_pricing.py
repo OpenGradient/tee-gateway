@@ -597,9 +597,9 @@ class TestModelRegistry(unittest.TestCase):
         cfg = get_model_config("deepseek-v4-pro")
         self.assertEqual(cfg.provider, "openrouter")
         self.assertEqual(cfg.api_name, "deepseek/deepseek-v4-pro-0813")
-        self.assertEqual(cfg.openrouter_provider, "phala")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.00000145"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.00000436"))
+        self.assertEqual(cfg.openrouter_provider, "wafer")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000000285"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000043"))
 
     def test_deepseek_v4_pro_aliases_resolve(self):
         for alias in (
@@ -1207,8 +1207,8 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         cost = self._calc("deepseek-v4-pro", 1000, 500)
         expected = _expected_cost_opg("deepseek-v4-pro", 1000, 500)
         self.assertEqual(cost, expected)
-        # 1000*0.00000145 + 500*0.00000436 = 0.00145 + 0.00218 = 0.00363 USD
-        self.assertEqual(cost, 3_630_000_000_000_000)
+        # 1000*0.000000285 + 500*0.0000043 = 0.000285 + 0.00215 = 0.002435 USD
+        self.assertEqual(cost, 2_435_000_000_000_000)
 
     # ── OpenRouter ─────────────────────────────────────────────────────────
 

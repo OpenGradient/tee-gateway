@@ -132,8 +132,8 @@ prefixes determine routing:
 - **Anthropic**: claude-sonnet-4-5/4-6, claude-sonnet-5, claude-sonnet-5-5, claude-haiku-5-5, claude-haiku-4-5, claude-opus-4-5/4-6/4-7/4-8, claude-opus-5, claude-opus-5-5, claude-fable-5, claude-fable-5-1
 - **Google**: gemini-4-argon, gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-flash-preview, gemini-3.1-pro-preview; image generation: gemini-2.5-flash-image, gemini-3.1-flash-image, gemini-nano-banana-2.1
 - **xAI**: grok-4.7, grok-4.6, grok-4.5, grok-4.3, grok-4.20-reasoning, grok-4.20-non-reasoning; image generation: grok-2-image, grok-imagine-image-2.0
-- **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, deepseek-v4-pro, glm-5.2 (Z.ai's model served via a ModelArk deployment endpoint); image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0
-- **OpenRouter** (OpenAI-compatible): hy4-preview, hermes-4-405b, hy3
+- **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, glm-5.2 (Z.ai's model served via a ModelArk deployment endpoint); image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0
+- **OpenRouter** (OpenAI-compatible): deepseek-v4-pro (pinned to Wafer), hy4-preview, hermes-4-405b, hy3
 - **abliteration.ai** (OpenAI-compatible): abliterated-model-large-v2
 - **Z.ai** (Model API, OpenAI-compatible): image generation: glm-image (glm-5.2 chat is routed through BytePlus ModelArk, see ByteDance above)
 - **WaveSpeed** (async prediction API): image generation: krea-3 (Krea's model, always `berry` at `reasoning_level: medium`), qwen-image-3.0-pro (Alibaba's model); each is two WaveSpeed endpoints, text-to-image and edit

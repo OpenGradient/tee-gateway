@@ -1072,3 +1072,53 @@ class TestOpenRouterProviderRouting(unittest.TestCase):
     def test_unpinned_model_sorts_by_price(self):
         model = get_chat_model_cached("hy3", 0.0, 1024)
         self.assertEqual(model.extra_body, {"provider": {"sort": "price"}})
+
+
+class TestReasoningEffortTranslation(unittest.TestCase):
+    """One translation per provider; omitted means nothing is sent."""
+
+    _saved_config: Optional[ProviderConfig] = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._saved_config = get_provider_config()
+        set_provider_config(
+            ProviderConfig(
+                openai_api_key="test-openai-key",
+                bytedance_api_key="test-bytedance-key",
+                openrouter_api_key="test-openrouter-key",
+            )
+        )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._saved_config is not None:
+            set_provider_config(cls._saved_config)
+        get_chat_model_cached.cache_clear()
+
+    def test_omitted_sends_nothing(self):
+        model = get_chat_model_cached("deepseek-v4-flash", 0.0, 1024)
+        self.assertIsNone(model.reasoning_effort)
+        self.assertIsNone(model.extra_body)
+
+    def test_modelark_none_is_the_thinking_switch_alone(self):
+        model = get_chat_model_cached("deepseek-v4-flash", 0.0, 1024, False, "none")
+        self.assertEqual(model.extra_body, {"thinking": {"type": "disabled"}})
+        self.assertNotIn("reasoning_effort", model._default_params)
+
+    def test_modelark_level_is_sent_as_is(self):
+        model = get_chat_model_cached("deepseek-v4-flash", 0.0, 1024, False, "max")
+        self.assertEqual(model._default_params["reasoning_effort"], "max")
+        self.assertIsNone(model.extra_body)
+
+    def test_openrouter_uses_its_reasoning_object(self):
+        model = get_chat_model_cached("deepseek-v4-pro", 0.0, 1024, False, "none")
+        self.assertEqual(model.extra_body["reasoning"], {"effort": "none"})
+        self.assertEqual(
+            model.extra_body["provider"],
+            {"order": ["phala"], "allow_fallbacks": False},
+        )
+
+    def test_openai_takes_it_as_is(self):
+        model = get_chat_model_cached("gpt-5.4", 0.0, 1024, False, "low")
+        self.assertEqual(model._default_params["reasoning_effort"], "low")

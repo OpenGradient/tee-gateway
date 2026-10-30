@@ -685,6 +685,16 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg, get_model_config("tencent/hy3"))
         self.assertEqual(cfg, get_model_config("tencent/hy3:floor"))
 
+    def test_aion_3_5_resolves(self):
+        cfg = get_model_config("aion-3.5")
+        self.assertEqual(cfg.provider, "openrouter")
+        self.assertEqual(cfg.api_name, "aion-labs/aion-3.5")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000003"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.000006"))
+        self.assertIsNone(cfg.openrouter_provider)
+        self.assertEqual(cfg, get_model_config("aion-3-5"))
+        self.assertEqual(cfg, get_model_config("aion-labs/aion-3.5"))
+
     def test_hy4_preview_resolves(self):
         cfg = get_model_config("hy4-preview")
         self.assertEqual(cfg.provider, "openrouter")
@@ -1224,6 +1234,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(
             self._calc("abliterated-model-large-v2", 1000, 500),
             5_500_000_000_000_000,
+        )
+
+    def test_aion_3_5_cost(self):
+        # 1000*0.000003 + 500*0.000006 = 0.003 + 0.003 = 0.006 USD
+        self.assertEqual(
+            self._calc("aion-3.5", 1000, 500),
+            6_000_000_000_000_000,
         )
 
     def test_hy4_preview_cost(self):

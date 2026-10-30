@@ -38,7 +38,7 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 | Google | gemini-4-argon, gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-flash-preview, gemini-3.1-pro-preview |
 | xAI | grok-4.7, grok-4.6, grok-4.5, grok-4.3, grok-4.20-reasoning, grok-4.20-non-reasoning |
 | ByteDance | seed-1.6, seed-1.8, seed-2.0-lite, dola-seed-2.0-mini, deepseek-v4-flash, glm-5.2 |
-| OpenRouter | deepseek-v4-pro, hy4-preview, hermes-4-405b, hy3 |
+| OpenRouter | aion-3.5, deepseek-v4-pro, hy4-preview, hermes-4-405b, hy3 |
 | abliteration.ai | abliterated-model-large-v2 |
 
 Image generation: krea-3 and qwen-image-3.0-pro (via WaveSpeed), gpt-image-2,

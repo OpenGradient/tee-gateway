@@ -1101,6 +1101,17 @@ class SupportedModel(Enum):
     )
 
     # ── OpenRouter (OpenAI-compatible) ──────────────────────────────────
+    # AionLabs Aion 3.5 — multi-model roleplay/storytelling system built on
+    # GLM, released 2026-09-23, 262K context. AionLabs is its only OpenRouter
+    # provider, so there is nothing to pin. Rate from openrouter.ai/api/v1/
+    # models; the endpoint accepts temperature, tools and reasoning_effort, so
+    # no supports_temperature override is needed.
+    AION_3_5 = ModelConfig(
+        provider="openrouter",
+        api_name="aion-labs/aion-3.5",
+        input_price_usd=Decimal("0.000003"),
+        output_price_usd=Decimal("0.000006"),
+    )
     # DeepSeek V4 Pro 0813, routed through OpenRouter, pinned to Together
     # ($1.32 in / $3.96 out per MTok).
     DEEPSEEK_V4_PRO = ModelConfig(
@@ -1406,6 +1417,9 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "seedance-5.0": SupportedModel.SEEDANCE_5_0,
     "seedance-5-0": SupportedModel.SEEDANCE_5_0,
     # Routed through OpenRouter
+    "aion-3.5": SupportedModel.AION_3_5,
+    "aion-3-5": SupportedModel.AION_3_5,
+    "aion-labs/aion-3.5": SupportedModel.AION_3_5,
     "deepseek-v4-pro": SupportedModel.DEEPSEEK_V4_PRO,
     "deepseek-v4-pro-0813": SupportedModel.DEEPSEEK_V4_PRO,
     "deepseek/deepseek-v4-pro-0813": SupportedModel.DEEPSEEK_V4_PRO,

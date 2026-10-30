@@ -597,7 +597,7 @@ class TestModelRegistry(unittest.TestCase):
         cfg = get_model_config("deepseek-v4-pro")
         self.assertEqual(cfg.provider, "openrouter")
         self.assertEqual(cfg.api_name, "deepseek/deepseek-v4-pro-0813")
-        self.assertEqual(cfg.openrouter_provider, "together")
+        self.assertEqual(cfg.openrouter_provider, "nebius/fp8")
         self.assertEqual(cfg.input_price_usd, Decimal("0.00000132"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.00000396"))
 

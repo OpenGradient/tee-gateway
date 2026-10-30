@@ -140,8 +140,8 @@ class ModelConfig:
     # function tools together (preserving reasoning rather than disabling it).
     # OpenAI provider only; ignored elsewhere.
     responses_api_for_tools: bool = False
-    # OpenRouter provider slug to pin the model to (fallbacks off). ``None``
-    # routes to the cheapest provider.
+    # OpenRouter provider slug, or endpoint tag such as ``nebius/fp8``, to pin
+    # the model to (fallbacks off). ``None`` routes to the cheapest provider.
     openrouter_provider: Optional[str] = None
 
     def image_tier(self, resolution: Optional[str]) -> Optional[ImageResolutionTier]:
@@ -1101,14 +1101,14 @@ class SupportedModel(Enum):
     )
 
     # ── OpenRouter (OpenAI-compatible) ──────────────────────────────────
-    # DeepSeek V4 Pro 0813, routed through OpenRouter, pinned to Together
-    # ($1.32 in / $3.96 out per MTok).
+    # DeepSeek V4 Pro 0813, routed through OpenRouter, pinned to Nebius's FP8
+    # endpoint ($1.32 in / $3.96 out per MTok).
     DEEPSEEK_V4_PRO = ModelConfig(
         provider="openrouter",
         api_name="deepseek/deepseek-v4-pro-0813",
         input_price_usd=Decimal("0.00000132"),
         output_price_usd=Decimal("0.00000396"),
-        openrouter_provider="together",
+        openrouter_provider="nebius/fp8",
     )
     # Tencent Hy4 Preview — 770B-parameter (49B active) open-weight MoE,
     # open-sourced 2026-08-28, aimed at coding agents and long-horizon

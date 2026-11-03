@@ -67,6 +67,11 @@ ZAI_BASE_URL = "https://api.z.ai/api/paas/v4"
 # chunk when stream_options.include_usage is set, which stream_usage does.
 ABLITERATION_BASE_URL = "https://api.abliteration.ai/v1"
 
+# Moonshot AI (Kimi) international OpenAI-compatible endpoint; ChatOpenAI
+# appends /chat/completions. Keys from platform.moonshot.ai only work here —
+# the China platform (api.moonshot.cn) issues its own keys.
+MOONSHOT_BASE_URL = "https://api.moonshot.ai/v1"
+
 # WaveSpeed REST API. Image models are submitted to /{model_id} as async
 # predictions and polled at /predictions/{id}/result (see image_generation).
 WAVESPEED_BASE_URL = "https://api.wavespeed.ai/api/v3"
@@ -79,6 +84,7 @@ bytedance_http_client: Optional[httpx.Client] = None
 openrouter_http_client: Optional[httpx.Client] = None
 zai_http_client: Optional[httpx.Client] = None
 abliteration_http_client: Optional[httpx.Client] = None
+moonshot_http_client: Optional[httpx.Client] = None
 wavespeed_http_client: Optional[httpx.Client] = None
 
 
@@ -89,7 +95,7 @@ def set_provider_config(config: ProviderConfig) -> None:
     """Store the provider config and rebuild HTTP clients. Called once after key injection."""
     global _provider_config, openai_http_client, xai_http_client, bytedance_http_client
     global openrouter_http_client, zai_http_client, wavespeed_http_client
-    global abliteration_http_client
+    global abliteration_http_client, moonshot_http_client
 
     old_openai = openai_http_client
     old_xai = xai_http_client
@@ -97,6 +103,7 @@ def set_provider_config(config: ProviderConfig) -> None:
     old_openrouter = openrouter_http_client
     old_zai = zai_http_client
     old_abliteration = abliteration_http_client
+    old_moonshot = moonshot_http_client
     old_wavespeed = wavespeed_http_client
 
     openai_http_client = httpx.Client(
@@ -154,6 +161,14 @@ def set_provider_config(config: ProviderConfig) -> None:
         http2=True,
         follow_redirects=False,
     )
+    moonshot_http_client = httpx.Client(
+        base_url=MOONSHOT_BASE_URL,
+        headers={"Authorization": f"Bearer {config.moonshot_api_key or ''}"},
+        timeout=_TIMEOUT,
+        limits=_LIMITS,
+        http2=True,
+        follow_redirects=False,
+    )
     wavespeed_http_client = httpx.Client(
         base_url=WAVESPEED_BASE_URL,
         headers={"Authorization": f"Bearer {config.wavespeed_api_key or ''}"},
@@ -186,6 +201,8 @@ def set_provider_config(config: ProviderConfig) -> None:
         old_zai.close()
     if old_abliteration is not None:
         old_abliteration.close()
+    if old_moonshot is not None:
+        old_moonshot.close()
     if old_wavespeed is not None:
         old_wavespeed.close()
 
@@ -454,6 +471,29 @@ def get_chat_model_cached(
             stream_usage=True,
         )  # type: ignore [call-arg]
 
+    elif provider == "moonshot":
+        if not config.moonshot_api_key:
+            raise ValueError("moonshot_api_key not set in ProviderConfig")
+
+        if moonshot_http_client is None:
+            raise RuntimeError("Moonshot HTTP client has not been initialized")
+
+        return ChatOpenAI(
+            model=api_name,
+            temperature=effective_temp,
+            max_tokens=max_tokens,
+            http_client=moonshot_http_client,
+            api_key=SecretStr(config.moonshot_api_key),
+            base_url=MOONSHOT_BASE_URL,
+            reasoning_effort=(
+                _MOONSHOT_REASONING_EFFORT.get(reasoning_effort, reasoning_effort)
+                if reasoning_effort is not None
+                else None
+            ),
+            streaming=True,
+            stream_usage=True,
+        )  # type: ignore [call-arg]
+
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
@@ -465,6 +505,11 @@ def get_chat_model_cached(
 # provider's call, not a list kept here (DeepSeek V4, for one, rounds low and
 # medium up to high).
 REASONING_EFFORTS = ("none", "low", "medium", "high")
+
+# Kimi K3-series models always think and take only low, high and max (default
+# max), so the two values Moonshot has no level for map to the nearest one:
+# "none" to its lowest, "medium" up to "high". low and high pass through.
+_MOONSHOT_REASONING_EFFORT: dict[str, str] = {"none": "low", "medium": "high"}
 
 
 def validate_reasoning_effort(value: Any) -> None:

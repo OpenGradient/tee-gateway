@@ -93,6 +93,7 @@ if [ -f "$ENV_FILE" ]; then
         OPENROUTER_API_KEY="$(grep -E '^OPENROUTER_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         ZAI_API_KEY="$(grep -E '^ZAI_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         ABLITERATION_API_KEY="$(grep -E '^ABLITERATION_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
+        MOONSHOT_API_KEY="$(grep -E '^MOONSHOT_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         WAVESPEED_API_KEY="$(grep -E '^WAVESPEED_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
         # Backs the in-enclave `web_search` tool (Exa), not an LLM provider.
         EXA_API_KEY="$(grep -E '^EXA_API_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
@@ -115,6 +116,7 @@ if [ -f "$ENV_FILE" ]; then
             --arg openrouter "$OPENROUTER_API_KEY" \
             --arg zai "$ZAI_API_KEY" \
             --arg abliteration "$ABLITERATION_API_KEY" \
+            --arg moonshot "$MOONSHOT_API_KEY" \
             --arg wavespeed "$WAVESPEED_API_KEY" \
             --arg exa "$EXA_API_KEY" \
             --arg hb_contract "$HEARTBEAT_CONTRACT_ADDRESS" \
@@ -129,6 +131,7 @@ if [ -f "$ENV_FILE" ]; then
                 openrouter_api_key: $openrouter,
                 zai_api_key: $zai,
                 abliteration_api_key: $abliteration,
+                moonshot_api_key: $moonshot,
                 wavespeed_api_key: $wavespeed,
                 exa_api_key: $exa
             }
@@ -161,7 +164,7 @@ if [ -f "$ENV_FILE" ]; then
 
         # Clear key variables from this shell immediately after use
         unset OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY XAI_API_KEY ARK_API_KEY
-        unset OPENROUTER_API_KEY ZAI_API_KEY ABLITERATION_API_KEY WAVESPEED_API_KEY EXA_API_KEY
+        unset OPENROUTER_API_KEY ZAI_API_KEY ABLITERATION_API_KEY MOONSHOT_API_KEY WAVESPEED_API_KEY EXA_API_KEY
         unset HEARTBEAT_CONTRACT_ADDRESS FACILITATOR_URL TEE_HEARTBEAT_INTERVAL
     fi
 else

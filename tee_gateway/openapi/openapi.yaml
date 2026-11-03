@@ -2925,8 +2925,10 @@ components:
           description: |
             How much the model reasons before answering. Omitted means the
             provider's default. Passed to OpenAI, xAI, ByteDance ModelArk,
-            OpenRouter, Z.ai and abliteration.ai in each one's own format
-            (`none` turns reasoning off); ignored by Anthropic and Google. Which
+            OpenRouter, Z.ai, abliteration.ai and Moonshot AI in each one's own
+            format (`none` turns reasoning off, except on Moonshot's Kimi K3,
+            which always reasons: there `none` sends `low` and `medium` sends
+            `high`); ignored by Anthropic and Google. Which
             values a model accepts is the provider's to decide, and a value it
             rejects comes back as the provider's 4xx. Part of the signed
             request hash when sent.

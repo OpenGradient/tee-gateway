@@ -993,6 +993,7 @@ class TestTemperatureOmission(unittest.TestCase):
                 anthropic_api_key="test-anthropic-key",
                 google_api_key="test-google-key",
                 xai_api_key="test-xai-key",
+                moonshot_api_key="test-moonshot-key",
             )
         )
 
@@ -1087,6 +1088,7 @@ class TestReasoningEffortTranslation(unittest.TestCase):
                 openai_api_key="test-openai-key",
                 bytedance_api_key="test-bytedance-key",
                 openrouter_api_key="test-openrouter-key",
+                moonshot_api_key="test-moonshot-key",
             )
         )
 
@@ -1118,6 +1120,26 @@ class TestReasoningEffortTranslation(unittest.TestCase):
             model.extra_body["provider"],
             {"order": ["together"], "allow_fallbacks": False},
         )
+
+    def test_moonshot_maps_to_its_three_levels(self):
+        # Kimi K3 takes low/high/max only and cannot turn thinking off.
+        for sent, expected in (
+            ("none", "low"),
+            ("low", "low"),
+            ("medium", "high"),
+            ("high", "high"),
+        ):
+            with self.subTest(sent=sent):
+                model = get_chat_model_cached("kimi-k3.1-pro", 0.0, 1024, False, sent)
+                self.assertEqual(model._default_params["reasoning_effort"], expected)
+
+    def test_moonshot_omitted_sends_nothing(self):
+        model = get_chat_model_cached("kimi-k3.1-pro", 0.0, 1024)
+        self.assertEqual(model.model_name, "kimi-k3.1-pro")
+        self.assertEqual(str(model.openai_api_base), "https://api.moonshot.ai/v1")
+        self.assertIsNone(model.temperature)
+        self.assertNotIn("reasoning_effort", model._default_params)
+        self.assertNotIn("temperature", model._default_params)
 
     def test_openai_takes_it_as_is(self):
         model = get_chat_model_cached("gpt-5.4", 0.0, 1024, False, "low")

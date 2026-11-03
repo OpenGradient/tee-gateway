@@ -685,6 +685,17 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg, get_model_config("tencent/hy3"))
         self.assertEqual(cfg, get_model_config("tencent/hy3:floor"))
 
+    def test_kimi_k3_1_pro_resolves(self):
+        cfg = get_model_config("kimi-k3.1-pro")
+        self.assertEqual(cfg.provider, "moonshot")
+        self.assertEqual(cfg.api_name, "kimi-k3.1-pro")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00001"))
+        self.assertFalse(cfg.supports_temperature)
+        self.assertEqual(cfg, get_model_config("kimi-k3-1-pro"))
+        self.assertEqual(cfg, get_model_config("kimi-3.1-pro"))
+        self.assertEqual(cfg, get_model_config("moonshotai/kimi-k3.1-pro"))
+
     def test_aion_3_5_resolves(self):
         cfg = get_model_config("aion-3.5")
         self.assertEqual(cfg.provider, "openrouter")
@@ -1234,6 +1245,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(
             self._calc("abliterated-model-large-v2", 1000, 500),
             5_500_000_000_000_000,
+        )
+
+    def test_kimi_k3_1_pro_cost(self):
+        # 1000*0.000002 + 500*0.00001 = 0.002 + 0.005 = 0.007 USD
+        self.assertEqual(
+            self._calc("kimi-k3.1-pro", 1000, 500),
+            7_000_000_000_000_000,
         )
 
     def test_aion_3_5_cost(self):

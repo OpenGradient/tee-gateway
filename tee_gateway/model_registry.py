@@ -43,7 +43,7 @@ class ImageResolutionTier:
 @dataclass(frozen=True)
 class ModelConfig:
     # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" |
-    # "openrouter" | "zai" | "abliteration" | "wavespeed"
+    # "openrouter" | "zai" | "abliteration" | "moonshot" | "wavespeed"
     provider: str
     api_name: str  # model name sent to provider API
     input_price_usd: Decimal  # USD per token
@@ -1188,6 +1188,22 @@ class SupportedModel(Enum):
         image_aspect_ratio_param="size",
     )
 
+    # ── Moonshot AI (Kimi API, OpenAI-compatible) ───────────────────────
+    # Kimi K3.1 Pro — open-weight multimodal reasoning model, released
+    # 2026-10-23, 1M context. Called directly rather than through OpenRouter:
+    # same list price, without OpenRouter's credit fee. Rate from
+    # platform.moonshot.ai/docs/pricing/chat ($2 in / $10 out per MTok; the
+    # separate kimi-k3.1-pro-highspeed slug is twice that and not registered).
+    # The quickstart says temperature, top_p, n and the penalties are fixed
+    # and must be omitted, so supports_temperature=False.
+    KIMI_K3_1_PRO = ModelConfig(
+        provider="moonshot",
+        api_name="kimi-k3.1-pro",
+        input_price_usd=Decimal("0.000002"),
+        output_price_usd=Decimal("0.00001"),
+        supports_temperature=False,
+    )
+
     # ── abliteration.ai (OpenAI-compatible) ─────────────────────────────
     # Abliterated Large v2: 1M-token context, text input, a reasoning model
     # (thinking arrives in `reasoning`, counted in reasoning_tokens). Prices
@@ -1437,6 +1453,11 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "glm-5.2": SupportedModel.GLM_5_2,
     "ep-20260803211658-fwpzs": SupportedModel.GLM_5_2,
     "glm-image": SupportedModel.GLM_IMAGE,
+    # Moonshot AI
+    "kimi-k3.1-pro": SupportedModel.KIMI_K3_1_PRO,
+    "kimi-k3-1-pro": SupportedModel.KIMI_K3_1_PRO,
+    "kimi-3.1-pro": SupportedModel.KIMI_K3_1_PRO,
+    "moonshotai/kimi-k3.1-pro": SupportedModel.KIMI_K3_1_PRO,
     # abliteration.ai
     "abliterated-model-large-v2": SupportedModel.ABLITERATED_LARGE_V2,
     "abliterated-large-v2": SupportedModel.ABLITERATED_LARGE_V2,

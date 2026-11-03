@@ -76,6 +76,7 @@ API keys (injected at runtime via POST /v1/keys — do NOT bake into the image):
 - `OPENROUTER_API_KEY` (OpenRouter; injected as `openrouter_api_key`)
 - `ZAI_API_KEY` (Z.ai Model API; injected as `zai_api_key`)
 - `ABLITERATION_API_KEY` (abliteration.ai; injected as `abliteration_api_key`)
+- `MOONSHOT_API_KEY` (Moonshot AI Kimi API, international platform; injected as `moonshot_api_key`)
 - `WAVESPEED_API_KEY` (WaveSpeed; injected as `wavespeed_api_key`)
 - `EXA_API_KEY` (Exa search; injected as `exa_api_key`) — backs the in-enclave
   `/v1/web_search` endpoint, not an LLM provider. Without it the endpoint
@@ -135,6 +136,7 @@ prefixes determine routing:
 - **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, glm-5.2 (Z.ai's model served via a ModelArk deployment endpoint); image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0
 - **OpenRouter** (OpenAI-compatible): aion-3.5, deepseek-v4-pro (pinned to Together), hy4-preview, hermes-4-405b, hy3
 - **abliteration.ai** (OpenAI-compatible): abliterated-model-large-v2
+- **Moonshot AI** (Kimi API, OpenAI-compatible, api.moonshot.ai): kimi-k3.1-pro
 - **Z.ai** (Model API, OpenAI-compatible): image generation: glm-image (glm-5.2 chat is routed through BytePlus ModelArk, see ByteDance above)
 - **WaveSpeed** (async prediction API): image generation: krea-3 (Krea's model, always `berry` at `reasoning_level: medium`), qwen-image-3.0-pro (Alibaba's model); each is two WaveSpeed endpoints, text-to-image and edit
 

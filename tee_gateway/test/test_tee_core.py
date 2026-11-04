@@ -1089,6 +1089,7 @@ class TestReasoningEffortTranslation(unittest.TestCase):
                 bytedance_api_key="test-bytedance-key",
                 openrouter_api_key="test-openrouter-key",
                 moonshot_api_key="test-moonshot-key",
+                nearai_api_key="test-nearai-key",
             )
         )
 
@@ -1140,6 +1141,30 @@ class TestReasoningEffortTranslation(unittest.TestCase):
         self.assertIsNone(model.temperature)
         self.assertNotIn("reasoning_effort", model._default_params)
         self.assertNotIn("temperature", model._default_params)
+
+    def test_nearai_sends_medium_up_to_high(self):
+        # DeepSeek V4.1 on NEAR AI 400s on "medium"; none, low and high work.
+        for sent, expected in (
+            ("none", "none"),
+            ("low", "low"),
+            ("medium", "high"),
+            ("high", "high"),
+        ):
+            with self.subTest(sent=sent):
+                model = get_chat_model_cached(
+                    "deepseek-v4.1-flash-abliterated", 0.0, 1024, False, sent
+                )
+                self.assertEqual(model._default_params["reasoning_effort"], expected)
+
+    def test_nearai_omitted_sends_nothing(self):
+        model = get_chat_model_cached("deepseek-v4.1-flash-abliterated", 0.0, 1024)
+        self.assertEqual(
+            model.model_name, "deepseek-ai/DeepSeek-V4.1-Flash-1017-abliterated"
+        )
+        self.assertEqual(str(model.openai_api_base), "https://cloud-api.near.ai/v1")
+        # It takes a temperature, so the pinned 0.0 is sent.
+        self.assertEqual(model.temperature, 0.0)
+        self.assertNotIn("reasoning_effort", model._default_params)
 
     def test_openai_takes_it_as_is(self):
         model = get_chat_model_cached("gpt-5.4", 0.0, 1024, False, "low")

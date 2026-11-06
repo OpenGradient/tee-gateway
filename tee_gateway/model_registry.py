@@ -543,6 +543,38 @@ class SupportedModel(Enum):
         image_aspect_ratios=_GPT_IMAGE_ASPECT_SIZES,
         image_aspect_ratio_param="size",
     )
+    # GPT-Image-2.6 Sunburst — successor to 2.5 Sunburst (OpenAI model page: text $5/$1.25 cached,
+    # image in $8/$2 cached, image out $30 per MTok — same as 2.5, so same flat per-image
+    # approximation). Only /images/generations + /images/edits.
+    GPT_IMAGE_2_6_SUNBURST = ModelConfig(
+        provider="openai",
+        api_name="gpt-image-2.6-sunburst",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.05"),
+        image_response_format=None,
+        image_supports_reference=True,
+        image_edit_endpoint="/images/edits",
+        image_extra_params={"quality": "medium"},
+        image_aspect_ratios=_GPT_IMAGE_ASPECT_SIZES,
+        image_aspect_ratio_param="size",
+    )
+    # GPT-Image-2.6 Flare — successor to 2.5 Flare; same endpoints, token rates and request shaping.
+    GPT_IMAGE_2_6_FLARE = ModelConfig(
+        provider="openai",
+        api_name="gpt-image-2.6-flare",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.05"),
+        image_response_format=None,
+        image_supports_reference=True,
+        image_edit_endpoint="/images/edits",
+        image_extra_params={"quality": "medium"},
+        image_aspect_ratios=_GPT_IMAGE_ASPECT_SIZES,
+        image_aspect_ratio_param="size",
+    )
     # GPT-Image-2.5 Flare — OpenAI's fastest model for high-quality, everyday
     # image generation (GA 2026-09-08), positioned as the general-purpose
     # successor to gpt-image-2 (50% lower latency, better reference-photo
@@ -1348,6 +1380,9 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gpt-6-sol": SupportedModel.GPT_6_SOL,
     "gpt-6-luna": SupportedModel.GPT_6_LUNA,
     "gpt-image-2": SupportedModel.GPT_IMAGE_2,
+    "gpt-image-2.6": SupportedModel.GPT_IMAGE_2_6_FLARE,
+    "gpt-image-2.6-flare": SupportedModel.GPT_IMAGE_2_6_FLARE,
+    "gpt-image-2.6-sunburst": SupportedModel.GPT_IMAGE_2_6_SUNBURST,
     "gpt-image-2.5": SupportedModel.GPT_IMAGE_2_5_FLARE,
     "gpt-image-2.5-flare": SupportedModel.GPT_IMAGE_2_5_FLARE,
     "gpt-image-2.5-flare-2026-09-08": SupportedModel.GPT_IMAGE_2_5_FLARE,

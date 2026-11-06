@@ -325,6 +325,21 @@ class TestModelRegistry(unittest.TestCase):
         self.assertTrue(cfg.responses_api_for_tools)
         self.assertFalse(cfg.supports_temperature)
 
+    def test_gpt_image_2_6_flare_resolves(self):
+        cfg = get_model_config("gpt-image-2.6-flare")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.api_name, "gpt-image-2.6-flare")
+        self.assertTrue(cfg.image_generation)
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.05"))
+        self.assertEqual(get_model_config("gpt-image-2.6"), cfg)
+
+    def test_gpt_image_2_6_sunburst_resolves(self):
+        cfg = get_model_config("gpt-image-2.6-sunburst")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.api_name, "gpt-image-2.6-sunburst")
+        self.assertTrue(cfg.image_generation)
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.05"))
+
     def test_gpt_image_2_5_flare_resolves(self):
         cfg = get_model_config("gpt-image-2.5-flare")
         self.assertEqual(cfg.provider, "openai")

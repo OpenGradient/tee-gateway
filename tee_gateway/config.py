@@ -32,6 +32,7 @@ class ProviderConfig:
     zai_api_key: Optional[str] = None
     abliteration_api_key: Optional[str] = None
     moonshot_api_key: Optional[str] = None
+    nearai_api_key: Optional[str] = None
     wavespeed_api_key: Optional[str] = None
     # Exa, which backs the `web_search` tool the gateway executes inside the
     # enclave for every model (see web_search.py). Not an LLM provider, so it is
@@ -60,6 +61,8 @@ class ProviderConfig:
             providers.append("abliteration")
         if self.moonshot_api_key:
             providers.append("moonshot")
+        if self.nearai_api_key:
+            providers.append("nearai")
         if self.wavespeed_api_key:
             providers.append("wavespeed")
         return providers

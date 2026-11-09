@@ -43,7 +43,8 @@ class ImageResolutionTier:
 @dataclass(frozen=True)
 class ModelConfig:
     # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" |
-    # "openrouter" | "zai" | "abliteration" | "moonshot" | "wavespeed"
+    # "openrouter" | "zai" | "abliteration" | "moonshot" | "nearai" |
+    # "wavespeed"
     provider: str
     api_name: str  # model name sent to provider API
     input_price_usd: Decimal  # USD per token
@@ -1204,6 +1205,23 @@ class SupportedModel(Enum):
         supports_temperature=False,
     )
 
+    # ── NEAR AI (NEAR AI Cloud, OpenAI-compatible) ──────────────────────
+    # DeepSeek V4.1 Flash, NEAR's 2026-10-17 snapshot with refusals removed
+    # from the weights (abliterated), served from NEAR's TEE infrastructure.
+    # 1M-token context, tools, and a reasoning model (thinking arrives in
+    # `reasoning_content`, counted in reasoning_tokens). Takes image input:
+    # NEAR's description says text only, but /v1/models lists image input and
+    # a test image was read correctly. Rate from cloud-api.near.ai/v1/models:
+    # $0.30 input, $1.20 output per 1M tokens. /v1/models lists no sampling
+    # parameters, but temperature 0, tools and streamed usage were confirmed
+    # against the live API, so no restriction flags.
+    DEEPSEEK_V4_1_FLASH_ABLITERATED = ModelConfig(
+        provider="nearai",
+        api_name="deepseek-ai/DeepSeek-V4.1-Flash-1017-abliterated",
+        input_price_usd=Decimal("0.0000003"),
+        output_price_usd=Decimal("0.0000012"),
+    )
+
     # ── abliteration.ai (OpenAI-compatible) ─────────────────────────────
     # Abliterated Large v2: 1M-token context, text input, a reasoning model
     # (thinking arrives in `reasoning`, counted in reasoning_tokens). Prices
@@ -1458,6 +1476,11 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "kimi-k3-1-pro": SupportedModel.KIMI_K3_1_PRO,
     "kimi-3.1-pro": SupportedModel.KIMI_K3_1_PRO,
     "moonshotai/kimi-k3.1-pro": SupportedModel.KIMI_K3_1_PRO,
+    # NEAR AI
+    "deepseek-v4.1-flash-abliterated": SupportedModel.DEEPSEEK_V4_1_FLASH_ABLITERATED,
+    "deepseek-v4-1-flash-abliterated": SupportedModel.DEEPSEEK_V4_1_FLASH_ABLITERATED,
+    "deepseek-v4.1-flash-1017-abliterated": SupportedModel.DEEPSEEK_V4_1_FLASH_ABLITERATED,
+    "deepseek-ai/deepseek-v4.1-flash-1017-abliterated": SupportedModel.DEEPSEEK_V4_1_FLASH_ABLITERATED,
     # abliteration.ai
     "abliterated-model-large-v2": SupportedModel.ABLITERATED_LARGE_V2,
     "abliterated-large-v2": SupportedModel.ABLITERATED_LARGE_V2,

@@ -431,6 +431,7 @@ def set_provider_keys():
             zai_api_key=body.get("zai_api_key") or None,
             abliteration_api_key=body.get("abliteration_api_key") or None,
             moonshot_api_key=body.get("moonshot_api_key") or None,
+            nearai_api_key=body.get("nearai_api_key") or None,
             wavespeed_api_key=body.get("wavespeed_api_key") or None,
             exa_api_key=body.get("exa_api_key") or None,
         )
@@ -508,6 +509,10 @@ def set_provider_keys():
             _set(provider_config.moonshot_api_key),
         )
         logger.info(
+            "  nearai_api_key              : %s",
+            _set(provider_config.nearai_api_key),
+        )
+        logger.info(
             "  wavespeed_api_key           : %s",
             _set(provider_config.wavespeed_api_key),
         )
@@ -550,6 +555,7 @@ def set_provider_keys():
             "zai": provider_config.zai_api_key,
             "abliteration": provider_config.abliteration_api_key,
             "moonshot": provider_config.moonshot_api_key,
+            "nearai": provider_config.nearai_api_key,
             "wavespeed": provider_config.wavespeed_api_key,
         }.items()
         if k

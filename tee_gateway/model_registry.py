@@ -700,6 +700,17 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.00005"),
         supports_temperature=False,
     )
+    # Claude Fable 5.2 — successor to Fable 5.1, released 2026-11-09 at $8/$40
+    # per MTok (platform.claude.com/docs/en/about-claude/pricing). Adaptive-
+    # thinking-only; the docs say to omit `temperature`, `top_p` and `top_k`,
+    # so supports_temperature=False.
+    CLAUDE_FABLE_5_2 = ModelConfig(
+        provider="anthropic",
+        api_name="claude-fable-5-2",
+        input_price_usd=Decimal("0.000008"),
+        output_price_usd=Decimal("0.00004"),
+        supports_temperature=False,
+    )
     # Claude Fable 5.1 — successor to Fable 5, GA on the first-party API from
     # 2026-09-01. Same $10/$50 per MTok sticker as Fable 5. Adaptive-
     # thinking-only; like Fable 5 and Opus 4.7+ it rejects the `temperature`
@@ -1388,6 +1399,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "claude-opus-5-5": SupportedModel.CLAUDE_OPUS_5_5,
     "claude-opus-5.5": SupportedModel.CLAUDE_OPUS_5_5,
     "claude-fable-5": SupportedModel.CLAUDE_FABLE_5,
+    "claude-fable-5-2": SupportedModel.CLAUDE_FABLE_5_2,
+    "claude-fable-5.2": SupportedModel.CLAUDE_FABLE_5_2,
     "claude-fable-5-1": SupportedModel.CLAUDE_FABLE_5_1,
     "claude-fable-5.1": SupportedModel.CLAUDE_FABLE_5_1,
     # Google

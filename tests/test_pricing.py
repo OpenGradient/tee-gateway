@@ -186,6 +186,19 @@ class TestModelRegistry(unittest.TestCase):
         # Adaptive-thinking-only; rejects the `temperature` field (HTTP 400)
         self.assertFalse(cfg.supports_temperature)
 
+    def test_claude_fable_5_2_resolves(self):
+        cfg = get_model_config("claude-fable-5-2")
+        self.assertEqual(cfg.provider, "anthropic")
+        self.assertEqual(cfg.api_name, "claude-fable-5-2")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000008"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00004"))
+        # Adaptive-thinking-only; docs say omit temperature/top_p/top_k
+        self.assertFalse(cfg.supports_temperature)
+
+    def test_claude_fable_5_2_dotted_alias_resolves(self):
+        cfg = get_model_config("claude-fable-5.2")
+        self.assertEqual(cfg, get_model_config("claude-fable-5-2"))
+
     def test_claude_fable_5_1_resolves(self):
         cfg = get_model_config("claude-fable-5-1")
         self.assertEqual(cfg.provider, "anthropic")
@@ -1067,6 +1080,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(cost, 14_000_000_000_000_000)
 
     # ── Anthropic Fable ─────────────────────────────────────────────────────
+
+    def test_claude_fable_5_2_cost(self):
+        cost = self._calc("claude-fable-5-2", 1000, 500)
+        expected = _expected_cost_opg("claude-fable-5-2", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.000008 + 500*0.00004 = 0.008 + 0.02 = 0.028 USD = 2.8e16 wei
+        self.assertEqual(cost, 28_000_000_000_000_000)
 
     def test_claude_fable_5_1_cost(self):
         cost = self._calc("claude-fable-5-1", 1000, 500)

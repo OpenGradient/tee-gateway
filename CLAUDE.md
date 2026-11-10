@@ -77,6 +77,7 @@ API keys (injected at runtime via POST /v1/keys — do NOT bake into the image):
 - `ZAI_API_KEY` (Z.ai Model API; injected as `zai_api_key`)
 - `ABLITERATION_API_KEY` (abliteration.ai; injected as `abliteration_api_key`)
 - `MOONSHOT_API_KEY` (Moonshot AI Kimi API, international platform; injected as `moonshot_api_key`)
+- `NEARAI_API_KEY` (NEAR AI Cloud; injected as `nearai_api_key`)
 - `WAVESPEED_API_KEY` (WaveSpeed; injected as `wavespeed_api_key`)
 - `EXA_API_KEY` (Exa search; injected as `exa_api_key`) — backs the in-enclave
   `/v1/web_search` endpoint, not an LLM provider. Without it the endpoint
@@ -129,14 +130,15 @@ Server configuration:
 
 `model_registry.py` is the source of truth; this list mirrors it. Model name
 prefixes determine routing:
-- **OpenAI**: gpt-6-sol, gpt-6-luna, gpt-6-astra, gpt-4.1, gpt-4.1-mini, gpt-5, gpt-5-mini, gpt-5.2, gpt-5.4, gpt-5.4-mini, gpt-5.4-nano, gpt-5.5, gpt-5.6-sol/terra/luna, o3; image generation: gpt-image-2.6-flare, gpt-image-2.6-sunburst, gpt-image-2.5-flare, gpt-image-2.5-sunburst, gpt-image-2
-- **Anthropic**: claude-sonnet-4-5/4-6, claude-sonnet-5, claude-sonnet-5-5, claude-haiku-5-5, claude-haiku-4-5, claude-opus-4-5/4-6/4-7/4-8, claude-opus-5, claude-opus-5-5, claude-fable-5, claude-fable-5-1
+- **OpenAI**: gpt-6-sol, gpt-6-luna, gpt-6-astra, gpt-4.1, gpt-4.1-mini, gpt-5, gpt-5-mini, gpt-5.2, gpt-5.4, gpt-5.4-mini, gpt-5.4-nano, gpt-5.5, gpt-5.6-sol/terra/luna, o3; image generation: gpt-image-2.5-flare, gpt-image-2.5-sunburst, gpt-image-2
+- **Anthropic**: claude-sonnet-4-5/4-6, claude-sonnet-5, claude-sonnet-5-5, claude-haiku-5-5, claude-haiku-4-5, claude-opus-4-5/4-6/4-7/4-8, claude-opus-5, claude-opus-5-5, claude-fable-5, claude-fable-5-1, claude-fable-5-2
 - **Google**: gemini-4-argon, gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-flash-preview, gemini-3.1-pro-preview; image generation: gemini-2.5-flash-image, gemini-3.1-flash-image, gemini-nano-banana-2.1
 - **xAI**: grok-4.7, grok-4.6, grok-4.5, grok-4.3, grok-4.20-reasoning, grok-4.20-non-reasoning; image generation: grok-2-image, grok-imagine-image-2.0
 - **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, glm-5.2 (Z.ai's model served via a ModelArk deployment endpoint); image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0
 - **OpenRouter** (OpenAI-compatible): aion-3.5, deepseek-v4-pro (pinned to Together), hy4-preview, hermes-4-405b, hy3
 - **abliteration.ai** (OpenAI-compatible): abliterated-model-large-v2
 - **Moonshot AI** (Kimi API, OpenAI-compatible, api.moonshot.ai): kimi-k3.1-pro
+- **NEAR AI** (NEAR AI Cloud, OpenAI-compatible, cloud-api.near.ai): deepseek-v4.1-flash-abliterated
 - **Z.ai** (Model API, OpenAI-compatible): image generation: glm-image (glm-5.2 chat is routed through BytePlus ModelArk, see ByteDance above)
 - **WaveSpeed** (async prediction API): image generation: krea-3 (Krea's model, always `berry` at `reasoning_level: medium`), qwen-image-3.0-pro (Alibaba's model); each is two WaveSpeed endpoints, text-to-image and edit
 

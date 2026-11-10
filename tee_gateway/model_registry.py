@@ -43,7 +43,8 @@ class ImageResolutionTier:
 @dataclass(frozen=True)
 class ModelConfig:
     # "openai" | "anthropic" | "google" | "x-ai" | "bytedance" |
-    # "openrouter" | "zai" | "abliteration" | "moonshot" | "wavespeed"
+    # "openrouter" | "zai" | "abliteration" | "moonshot" | "nearai" |
+    # "wavespeed"
     provider: str
     api_name: str  # model name sent to provider API
     input_price_usd: Decimal  # USD per token
@@ -731,6 +732,17 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.00005"),
         supports_temperature=False,
     )
+    # Claude Fable 5.2 — successor to Fable 5.1, released 2026-11-09 at $8/$40
+    # per MTok (platform.claude.com/docs/en/about-claude/pricing). Adaptive-
+    # thinking-only; the docs say to omit `temperature`, `top_p` and `top_k`,
+    # so supports_temperature=False.
+    CLAUDE_FABLE_5_2 = ModelConfig(
+        provider="anthropic",
+        api_name="claude-fable-5-2",
+        input_price_usd=Decimal("0.000008"),
+        output_price_usd=Decimal("0.00004"),
+        supports_temperature=False,
+    )
     # Claude Fable 5.1 — successor to Fable 5, GA on the first-party API from
     # 2026-09-01. Same $10/$50 per MTok sticker as Fable 5. Adaptive-
     # thinking-only; like Fable 5 and Opus 4.7+ it rejects the `temperature`
@@ -1236,6 +1248,23 @@ class SupportedModel(Enum):
         supports_temperature=False,
     )
 
+    # ── NEAR AI (NEAR AI Cloud, OpenAI-compatible) ──────────────────────
+    # DeepSeek V4.1 Flash, NEAR's 2026-10-17 snapshot with refusals removed
+    # from the weights (abliterated), served from NEAR's TEE infrastructure.
+    # 1M-token context, tools, and a reasoning model (thinking arrives in
+    # `reasoning_content`, counted in reasoning_tokens). Takes image input:
+    # NEAR's description says text only, but /v1/models lists image input and
+    # a test image was read correctly. Rate from cloud-api.near.ai/v1/models:
+    # $0.30 input, $1.20 output per 1M tokens. /v1/models lists no sampling
+    # parameters, but temperature 0, tools and streamed usage were confirmed
+    # against the live API, so no restriction flags.
+    DEEPSEEK_V4_1_FLASH_ABLITERATED = ModelConfig(
+        provider="nearai",
+        api_name="deepseek-ai/DeepSeek-V4.1-Flash-1017-abliterated",
+        input_price_usd=Decimal("0.0000003"),
+        output_price_usd=Decimal("0.0000012"),
+    )
+
     # ── abliteration.ai (OpenAI-compatible) ─────────────────────────────
     # Abliterated Large v2: 1M-token context, text input, a reasoning model
     # (thinking arrives in `reasoning`, counted in reasoning_tokens). Prices
@@ -1405,6 +1434,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "claude-opus-5-5": SupportedModel.CLAUDE_OPUS_5_5,
     "claude-opus-5.5": SupportedModel.CLAUDE_OPUS_5_5,
     "claude-fable-5": SupportedModel.CLAUDE_FABLE_5,
+    "claude-fable-5-2": SupportedModel.CLAUDE_FABLE_5_2,
+    "claude-fable-5.2": SupportedModel.CLAUDE_FABLE_5_2,
     "claude-fable-5-1": SupportedModel.CLAUDE_FABLE_5_1,
     "claude-fable-5.1": SupportedModel.CLAUDE_FABLE_5_1,
     # Google
@@ -1493,6 +1524,11 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "kimi-k3-1-pro": SupportedModel.KIMI_K3_1_PRO,
     "kimi-3.1-pro": SupportedModel.KIMI_K3_1_PRO,
     "moonshotai/kimi-k3.1-pro": SupportedModel.KIMI_K3_1_PRO,
+    # NEAR AI
+    "deepseek-v4.1-flash-abliterated": SupportedModel.DEEPSEEK_V4_1_FLASH_ABLITERATED,
+    "deepseek-v4-1-flash-abliterated": SupportedModel.DEEPSEEK_V4_1_FLASH_ABLITERATED,
+    "deepseek-v4.1-flash-1017-abliterated": SupportedModel.DEEPSEEK_V4_1_FLASH_ABLITERATED,
+    "deepseek-ai/deepseek-v4.1-flash-1017-abliterated": SupportedModel.DEEPSEEK_V4_1_FLASH_ABLITERATED,
     # abliteration.ai
     "abliterated-model-large-v2": SupportedModel.ABLITERATED_LARGE_V2,
     "abliterated-large-v2": SupportedModel.ABLITERATED_LARGE_V2,

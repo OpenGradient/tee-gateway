@@ -18,7 +18,7 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 
 ## Features
 
-- **Multi-provider routing** - OpenAI, Anthropic, Google Gemini, xAI Grok, ByteDance (BytePlus ModelArk), OpenRouter, abliteration.ai, Moonshot AI (Kimi)
+- **Multi-provider routing** - OpenAI, Anthropic, Google Gemini, xAI Grok, ByteDance (BytePlus ModelArk), OpenRouter, abliteration.ai, Moonshot AI (Kimi), NEAR AI
 - **Remote attestation** - AWS Nitro attestation documents with PCR measurements
 - **Response signing** - RSA-PSS signatures on all inference results
 - **Request integrity** - SHA256 hash of original request included in signed response
@@ -34,13 +34,14 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 | Provider | Models |
 |----------|--------|
 | OpenAI | gpt-6-sol, gpt-6-luna, gpt-6-astra, gpt-4.1, gpt-4.1-mini, gpt-5, gpt-5-mini, gpt-5.2, gpt-5.4, gpt-5.5, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, o3 |
-| Anthropic | claude-haiku-5-5, claude-sonnet-5-5, claude-fable-5-1, claude-fable-5, claude-opus-5-5, claude-opus-5, claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-opus-4-5, claude-sonnet-5, claude-sonnet-4-6, claude-sonnet-4-5, claude-haiku-4-5 |
+| Anthropic | claude-haiku-5-5, claude-sonnet-5-5, claude-fable-5-2, claude-fable-5-1, claude-fable-5, claude-opus-5-5, claude-opus-5, claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-opus-4-5, claude-sonnet-5, claude-sonnet-4-6, claude-sonnet-4-5, claude-haiku-4-5 |
 | Google | gemini-4-argon, gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-flash-preview, gemini-3.1-pro-preview |
 | xAI | grok-4.7, grok-4.6, grok-4.5, grok-4.3, grok-4.20-reasoning, grok-4.20-non-reasoning |
 | ByteDance | seed-1.6, seed-1.8, seed-2.0-lite, dola-seed-2.0-mini, deepseek-v4-flash, glm-5.2 |
 | OpenRouter | aion-3.5, deepseek-v4-pro, hy4-preview, hermes-4-405b, hy3 |
 | abliteration.ai | abliterated-model-large-v2 |
 | Moonshot AI | kimi-k3.1-pro |
+| NEAR AI | deepseek-v4.1-flash-abliterated |
 
 Image generation: krea-3 and qwen-image-3.0-pro (via WaveSpeed), gpt-image-2,
 gpt-image-2.6-flare, gpt-image-2.6-sunburst, gpt-image-2.5-flare, gpt-image-2.5-sunburst, gemini-2.5-flash-image,
@@ -69,6 +70,7 @@ export OPENROUTER_API_KEY=...  # OpenRouter
 export ZAI_API_KEY=...   # Z.ai Model API
 export ABLITERATION_API_KEY=...  # abliteration.ai
 export MOONSHOT_API_KEY=...      # Moonshot AI (Kimi)
+export NEARAI_API_KEY=...        # NEAR AI Cloud
 export WAVESPEED_API_KEY=...  # WaveSpeed (krea-3, qwen-image-3.0-pro)
 
 # Run server (starts the Flask/connexion app on port 8000)
@@ -425,6 +427,7 @@ Clients use an x402-compatible client (e.g., the [x402 SDK](https://github.com/o
 | `ZAI_API_KEY` | - | Z.ai Model API key (injected as `zai_api_key`) |
 | `ABLITERATION_API_KEY` | - | abliteration.ai API key (injected as `abliteration_api_key`) |
 | `MOONSHOT_API_KEY` | - | Moonshot AI Kimi API key, from platform.moonshot.ai (injected as `moonshot_api_key`) |
+| `NEARAI_API_KEY` | - | NEAR AI Cloud API key (injected as `nearai_api_key`) |
 | `WAVESPEED_API_KEY` | - | WaveSpeed API key (injected as `wavespeed_api_key`) |
 | `EVM_PAYMENT_ADDRESS` | - | Wallet address to receive x402 payments |
 | `FACILITATOR_URL` | see `tee_gateway/__main__.py` | x402 payment facilitator endpoint |

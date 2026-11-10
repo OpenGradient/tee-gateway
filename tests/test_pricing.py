@@ -186,6 +186,19 @@ class TestModelRegistry(unittest.TestCase):
         # Adaptive-thinking-only; rejects the `temperature` field (HTTP 400)
         self.assertFalse(cfg.supports_temperature)
 
+    def test_claude_fable_5_2_resolves(self):
+        cfg = get_model_config("claude-fable-5-2")
+        self.assertEqual(cfg.provider, "anthropic")
+        self.assertEqual(cfg.api_name, "claude-fable-5-2")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000008"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00004"))
+        # Adaptive-thinking-only; docs say omit temperature/top_p/top_k
+        self.assertFalse(cfg.supports_temperature)
+
+    def test_claude_fable_5_2_dotted_alias_resolves(self):
+        cfg = get_model_config("claude-fable-5.2")
+        self.assertEqual(cfg, get_model_config("claude-fable-5-2"))
+
     def test_claude_fable_5_1_resolves(self):
         cfg = get_model_config("claude-fable-5-1")
         self.assertEqual(cfg.provider, "anthropic")
@@ -711,6 +724,22 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg, get_model_config("kimi-3.1-pro"))
         self.assertEqual(cfg, get_model_config("moonshotai/kimi-k3.1-pro"))
 
+    def test_deepseek_v4_1_flash_abliterated_resolves(self):
+        cfg = get_model_config("deepseek-v4.1-flash-abliterated")
+        self.assertEqual(cfg.provider, "nearai")
+        self.assertEqual(
+            cfg.api_name, "deepseek-ai/DeepSeek-V4.1-Flash-1017-abliterated"
+        )
+        self.assertEqual(cfg.input_price_usd, Decimal("0.0000003"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000012"))
+        self.assertTrue(cfg.supports_temperature)
+        self.assertEqual(cfg, get_model_config("deepseek-v4-1-flash-abliterated"))
+        self.assertEqual(cfg, get_model_config("deepseek-v4.1-flash-1017-abliterated"))
+        # NEAR's own id, as its API and docs spell it.
+        self.assertEqual(
+            cfg, get_model_config("deepseek-ai/DeepSeek-V4.1-Flash-1017-abliterated")
+        )
+
     def test_aion_3_5_resolves(self):
         cfg = get_model_config("aion-3.5")
         self.assertEqual(cfg.provider, "openrouter")
@@ -1067,6 +1096,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
 
     # ── Anthropic Fable ─────────────────────────────────────────────────────
 
+    def test_claude_fable_5_2_cost(self):
+        cost = self._calc("claude-fable-5-2", 1000, 500)
+        expected = _expected_cost_opg("claude-fable-5-2", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.000008 + 500*0.00004 = 0.008 + 0.02 = 0.028 USD = 2.8e16 wei
+        self.assertEqual(cost, 28_000_000_000_000_000)
+
     def test_claude_fable_5_1_cost(self):
         cost = self._calc("claude-fable-5-1", 1000, 500)
         expected = _expected_cost_opg("claude-fable-5-1", 1000, 500)
@@ -1267,6 +1303,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(
             self._calc("kimi-k3.1-pro", 1000, 500),
             7_000_000_000_000_000,
+        )
+
+    def test_deepseek_v4_1_flash_abliterated_cost(self):
+        # 1000*0.0000003 + 500*0.0000012 = 0.0003 + 0.0006 = 0.0009 USD
+        self.assertEqual(
+            self._calc("deepseek-v4.1-flash-abliterated", 1000, 500),
+            900_000_000_000_000,
         )
 
     def test_aion_3_5_cost(self):

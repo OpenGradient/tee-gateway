@@ -163,7 +163,7 @@ OpenRouter delisted it. For OpenRouter models, `openrouter.ai/api/v1/models`
 is authoritative for availability as well as price; a pricing page keeps
 quoting a rate after the endpoints are gone.
 
-Image generation via OpenAI (gpt-image-2.5-flare, gpt-image-2.5-sunburst, gpt-image-2), xAI (grok-2-image, grok-imagine-image-2.0), ByteDance
+Image generation via OpenAI (gpt-image-2.6-flare, gpt-image-2.6-sunburst, gpt-image-2.5-flare, gpt-image-2.5-sunburst, gpt-image-2), xAI (grok-2-image, grok-imagine-image-2.0), ByteDance
 (seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0), and Z.ai (glm-image) is served
 through a provider `/images/generations` endpoint rather than the chat path (see
 `image_generation.py`), but is surfaced on `/v1/chat/completions` exactly like

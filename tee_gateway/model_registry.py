@@ -897,6 +897,20 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.00002"),
         supports_temperature=False,
     )
+    # Gemini 4 Carbon — Google's strongest model, built on Argon for the
+    # hardest long-horizon/multi-step reasoning (paid Gemini API, 2026-11-10;
+    # text/image/video/audio/PDF in, text out, 1M context). Same sticker as
+    # Argon: priced at the standard $4/$20 per MTok, NOT the introductory
+    # $2/$10 that runs to 2026-11-30 (aistudio.google.com/docs/pricing).
+    # Google's "What's new in Gemini 4 Carbon" page says to remove
+    # `temperature`, `top_p` and `top_k` from requests, so the field is omitted.
+    GEMINI_4_CARBON = ModelConfig(
+        provider="google",
+        api_name="gemini-4-carbon",
+        input_price_usd=Decimal("0.000004"),
+        output_price_usd=Decimal("0.00002"),
+        supports_temperature=False,
+    )
 
     # ── xAI Grok ────────────────────────────────────────────────────────
     # Grok 4.7 — xAI's newest flagship (released 2026-09-21), a larger base
@@ -1455,6 +1469,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-3.8-flash": SupportedModel.GEMINI_3_8_FLASH,
     "gemini-4-argon": SupportedModel.GEMINI_4_ARGON,
     "gemini-4.0-argon": SupportedModel.GEMINI_4_ARGON,
+    "gemini-4-carbon": SupportedModel.GEMINI_4_CARBON,
+    "gemini-4.0-carbon": SupportedModel.GEMINI_4_CARBON,
     # xAI
     "grok-4.7": SupportedModel.GROK_4_7,
     "grok-4.6": SupportedModel.GROK_4_6,

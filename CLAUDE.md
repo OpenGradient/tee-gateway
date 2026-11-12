@@ -140,7 +140,7 @@ prefixes determine routing:
 - **Moonshot AI** (Kimi API, OpenAI-compatible, api.moonshot.ai): kimi-k3.1-pro
 - **NEAR AI** (NEAR AI Cloud, OpenAI-compatible, cloud-api.near.ai): deepseek-v4.1-flash-abliterated
 - **Z.ai** (Model API, OpenAI-compatible): image generation: glm-image (glm-5.2 chat is routed through BytePlus ModelArk, see ByteDance above)
-- **WaveSpeed** (async prediction API): image generation: krea-3 (Krea's model, always `berry` at `reasoning_level: medium`), qwen-image-3.0-pro (Alibaba's model); each is two WaveSpeed endpoints, text-to-image and edit
+- **WaveSpeed** (async prediction API): image generation: minimax-h3-image (MiniMax's model), krea-3 (Krea's model, always `berry` at `reasoning_level: medium`), qwen-image-3.0-pro (Alibaba's model); each is two WaveSpeed endpoints, text-to-image and edit
 
 Models kept registered but no longer offered to new clients — each still
 resolves so older SDK versions keep working, and each is priced at what the
@@ -192,10 +192,11 @@ means the default tier, and the field is rejected on single-resolution
 models. Seedream 5.0 (`1.5K` at $0.045 is the default; `2K` at $0.09 is what
 every request used to be pinned to), Krea 3 (`1K` $0.03 default, `2K` $0.12,
 each reference billed at the same price as the output, per WaveSpeed's
-`$0.03 x MP x (1 + references)` formula) and Qwen Image 3.0 Pro (`1K` $0.04 default,
-`2K` $0.075) are the tiered models today.
+`$0.03 x MP x (1 + references)` formula), Qwen Image 3.0 Pro (`1K` $0.04 default,
+`2K` $0.075) and MiniMax H3 Image (`1K` $0.03, `2K` $0.03 default, `4K` $0.09)
+are the tiered models today.
 
-**WaveSpeed** (krea-3, qwen-image-3.0-pro) is the one image provider that does not
+**WaveSpeed** (minimax-h3-image, krea-3, qwen-image-3.0-pro) is the one image provider that does not
 answer in a single call. `image_generation._generate_wavespeed` submits an
 async prediction to `/{model_id}` — the `…/text-to-image` model, or the
 `…/edit` model (`image_edit_model`) when the turn carries references — then
@@ -206,13 +207,13 @@ prediction so WaveSpeed's history no longer holds the prompt or output.
 WaveSpeed takes references as URLs only: inline `data:` references are
 uploaded through its `/media/uploads` ticket (a keyless PUT to the signed
 URL, which is a credential and is never logged), plain URLs are passed
-through, and at most `image_max_references` (Qwen 3, Krea 8) are sent. Its
+through, and at most `image_max_references` (Qwen 3, Krea 8, MiniMax 10) are sent. Its
 input images are billed too — `per_reference_image_price_usd` (Qwen $0.003
-each; Krea per tier, at the output's price) on top of the per-image price,
+each; MiniMax $0.008; Krea per tier, at the output's price) on top of the per-image price,
 counted from the references actually forwarded. One image per prediction; `n`
 is ignored. Every Qwen request sends `enable_prompt_expansion: false`, and
-every Krea request `model: berry` + `reasoning_level: medium`
-(`image_extra_params`).
+every Krea request `model: berry` + `reasoning_level: medium`, and every
+MiniMax request `output_format: png` (`image_extra_params`).
 
 ### Web Search
 

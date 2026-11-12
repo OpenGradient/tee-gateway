@@ -296,6 +296,9 @@ _WAVESPEED_QWEN_IMAGE_ASPECT_RATIOS: dict[str, str] = {
         "21:9",
     )
 }
+# MiniMax H3 Image on WaveSpeed (text-to-image and edit) takes the same
+# fifteen ratios, passed through unchanged.
+_WAVESPEED_MINIMAX_H3_ASPECT_RATIOS = _WAVESPEED_QWEN_IMAGE_ASPECT_RATIOS
 
 # WaveSpeed's Krea 3 takes explicit ``width*height`` sizes (multiples of 16)
 # and bills by them: $0.03 per started megapixel (1,048,576 px) of output, and
@@ -1360,6 +1363,48 @@ class SupportedModel(Enum):
         },
         image_default_resolution="1K",
     )
+    # MiniMax H3 Image — served through WaveSpeed's `minimax/h3-image`
+    # endpoints. Two endpoints, text-to-image and edit (1-16 reference images; the gateway forwards at
+    # most 10). Priced from WaveSpeed's model pages: $0.03 per image at 1k or
+    # 2k, $0.09 at 4k, plus $0.008 per input image on edits at any tier.
+    # WaveSpeed's `resolution` field is what it bills by, so it is exposed as
+    # resolution tiers; omitted means 2K, which costs the same as 1K. Output
+    # is lossless PNG (also WaveSpeed's default). No seed or prompt rewriting
+    # field is exposed on these endpoints.
+    MINIMAX_H3_IMAGE = ModelConfig(
+        provider="wavespeed",
+        api_name="minimax/h3-image/text-to-image",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.03"),
+        image_response_format=None,
+        image_send_n=False,
+        image_supports_reference=True,
+        image_edit_model="minimax/h3-image/edit",
+        image_max_references=10,
+        per_reference_image_price_usd=Decimal("0.008"),
+        image_extra_params={"output_format": "png"},
+        image_aspect_ratios=_WAVESPEED_MINIMAX_H3_ASPECT_RATIOS,
+        image_resolutions={
+            "1K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.03"),
+                aspect_ratios=_WAVESPEED_MINIMAX_H3_ASPECT_RATIOS,
+                extra_params={"resolution": "1k"},
+            ),
+            "2K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.03"),
+                aspect_ratios=_WAVESPEED_MINIMAX_H3_ASPECT_RATIOS,
+                extra_params={"resolution": "2k"},
+            ),
+            "4K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.09"),
+                aspect_ratios=_WAVESPEED_MINIMAX_H3_ASPECT_RATIOS,
+                extra_params={"resolution": "4k"},
+            ),
+        },
+        image_default_resolution="2K",
+    )
 
     # ── Legacy models (not in current SDK — retained for older SDK versions) ──
     # grok-3 was retired on 2026-05-15 alongside the slugs above and is
@@ -1544,6 +1589,11 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "qwen-image-3-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
     "alibaba/qwen-image-3.0-pro": SupportedModel.QWEN_IMAGE_3_0_PRO,
     "alibaba/qwen-image-3.0-pro/text-to-image": SupportedModel.QWEN_IMAGE_3_0_PRO,
+    "minimax-h3-image": SupportedModel.MINIMAX_H3_IMAGE,
+    "minimax-h3": SupportedModel.MINIMAX_H3_IMAGE,
+    "minimax/minimax-h3-image": SupportedModel.MINIMAX_H3_IMAGE,
+    "minimax/h3-image": SupportedModel.MINIMAX_H3_IMAGE,
+    "minimax/h3-image/text-to-image": SupportedModel.MINIMAX_H3_IMAGE,
     # Legacy — not in current SDK, retained for older SDK versions
     "grok-3-mini-beta": SupportedModel.GROK_3_MINI,  # old beta alias
     "grok-3-mini": SupportedModel.GROK_3_MINI,

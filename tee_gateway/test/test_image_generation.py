@@ -35,6 +35,7 @@ GLM_IMAGE = "glm-image"
 GPT_IMAGE = "gpt-image-2"
 QWEN_IMAGE = "qwen-image-3.0-pro"
 KREA_3 = "krea-3"
+MINIMAX_H3 = "minimax-h3-image"
 
 
 def _mock_response(data: list[dict]) -> MagicMock:
@@ -609,6 +610,53 @@ class TestWaveSpeedImageGeneration(unittest.TestCase):
                 _, body = client.submitted()
                 self.assertEqual(body["size"], size)
                 self.assertNotIn("aspect_ratio", body)
+
+    def test_minimax_h3_defaults_to_2k_png_on_minimax_endpoint(self):
+        client = _WaveSpeedClient([_ws_prediction("completed", outputs=[_WS_OUTPUT])])
+        with patch.object(llm_backend, "wavespeed_http_client", client):
+            generate_images(MINIMAX_H3, "a lighthouse at dusk", aspect_ratio="2:3")
+        path, body = client.submitted()
+        self.assertEqual(path, "/minimax/h3-image/text-to-image")
+        self.assertEqual(
+            body,
+            {
+                "prompt": "a lighthouse at dusk",
+                "output_format": "png",
+                "resolution": "2k",
+                "aspect_ratio": "2:3",
+            },
+        )
+
+    def test_minimax_h3_resolution_tier_is_sent(self):
+        for tier, sent in (("1K", "1k"), ("2K", "2k"), ("4K", "4k")):
+            with self.subTest(tier=tier):
+                client = _WaveSpeedClient(
+                    [_ws_prediction("completed", outputs=[_WS_OUTPUT])]
+                )
+                with patch.object(llm_backend, "wavespeed_http_client", client):
+                    generate_images(MINIMAX_H3, "p", resolution=tier)
+                _, body = client.submitted()
+                self.assertEqual(body["resolution"], sent)
+
+    def test_minimax_h3_edit_uses_the_edit_model(self):
+        client = _WaveSpeedClient([_ws_prediction("completed", outputs=[_WS_OUTPUT])])
+        with patch.object(llm_backend, "wavespeed_http_client", client):
+            generate_images(
+                MINIMAX_H3, "p", reference_images=["https://example.com/photo.jpg"]
+            )
+        path, body = client.submitted()
+        self.assertEqual(path, "/minimax/h3-image/edit")
+        self.assertEqual(body["images"], ["https://example.com/photo.jpg"])
+        self.assertEqual(body["resolution"], "2k")
+        # No ratio picked: WaveSpeed derives it from the references.
+        self.assertNotIn("aspect_ratio", body)
+
+    def test_minimax_h3_rejects_an_unknown_resolution(self):
+        client = _WaveSpeedClient([])
+        with patch.object(llm_backend, "wavespeed_http_client", client):
+            with self.assertRaisesRegex(ValueError, "Unsupported resolution"):
+                generate_images(MINIMAX_H3, "p", resolution="8K")
+        self.assertEqual(client.posts, [])
 
     def test_krea_3_edit_uses_the_edit_model_and_keeps_framing(self):
         client = _WaveSpeedClient([_ws_prediction("completed", outputs=[_WS_OUTPUT])])
@@ -1344,6 +1392,7 @@ class TestPerImageBilling(unittest.TestCase):
             GPT_IMAGE,
             QWEN_IMAGE,
             KREA_3,
+            MINIMAX_H3,
         ):
             with self.subTest(model=model):
                 cfg = get_model_config(model)
@@ -1410,6 +1459,22 @@ class TestPerImageBilling(unittest.TestCase):
         for kwargs, expected in cases:
             with self.subTest(**kwargs):
                 cost = compute_session_cost(KREA_3, usage, image_count=1, **kwargs)
+                self.assertEqual(cost.cost_usd, expected)
+
+    def test_minimax_h3_reference_images_are_billed(self):
+        # WaveSpeed: $0.03 at 1k/2k, $0.09 at 4k, plus $0.008 per input image.
+        usage = self._zero_usage()
+        cases = [
+            ({}, Decimal("0.03")),
+            ({"resolution": "1K"}, Decimal("0.03")),
+            ({"resolution": "4K"}, Decimal("0.09")),
+            ({"reference_count": 1}, Decimal("0.038")),
+            ({"reference_count": 10}, Decimal("0.11")),
+            ({"resolution": "4K", "reference_count": 2}, Decimal("0.106")),
+        ]
+        for kwargs, expected in cases:
+            with self.subTest(**kwargs):
+                cost = compute_session_cost(MINIMAX_H3, usage, image_count=1, **kwargs)
                 self.assertEqual(cost.cost_usd, expected)
 
     def test_reference_images_free_on_models_without_a_reference_price(self):

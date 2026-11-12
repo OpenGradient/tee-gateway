@@ -43,7 +43,7 @@ The gateway solves this by running inside a hardware-isolated Nitro Enclave wher
 | Moonshot AI | kimi-k3.1-pro |
 | NEAR AI | deepseek-v4.1-flash-abliterated |
 
-Image generation: krea-3 and qwen-image-3.0-pro (via WaveSpeed), gpt-image-2,
+Image generation: minimax-h3-image, krea-3 and qwen-image-3.0-pro (via WaveSpeed), gpt-image-2,
 gpt-image-2.6-flare, gpt-image-2.6-sunburst, gpt-image-2.5-flare, gpt-image-2.5-sunburst, gemini-2.5-flash-image,
 gemini-nano-banana-2.1, gemini-3.1-flash-image, grok-2-image, grok-imagine-image-2.0, seedream-4.0,
 seedream-5.0-lite, seedance-4.5, seedance-5.0, glm-image.
@@ -71,7 +71,7 @@ export ZAI_API_KEY=...   # Z.ai Model API
 export ABLITERATION_API_KEY=...  # abliteration.ai
 export MOONSHOT_API_KEY=...      # Moonshot AI (Kimi)
 export NEARAI_API_KEY=...        # NEAR AI Cloud
-export WAVESPEED_API_KEY=...  # WaveSpeed (krea-3, qwen-image-3.0-pro)
+export WAVESPEED_API_KEY=...  # WaveSpeed (minimax-h3-image, krea-3, qwen-image-3.0-pro)
 
 # Run server (starts the Flask/connexion app on port 8000)
 make test-local          # Werkzeug dev server (development only)

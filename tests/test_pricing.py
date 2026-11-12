@@ -834,6 +834,44 @@ class TestModelRegistry(unittest.TestCase):
                     get_model_config(alias), get_model_config("qwen-image-3.0-pro")
                 )
 
+    def test_minimax_h3_image_resolves(self):
+        cfg = get_model_config("minimax-h3-image")
+        self.assertEqual(cfg.provider, "wavespeed")
+        self.assertEqual(cfg.api_name, "minimax/h3-image/text-to-image")
+        self.assertEqual(cfg.image_edit_model, "minimax/h3-image/edit")
+        self.assertTrue(cfg.image_generation)
+        # WaveSpeed's model pages: $0.03 per image at 1k/2k, $0.09 at 4k,
+        # $0.008 per input image on edits at any tier.
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.03"))
+        self.assertEqual(cfg.per_reference_image_price_usd, Decimal("0.008"))
+        self.assertEqual(cfg.image_default_resolution, "2K")
+        self.assertEqual(
+            {
+                k: (t.per_image_price_usd, dict(t.extra_params))
+                for k, t in cfg.image_resolutions.items()
+            },
+            {
+                "1K": (Decimal("0.03"), {"resolution": "1k"}),
+                "2K": (Decimal("0.03"), {"resolution": "2k"}),
+                "4K": (Decimal("0.09"), {"resolution": "4k"}),
+            },
+        )
+        self.assertEqual(dict(cfg.image_extra_params), {"output_format": "png"})
+        self.assertEqual(cfg.image_max_references, 10)
+
+    def test_minimax_h3_image_aliases_resolve(self):
+        for alias in (
+            "minimax-h3",
+            "minimax/minimax-h3-image",
+            "minimax/h3-image",
+            "minimax/h3-image/text-to-image",
+            "MiniMax-H3-Image",
+        ):
+            with self.subTest(alias=alias):
+                self.assertEqual(
+                    get_model_config(alias), get_model_config("minimax-h3-image")
+                )
+
     def test_krea_3_resolves(self):
         cfg = get_model_config("krea-3")
         self.assertEqual(cfg.provider, "wavespeed")

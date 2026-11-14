@@ -431,6 +431,15 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.input_price_usd, Decimal("0.00000075"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.00000375"))
 
+    def test_gemini_4_hydrogen_resolves(self):
+        for name in ("gemini-4-hydrogen", "gemini-4.0-hydrogen"):
+            cfg = get_model_config(name)
+            self.assertEqual(cfg.provider, "google")
+            self.assertEqual(cfg.api_name, "gemini-4-hydrogen")
+            self.assertEqual(cfg.input_price_usd, Decimal("0.0000015"))
+            self.assertEqual(cfg.output_price_usd, Decimal("0.0000075"))
+            self.assertFalse(cfg.supports_temperature)
+
     def test_gemini_4_carbon_resolves(self):
         for name in ("gemini-4-carbon", "gemini-4.0-carbon"):
             cfg = get_model_config(name)
@@ -1171,6 +1180,11 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         cost = self._calc("gemini-3.8-flash", 1000, 500)
         self.assertEqual(cost, _expected_cost_opg("gemini-3.8-flash", 1000, 500))
         self.assertEqual(cost, 2_625_000_000_000_000)
+
+    def test_gemini_4_hydrogen_cost(self):
+        cost = self._calc("gemini-4-hydrogen", 1000, 500)
+        self.assertEqual(cost, _expected_cost_opg("gemini-4-hydrogen", 1000, 500))
+        self.assertEqual(cost, 5_250_000_000_000_000)
 
     def test_gemini_4_carbon_cost(self):
         cost = self._calc("gemini-4-carbon", 1000, 500)

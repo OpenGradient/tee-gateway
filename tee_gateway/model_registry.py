@@ -900,6 +900,34 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.00002"),
         supports_temperature=False,
     )
+    # Gemini 4 Carbon — Google's strongest model, built on Argon for the
+    # hardest long-horizon/multi-step reasoning (paid Gemini API, 2026-11-10;
+    # text/image/video/audio/PDF in, text out, 1M context). Same sticker as
+    # Argon: priced at the standard $4/$20 per MTok, NOT the introductory
+    # $2/$10 that runs to 2026-11-30 (aistudio.google.com/docs/pricing).
+    # Google's "What's new in Gemini 4 Carbon" page says to remove
+    # `temperature`, `top_p` and `top_k` from requests, so the field is omitted.
+    GEMINI_4_CARBON = ModelConfig(
+        provider="google",
+        api_name="gemini-4-carbon",
+        input_price_usd=Decimal("0.000004"),
+        output_price_usd=Decimal("0.00002"),
+        supports_temperature=False,
+    )
+    # Gemini 4 Hydrogen — Google's named replacement for Gemini 3.8 Flash
+    # (paid Gemini API, 2026-11-13; text/image/video/audio/PDF in, text out,
+    # 1M context). Standard $1.50/$7.50 per MTok with no introductory rate
+    # (aistudio.google.com/docs/pricing) — the same rate 3.8 Flash moves to on
+    # 2027-01-01. Google's migration notes say `temperature`, `top_p` and
+    # `top_k` are no longer honoured on Gemini 4 models, so the field is
+    # omitted like Argon and Carbon.
+    GEMINI_4_HYDROGEN = ModelConfig(
+        provider="google",
+        api_name="gemini-4-hydrogen",
+        input_price_usd=Decimal("0.0000015"),
+        output_price_usd=Decimal("0.0000075"),
+        supports_temperature=False,
+    )
 
     # ── xAI Grok ────────────────────────────────────────────────────────
     # Grok 4.7 — xAI's newest flagship (released 2026-09-21), a larger base
@@ -1500,6 +1528,10 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-3.8-flash": SupportedModel.GEMINI_3_8_FLASH,
     "gemini-4-argon": SupportedModel.GEMINI_4_ARGON,
     "gemini-4.0-argon": SupportedModel.GEMINI_4_ARGON,
+    "gemini-4-carbon": SupportedModel.GEMINI_4_CARBON,
+    "gemini-4.0-carbon": SupportedModel.GEMINI_4_CARBON,
+    "gemini-4-hydrogen": SupportedModel.GEMINI_4_HYDROGEN,
+    "gemini-4.0-hydrogen": SupportedModel.GEMINI_4_HYDROGEN,
     # xAI
     "grok-4.7": SupportedModel.GROK_4_7,
     "grok-4.6": SupportedModel.GROK_4_6,

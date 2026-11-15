@@ -1146,6 +1146,50 @@ class SupportedModel(Enum):
         },
         image_default_resolution="1.5K",
     )
+    # Seedream 5.5 image generation (released 2026-11-09), called by its
+    # ModelArk model id rather than an ep- deployment endpoint. Returns hosted
+    # URLs (fetched and inlined by the gateway).
+    #
+    # BytePlus bills it by output pixel count (ModelArk pricing page, model
+    # dola-seedream-5-5-261028): $0.020/image for 921,600 <= P <= 2,601,123
+    # pixels, $0.035 up to 4,624,220, plus $0.008 per input (reference) image.
+    # The price line is the same one Seedream 5.0 pro has, so it takes the same
+    # two tiers and size tables: "1.5K" (every size under 2.6 MP, the default)
+    # and "2K" (every size under 4.62 MP).
+    #
+    # ModelArk's docs do not yet list this model's accepted parameters. It
+    # takes Seedream 5.0 pro's param set, which leaves out
+    # sequential_image_generation: 5.0 pro 400s on that field, and omitting a
+    # field the model would accept costs nothing (the gateway always asks for
+    # one image), while sending one it rejects fails every request.
+    SEEDREAM_5_5 = ModelConfig(
+        provider="bytedance",
+        api_name="dola-seedream-5-5-261028",
+        input_price_usd=Decimal("0"),
+        output_price_usd=Decimal("0"),
+        image_generation=True,
+        per_image_price_usd=Decimal("0.02"),
+        per_reference_image_price_usd=Decimal("0.008"),
+        image_response_format="url",
+        image_send_n=False,
+        image_supports_reference=True,
+        image_extra_params=_SEEDANCE_5_IMAGE_PARAMS,
+        image_aspect_ratios=_BYTEDANCE_1_5K_ASPECT_SIZES,
+        image_aspect_ratio_param="size",
+        image_resolutions={
+            "1.5K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.02"),
+                aspect_ratios=_BYTEDANCE_1_5K_ASPECT_SIZES,
+                extra_params={"size": "1.5K"},
+            ),
+            "2K": ImageResolutionTier(
+                per_image_price_usd=Decimal("0.035"),
+                aspect_ratios=_BYTEDANCE_2K_ASPECT_SIZES,
+                extra_params={"size": "2K"},
+            ),
+        },
+        image_default_resolution="1.5K",
+    )
 
     # ── OpenRouter (OpenAI-compatible) ──────────────────────────────────
     # AionLabs Aion 3.5 — multi-model roleplay/storytelling system built on
@@ -1543,6 +1587,9 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "ep-20260803211347-hq9k8": SupportedModel.SEEDANCE_5_0,
     "seedance-5.0": SupportedModel.SEEDANCE_5_0,
     "seedance-5-0": SupportedModel.SEEDANCE_5_0,
+    "dola-seedream-5-5-261028": SupportedModel.SEEDREAM_5_5,
+    "seedream-5.5": SupportedModel.SEEDREAM_5_5,
+    "seedream-5-5": SupportedModel.SEEDREAM_5_5,
     # Routed through OpenRouter
     "aion-3.5": SupportedModel.AION_3_5,
     "aion-3-5": SupportedModel.AION_3_5,

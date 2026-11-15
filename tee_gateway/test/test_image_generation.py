@@ -1461,6 +1461,23 @@ class TestPerImageBilling(unittest.TestCase):
                 cost = compute_session_cost(KREA_3, usage, image_count=1, **kwargs)
                 self.assertEqual(cost.cost_usd, expected)
 
+    def test_seedream_5_5_tiers_and_reference_images_are_billed(self):
+        # ModelArk: $0.020 / $0.035 per 1.5K / 2K output image, plus $0.008
+        # per input image.
+        usage = self._zero_usage()
+        cases = [
+            ({}, Decimal("0.02")),
+            ({"resolution": "2K"}, Decimal("0.035")),
+            ({"reference_count": 1}, Decimal("0.028")),
+            ({"resolution": "2K", "reference_count": 2}, Decimal("0.051")),
+        ]
+        for kwargs, expected in cases:
+            with self.subTest(**kwargs):
+                cost = compute_session_cost(
+                    "seedream-5.5", usage, image_count=1, **kwargs
+                )
+                self.assertEqual(cost.cost_usd, expected)
+
     def test_minimax_h3_reference_images_are_billed(self):
         # WaveSpeed: $0.03 at 1k/2k, $0.09 at 4k, plus $0.008 per input image.
         usage = self._zero_usage()

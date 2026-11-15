@@ -677,6 +677,31 @@ class TestModelRegistry(unittest.TestCase):
             get_model_config("seedance-5.0"),
         )
 
+    def test_seedream_5_5_resolves(self):
+        cfg = get_model_config("seedream-5.5")
+        self.assertEqual(cfg.provider, "bytedance")
+        self.assertEqual(cfg.api_name, "dola-seedream-5-5-261028")
+        self.assertTrue(cfg.image_generation)
+        # ModelArk prices Seedream 5.5 by pixel count: $0.020 up to 2.6 MP
+        # (the "1.5K" tier, the default), $0.035 up to 4.62 MP (the "2K"
+        # tier), plus $0.008 per input image.
+        self.assertEqual(cfg.per_image_price_usd, Decimal("0.02"))
+        self.assertEqual(cfg.per_reference_image_price_usd, Decimal("0.008"))
+        self.assertEqual(cfg.image_default_resolution, "1.5K")
+        self.assertEqual(
+            {k: t.per_image_price_usd for k, t in cfg.image_resolutions.items()},
+            {"1.5K": Decimal("0.02"), "2K": Decimal("0.035")},
+        )
+        # Same param set as Seedream 5.0 pro: no sequential_image_generation.
+        self.assertNotIn("sequential_image_generation", cfg.image_extra_params)
+
+    def test_seedream_5_5_aliases_resolve(self):
+        for alias in ("seedream-5-5", "dola-seedream-5-5-261028", "Seedream-5.5"):
+            with self.subTest(alias=alias):
+                self.assertEqual(
+                    get_model_config(alias), get_model_config("seedream-5.5")
+                )
+
     # ── Nous Research models (OpenRouter) ───────────────────────────────────
 
     def test_hermes_4_405b_resolves(self):

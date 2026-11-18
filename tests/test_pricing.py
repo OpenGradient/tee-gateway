@@ -788,20 +788,13 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg, get_model_config("aion-3-5"))
         self.assertEqual(cfg, get_model_config("aion-labs/aion-3.5"))
 
-    def test_hy4_resolves(self):
-        cfg = get_model_config("tencent/hy4")
-        self.assertEqual(cfg.provider, "openrouter")
-        self.assertEqual(cfg.api_name, "tencent/hy4")
-        self.assertEqual(cfg.input_price_usd, Decimal("0.000000417"))
-        self.assertEqual(cfg.output_price_usd, Decimal("0.0000012505"))
-        self.assertEqual(cfg, get_model_config("hy4"))
-
     def test_hy4_preview_resolves(self):
         cfg = get_model_config("hy4-preview")
         self.assertEqual(cfg.provider, "openrouter")
         self.assertEqual(cfg.api_name, "tencent/hy4-preview")
         self.assertEqual(cfg.input_price_usd, Decimal("0.000000834"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000002501"))
+        self.assertEqual(cfg, get_model_config("hy4"))
         self.assertEqual(cfg, get_model_config("tencent/hy4-preview"))
 
     # ── Z.ai (Model API) ───────────────────────────────────────────────────
@@ -1424,13 +1417,6 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(
             self._calc("aion-3.5", 1000, 500),
             6_000_000_000_000_000,
-        )
-
-    def test_hy4_cost(self):
-        # 1000*0.000000417 + 500*0.0000012505 = 0.00104225 USD
-        self.assertEqual(
-            self._calc("hy4", 1000, 500),
-            1_042_250_000_000_000,
         )
 
     def test_hy4_preview_cost(self):

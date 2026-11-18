@@ -479,6 +479,31 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.000006"),
         responses_api_for_tools=True,
     )
+    # GPT-6.2 Astra and GPT-6.2 Sol (released 2026-11-17) — point releases of
+    # GPT-6 Astra and GPT-6 Sol that finish tasks in fewer output tokens.
+    # Astra is $8/$40 per MTok (20% under GPT-6 Astra's $10/$50); Sol keeps
+    # $2/$10 (OpenAI pricing page, standard tier, <=272K input). Both have a
+    # 1.05M context window. Same reasoning_effort/function-tools conflict on
+    # Chat Completions as the GPT-6 and gpt-5.6 families, so tools go through
+    # the Responses API. OpenAI's model pages do not say whether `temperature`
+    # is accepted; every earlier GPT-6 model rejects it (and langchain only
+    # strips it for "gpt-5*" names), so supports_temperature=False.
+    GPT_6_2_ASTRA = ModelConfig(
+        provider="openai",
+        api_name="gpt-6.2-astra",
+        input_price_usd=Decimal("0.000008"),
+        output_price_usd=Decimal("0.00004"),
+        responses_api_for_tools=True,
+        supports_temperature=False,
+    )
+    GPT_6_2_SOL = ModelConfig(
+        provider="openai",
+        api_name="gpt-6.2-sol",
+        input_price_usd=Decimal("0.000002"),
+        output_price_usd=Decimal("0.00001"),
+        responses_api_for_tools=True,
+        supports_temperature=False,
+    )
     # GPT-6 Astra — OpenAI's flagship successor to the gpt-5.6 family (GA
     # 2026-09-03). Ships with native web search, code interpreter, hosted
     # shell, apply-patch, computer use and MCP. Priced at $10/$50 per MTok.
@@ -1196,6 +1221,16 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.00000396"),
         openrouter_provider="together",
     )
+    # Tencent Hy4 — the GA release of Hy4 Preview (listed on OpenRouter
+    # 2026-11-04), served by Tencent only, adding image input and halving the
+    # preview's price: $0.417/$1.2505 per MTok (openrouter.ai/api/v1/models).
+    # Same 1,048,576-token context; temperature is a supported parameter.
+    HY4 = ModelConfig(
+        provider="openrouter",
+        api_name="tencent/hy4",
+        input_price_usd=Decimal("0.000000417"),
+        output_price_usd=Decimal("0.0000012505"),
+    )
     # Tencent Hy4 Preview — 770B-parameter (49B active) open-weight MoE,
     # open-sourced 2026-08-28, aimed at coding agents and long-horizon
     # tool-use with a 1,048,576-token context window. Routed through
@@ -1478,6 +1513,10 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gpt-5.6-sol": SupportedModel.GPT_5_6_SOL,
     "gpt-5.6-terra": SupportedModel.GPT_5_6_TERRA,
     "gpt-5.6-luna": SupportedModel.GPT_5_6_LUNA,
+    "gpt-6.2-astra": SupportedModel.GPT_6_2_ASTRA,
+    "gpt-6-2-astra": SupportedModel.GPT_6_2_ASTRA,
+    "gpt-6.2-sol": SupportedModel.GPT_6_2_SOL,
+    "gpt-6-2-sol": SupportedModel.GPT_6_2_SOL,
     "gpt-6-astra": SupportedModel.GPT_6_ASTRA,
     "gpt-6-sol": SupportedModel.GPT_6_SOL,
     "gpt-6-luna": SupportedModel.GPT_6_LUNA,
@@ -1589,8 +1628,9 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "hy3": SupportedModel.HY3,
     "tencent/hy3": SupportedModel.HY3,
     "tencent/hy3:floor": SupportedModel.HY3,
+    "hy4": SupportedModel.HY4,
+    "tencent/hy4": SupportedModel.HY4,
     "hy4-preview": SupportedModel.HY4_PREVIEW,
-    "hy4": SupportedModel.HY4_PREVIEW,
     "tencent/hy4-preview": SupportedModel.HY4_PREVIEW,
     # Z.ai
     "glm-5.2": SupportedModel.GLM_5_2,

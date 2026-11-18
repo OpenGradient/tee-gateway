@@ -320,6 +320,26 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg.output_price_usd, Decimal("0.00005"))
         self.assertTrue(cfg.responses_api_for_tools)
 
+    def test_gpt_6_2_astra_resolves(self):
+        cfg = get_model_config("gpt-6.2-astra")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.api_name, "gpt-6.2-astra")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000008"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00004"))
+        self.assertTrue(cfg.responses_api_for_tools)
+        self.assertFalse(cfg.supports_temperature)
+        self.assertEqual(cfg, get_model_config("gpt-6-2-astra"))
+
+    def test_gpt_6_2_sol_resolves(self):
+        cfg = get_model_config("gpt-6.2-sol")
+        self.assertEqual(cfg.provider, "openai")
+        self.assertEqual(cfg.api_name, "gpt-6.2-sol")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000002"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.00001"))
+        self.assertTrue(cfg.responses_api_for_tools)
+        self.assertFalse(cfg.supports_temperature)
+        self.assertEqual(cfg, get_model_config("gpt-6-2-sol"))
+
     def test_gpt_6_sol_resolves(self):
         cfg = get_model_config("gpt-6-sol")
         self.assertEqual(cfg.provider, "openai")
@@ -768,13 +788,20 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg, get_model_config("aion-3-5"))
         self.assertEqual(cfg, get_model_config("aion-labs/aion-3.5"))
 
+    def test_hy4_resolves(self):
+        cfg = get_model_config("tencent/hy4")
+        self.assertEqual(cfg.provider, "openrouter")
+        self.assertEqual(cfg.api_name, "tencent/hy4")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000000417"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000012505"))
+        self.assertEqual(cfg, get_model_config("hy4"))
+
     def test_hy4_preview_resolves(self):
         cfg = get_model_config("hy4-preview")
         self.assertEqual(cfg.provider, "openrouter")
         self.assertEqual(cfg.api_name, "tencent/hy4-preview")
         self.assertEqual(cfg.input_price_usd, Decimal("0.000000834"))
         self.assertEqual(cfg.output_price_usd, Decimal("0.000002501"))
-        self.assertEqual(cfg, get_model_config("hy4"))
         self.assertEqual(cfg, get_model_config("tencent/hy4-preview"))
 
     # ── Z.ai (Model API) ───────────────────────────────────────────────────
@@ -1064,6 +1091,20 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(cost, expected)
         # 1000*0.00001 + 500*0.00005 = 0.01 + 0.025 = 0.035 USD = 3.5e16 wei
         self.assertEqual(cost, 35_000_000_000_000_000)
+
+    def test_gpt_6_2_astra_cost(self):
+        cost = self._calc("gpt-6.2-astra", 1000, 500)
+        expected = _expected_cost_opg("gpt-6.2-astra", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.000008 + 500*0.00004 = 0.008 + 0.02 = 0.028 USD = 2.8e16 wei
+        self.assertEqual(cost, 28_000_000_000_000_000)
+
+    def test_gpt_6_2_sol_cost(self):
+        cost = self._calc("gpt-6.2-sol", 1000, 500)
+        expected = _expected_cost_opg("gpt-6.2-sol", 1000, 500)
+        self.assertEqual(cost, expected)
+        # 1000*0.000002 + 500*0.00001 = 0.002 + 0.005 = 0.007 USD = 7e15 wei
+        self.assertEqual(cost, 7_000_000_000_000_000)
 
     def test_gpt_6_sol_cost(self):
         cost = self._calc("gpt-6-sol", 1000, 500)
@@ -1383,6 +1424,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(
             self._calc("aion-3.5", 1000, 500),
             6_000_000_000_000_000,
+        )
+
+    def test_hy4_cost(self):
+        # 1000*0.000000417 + 500*0.0000012505 = 0.00104225 USD
+        self.assertEqual(
+            self._calc("hy4", 1000, 500),
+            1_042_250_000_000_000,
         )
 
     def test_hy4_preview_cost(self):

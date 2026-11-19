@@ -134,7 +134,7 @@ prefixes determine routing:
 - **Anthropic**: claude-sonnet-4-5/4-6, claude-sonnet-5, claude-sonnet-5-5, claude-haiku-5-5, claude-haiku-4-5, claude-opus-4-5/4-6/4-7/4-8, claude-opus-5, claude-opus-5-5, claude-fable-5, claude-fable-5-1, claude-fable-5-2
 - **Google**: gemini-4-neon, gemini-4-hydrogen, gemini-4-carbon, gemini-4-argon, gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-flash-preview, gemini-3.1-pro-preview; image generation: gemini-2.5-flash-image, gemini-3.1-flash-image, gemini-nano-banana-2.1
 - **xAI**: grok-4.7, grok-4.6, grok-4.5, grok-4.3, grok-4.20-reasoning, grok-4.20-non-reasoning; image generation: grok-2-image, grok-imagine-image-2.0
-- **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, glm-5.2 (Z.ai's model served via a ModelArk deployment endpoint); image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0
+- **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, glm-5.2 (Z.ai's model served via a ModelArk deployment endpoint); image generation: seedream-5.5, seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0
 - **OpenRouter** (OpenAI-compatible): aion-3.5, deepseek-v4-pro (pinned to Together), hy4-preview, hermes-4-405b, hy3
 - **abliteration.ai** (OpenAI-compatible): abliterated-model-large-v2
 - **Moonshot AI** (Kimi API, OpenAI-compatible, api.moonshot.ai): kimi-k3.1-pro
@@ -164,7 +164,7 @@ is authoritative for availability as well as price; a pricing page keeps
 quoting a rate after the endpoints are gone.
 
 Image generation via OpenAI (gpt-image-2.6-flare, gpt-image-2.6-sunburst, gpt-image-2.5-flare, gpt-image-2.5-sunburst, gpt-image-2), xAI (grok-2-image, grok-imagine-image-2.0), ByteDance
-(seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0), and Z.ai (glm-image) is served
+(seedream-5.5, seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0), and Z.ai (glm-image) is served
 through a provider `/images/generations` endpoint rather than the chat path (see
 `image_generation.py`), but is surfaced on `/v1/chat/completions` exactly like
 Gemini's inline-image models (images returned out-of-band under the message
@@ -190,7 +190,7 @@ prices by output pixel count can declare **resolution tiers**
 `size` keyword, the ratio→pixels table, and the per-image price — omitted
 means the default tier, and the field is rejected on single-resolution
 models. Seedream 5.0 (`1.5K` at $0.045 is the default; `2K` at $0.09 is what
-every request used to be pinned to), Krea 3 (`1K` $0.03 default, `2K` $0.12,
+every request used to be pinned to), Seedream 5.5 (`1.5K` $0.02 default, `2K` $0.035, plus $0.008 per reference image), Krea 3 (`1K` $0.03 default, `2K` $0.12,
 each reference billed at the same price as the output, per WaveSpeed's
 `$0.03 x MP x (1 + references)` formula), Qwen Image 3.0 Pro (`1K` $0.04 default,
 `2K` $0.075) and MiniMax H3 Image (`1K` $0.03, `2K` $0.03 default, `4K` $0.09)

@@ -479,6 +479,31 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.000006"),
         responses_api_for_tools=True,
     )
+    # GPT-6.2 Astra and GPT-6.2 Sol (released 2026-11-17) — point releases of
+    # GPT-6 Astra and GPT-6 Sol that finish tasks in fewer output tokens.
+    # Astra is $8/$40 per MTok (20% under GPT-6 Astra's $10/$50); Sol keeps
+    # $2/$10 (OpenAI pricing page, standard tier, <=272K input). Both have a
+    # 1.05M context window. Same reasoning_effort/function-tools conflict on
+    # Chat Completions as the GPT-6 and gpt-5.6 families, so tools go through
+    # the Responses API. OpenAI's model pages do not say whether `temperature`
+    # is accepted; every earlier GPT-6 model rejects it (and langchain only
+    # strips it for "gpt-5*" names), so supports_temperature=False.
+    GPT_6_2_ASTRA = ModelConfig(
+        provider="openai",
+        api_name="gpt-6.2-astra",
+        input_price_usd=Decimal("0.000008"),
+        output_price_usd=Decimal("0.00004"),
+        responses_api_for_tools=True,
+        supports_temperature=False,
+    )
+    GPT_6_2_SOL = ModelConfig(
+        provider="openai",
+        api_name="gpt-6.2-sol",
+        input_price_usd=Decimal("0.000002"),
+        output_price_usd=Decimal("0.00001"),
+        responses_api_for_tools=True,
+        supports_temperature=False,
+    )
     # GPT-6 Astra — OpenAI's flagship successor to the gpt-5.6 family (GA
     # 2026-09-03). Ships with native web search, code interpreter, hosted
     # shell, apply-patch, computer use and MCP. Priced at $10/$50 per MTok.
@@ -1494,6 +1519,10 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gpt-5.6-sol": SupportedModel.GPT_5_6_SOL,
     "gpt-5.6-terra": SupportedModel.GPT_5_6_TERRA,
     "gpt-5.6-luna": SupportedModel.GPT_5_6_LUNA,
+    "gpt-6.2-astra": SupportedModel.GPT_6_2_ASTRA,
+    "gpt-6-2-astra": SupportedModel.GPT_6_2_ASTRA,
+    "gpt-6.2-sol": SupportedModel.GPT_6_2_SOL,
+    "gpt-6-2-sol": SupportedModel.GPT_6_2_SOL,
     "gpt-6-astra": SupportedModel.GPT_6_ASTRA,
     "gpt-6-sol": SupportedModel.GPT_6_SOL,
     "gpt-6-luna": SupportedModel.GPT_6_LUNA,

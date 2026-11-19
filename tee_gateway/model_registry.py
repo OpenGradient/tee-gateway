@@ -914,6 +914,22 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.00002"),
         supports_temperature=False,
     )
+    # Gemini 4 Neon — sits between Carbon and Hydrogen (paid Gemini API, GA
+    # 2026-11-18; 1M context, thinking levels low/medium/high/xhigh, default
+    # high). Google names it the replacement for Argon in the Gemini app.
+    # Standard $3/$15 per MTok with no introductory rate
+    # (aistudio.google.com/docs/pricing; same figures in Google's launch post).
+    # Gemini 4 models no longer honour `temperature`/`top_p`/`top_k` (Gemini
+    # API docs: deprecation warning now, 400 in a future release), and Neon
+    # has no developer guide saying otherwise yet, so the field is omitted
+    # like the rest of the family.
+    GEMINI_4_NEON = ModelConfig(
+        provider="google",
+        api_name="gemini-4-neon",
+        input_price_usd=Decimal("0.000003"),
+        output_price_usd=Decimal("0.000015"),
+        supports_temperature=False,
+    )
     # Gemini 4 Hydrogen — Google's named replacement for Gemini 3.8 Flash
     # (paid Gemini API, 2026-11-13; text/image/video/audio/PDF in, text out,
     # 1M context). Standard $1.50/$7.50 per MTok with no introductory rate
@@ -1530,6 +1546,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "gemini-4.0-argon": SupportedModel.GEMINI_4_ARGON,
     "gemini-4-carbon": SupportedModel.GEMINI_4_CARBON,
     "gemini-4.0-carbon": SupportedModel.GEMINI_4_CARBON,
+    "gemini-4-neon": SupportedModel.GEMINI_4_NEON,
+    "gemini-4.0-neon": SupportedModel.GEMINI_4_NEON,
     "gemini-4-hydrogen": SupportedModel.GEMINI_4_HYDROGEN,
     "gemini-4.0-hydrogen": SupportedModel.GEMINI_4_HYDROGEN,
     # xAI

@@ -135,7 +135,7 @@ prefixes determine routing:
 - **Google**: gemini-4-neon, gemini-4-hydrogen, gemini-4-carbon, gemini-4-argon, gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro, gemini-3-flash-preview, gemini-3.1-pro-preview; image generation: gemini-2.5-flash-image, gemini-3.1-flash-image, gemini-nano-banana-2.1
 - **xAI**: grok-4.7, grok-4.6, grok-4.5, grok-4.3, grok-4.20-reasoning, grok-4.20-non-reasoning; image generation: grok-2-image, grok-imagine-image-2.0
 - **ByteDance** (BytePlus ModelArk, OpenAI-compatible, ap-southeast): seed-1.6, seed-1.8, seed-2.0-lite, deepseek-v4-flash, glm-5.2 (Z.ai's model served via a ModelArk deployment endpoint); image generation: seedream-4.0, seedream-5.0-lite, seedance-4.5, seedance-5.0
-- **OpenRouter** (OpenAI-compatible): aion-3.5, deepseek-v4-pro (pinned to Together), hy4-preview, hermes-4-405b, hy3
+- **OpenRouter** (OpenAI-compatible): hy4-flash, aion-3.5, deepseek-v4-pro (pinned to Together), hy4-preview, hermes-4-405b, hy3
 - **abliteration.ai** (OpenAI-compatible): abliterated-model-large-v2
 - **Moonshot AI** (Kimi API, OpenAI-compatible, api.moonshot.ai): kimi-k3.1-pro
 - **NEAR AI** (NEAR AI Cloud, OpenAI-compatible, cloud-api.near.ai): deepseek-v4.1-flash-abliterated

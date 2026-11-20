@@ -760,6 +760,15 @@ class TestModelRegistry(unittest.TestCase):
         self.assertEqual(cfg, get_model_config("tencent/hy3"))
         self.assertEqual(cfg, get_model_config("tencent/hy3:floor"))
 
+    def test_hy4_flash_resolves(self):
+        cfg = get_model_config("hy4-flash")
+        self.assertEqual(cfg.provider, "openrouter")
+        self.assertEqual(cfg.api_name, "tencent/hy4-flash")
+        self.assertEqual(cfg.input_price_usd, Decimal("0.000000035"))
+        self.assertEqual(cfg.output_price_usd, Decimal("0.0000001405"))
+        self.assertTrue(cfg.supports_temperature)
+        self.assertEqual(cfg, get_model_config("tencent/hy4-flash"))
+
     def test_kimi_k3_1_pro_resolves(self):
         cfg = get_model_config("kimi-k3.1-pro")
         self.assertEqual(cfg.provider, "moonshot")
@@ -1403,6 +1412,13 @@ class TestCalculateSessionCostOPG(unittest.TestCase):
         self.assertEqual(
             self._calc("hy3", 1000, 500),
             396_000_000_000_000,
+        )
+
+    def test_hy4_flash_cost(self):
+        # 1000*0.000000035 + 500*0.0000001405 = 0.000035 + 0.00007025 = 0.00010525 USD
+        self.assertEqual(
+            self._calc("hy4-flash", 1000, 500),
+            105_250_000_000_000,
         )
 
     def test_abliterated_large_v2_cost(self):

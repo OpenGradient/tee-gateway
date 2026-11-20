@@ -1237,6 +1237,20 @@ class SupportedModel(Enum):
         output_price_usd=Decimal("0.00000396"),
         openrouter_provider="together",
     )
+    # Tencent Hy4 Flash — released 2026-11-16: ~220B-parameter (12B active)
+    # open-weight MoE, text + image input, 1,048,576-token context. Tencent
+    # positions it for everyday/high-volume work at a fraction of Hy4's cost.
+    # Routed through OpenRouter like hy3 (Tencent Cloud is its only provider
+    # there); rate from openrouter.ai/api/v1/models. OpenRouter lists
+    # `temperature` and `reasoning` among its supported parameters, and the
+    # model card documents reasoning_effort (incl. no-think) for toggling
+    # thinking, so no supports_temperature/force_temperature override.
+    HY4_FLASH = ModelConfig(
+        provider="openrouter",
+        api_name="tencent/hy4-flash",
+        input_price_usd=Decimal("0.000000035"),
+        output_price_usd=Decimal("0.0000001405"),
+    )
     # Tencent Hy4 Preview — 770B-parameter (49B active) open-weight MoE,
     # open-sourced 2026-08-28, aimed at coding agents and long-horizon
     # tool-use with a 1,048,576-token context window. Routed through
@@ -1636,6 +1650,8 @@ _MODEL_LOOKUP: dict[str, SupportedModel] = {
     "hy3": SupportedModel.HY3,
     "tencent/hy3": SupportedModel.HY3,
     "tencent/hy3:floor": SupportedModel.HY3,
+    "hy4-flash": SupportedModel.HY4_FLASH,
+    "tencent/hy4-flash": SupportedModel.HY4_FLASH,
     "hy4-preview": SupportedModel.HY4_PREVIEW,
     "hy4": SupportedModel.HY4_PREVIEW,
     "tencent/hy4-preview": SupportedModel.HY4_PREVIEW,

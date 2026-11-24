@@ -15,7 +15,10 @@ What we verify:
   * Non-2xx inner responses are forwarded as plaintext (no HPKE seal),
     with the inner content-type and the x402-related headers preserved
   * 2xx inner responses are sealed and the ``opengradient`` cost block is
-    projected onto outer X-Inference-Cost-* headers
+    projected onto outer X-Inference-Cost-* headers, with the registry model
+    name as X-Inference-Model and the ``usage`` token counts as
+    X-Inference-Input-Tokens / X-Inference-Output-Tokens
+  * The streaming billing frame carries the same cost, model and token counts
   * Streaming inner responses emit exactly one AAD=b"final" chunk and
     close the inner WSGI iterator (settles x402)
 """
@@ -271,7 +274,9 @@ def test_2xx_inner_response_is_sealed_with_cost_headers(monkeypatch):
 
     inner_payload = {
         "id": "chatcmpl-xyz",
+        "model": "GPT-4.1",
         "choices": [{"message": {"role": "assistant", "content": "hi"}}],
+        "usage": {"prompt_tokens": 12, "completion_tokens": 34, "total_tokens": 46},
         "opengradient": {
             "cost_opg": 1234567890,
             "cost_usd": "0.001234",
@@ -299,11 +304,14 @@ def test_2xx_inner_response_is_sealed_with_cost_headers(monkeypatch):
 
     assert resp.status_code == 200
     assert resp.content_type.startswith(ohttp_controller.OHTTP_RESPONSE_MEDIA_TYPE)
-    # Cost is projected onto outer headers — relay-billable, no model name
-    # and no token counts leak.
+    # Cost, model and token counts are projected onto outer headers for the
+    # relay's billing and usage; the model as the registry names it.
     assert resp.headers["X-Inference-Cost-OPG"] == "1234567890"
     assert Decimal(resp.headers["X-Inference-Cost-USD"]) == Decimal("0.001234")
     assert Decimal(resp.headers["X-Inference-Price-OPG-USD"]) == Decimal("1.234")
+    assert resp.headers["X-Inference-Input-Tokens"] == "12"
+    assert resp.headers["X-Inference-Output-Tokens"] == "34"
+    assert resp.headers["X-Inference-Model"] == "gpt-4.1"
     # x402 / TEE headers still pass through.
     assert resp.headers.get("X-Tee-Signature") == "sig"
     assert resp.headers.get("X-Payment-Response") == "settled"
@@ -336,6 +344,136 @@ def test_2xx_inner_without_cost_block_omits_cost_headers(monkeypatch):
     assert resp.status_code == 200
     assert "X-Inference-Cost-OPG" not in resp.headers
     assert "X-Inference-Cost-USD" not in resp.headers
+    assert "X-Inference-Model" not in resp.headers
+    assert "X-Inference-Input-Tokens" not in resp.headers
+    assert "X-Inference-Output-Tokens" not in resp.headers
+
+
+# ---------------------------------------------------------------------------
+# Model and token counts on the relay's billing channel
+
+_COST_BLOCK = {"cost_opg": "1000", "cost_usd": "0.001", "opg_price_usd": "1"}
+
+
+def _frame_json(frame: bytes) -> dict:
+    magic = ohttp_controller.OHTTP_BILLING_FRAME_MAGIC
+    assert frame.startswith(magic)
+    length = int.from_bytes(frame[len(magic) : len(magic) + 4], "big")
+    payload = frame[len(magic) + 4 :]
+    assert len(payload) == length
+    return json.loads(payload)
+
+
+def test_cost_headers_carry_token_counts_only_with_valid_usage():
+    def headers(usage):
+        body = {"opengradient": _COST_BLOCK}
+        if usage is not None:
+            body["usage"] = usage
+        return ohttp_controller._extract_cost_headers(json.dumps(body).encode())
+
+    with_usage = headers({"prompt_tokens": 7, "completion_tokens": 0})
+    assert with_usage["X-Inference-Input-Tokens"] == "7"
+    assert with_usage["X-Inference-Output-Tokens"] == "0"
+
+    # No usage (web search), half a pair, or junk: cost only, no token headers.
+    for usage in (
+        None,
+        {"prompt_tokens": 7},
+        {"prompt_tokens": -1, "completion_tokens": 2},
+        {"prompt_tokens": "7", "completion_tokens": 2},
+        {"prompt_tokens": True, "completion_tokens": 2},
+        [7, 2],
+    ):
+        got = headers(usage)
+        assert got["X-Inference-Cost-OPG"] == "1000", usage
+        assert "X-Inference-Input-Tokens" not in got, usage
+        assert "X-Inference-Output-Tokens" not in got, usage
+
+
+def test_cost_headers_carry_the_model_only_when_the_registry_knows_it():
+    def headers(model):
+        body = {"opengradient": _COST_BLOCK, "model": model}
+        return ohttp_controller._extract_cost_headers(json.dumps(body).encode())
+
+    assert headers(" GPT-4.1 ")["X-Inference-Model"] == "gpt-4.1"
+
+    # Unknown names, injected header text and non-strings never reach a header.
+    for model in ("not-a-model", "gpt-4.1\r\nX-Evil: 1", "", None, 4.1):
+        got = headers(model)
+        assert got["X-Inference-Cost-OPG"] == "1000", model
+        assert "X-Inference-Model" not in got, model
+
+
+def test_billing_frame_carries_model_and_token_counts_as_strings():
+    frame = ohttp_controller._build_billing_frame(
+        {
+            "opengradient": _COST_BLOCK,
+            "model": "gpt-4.1",
+            "usage": {"prompt_tokens": 12, "completion_tokens": 34},
+        }
+    )
+
+    assert _frame_json(frame) == {
+        "cost_opg": "1000",
+        "cost_usd": "0.001",
+        "opg_price_usd": "1",
+        "model": "gpt-4.1",
+        "input_tokens": "12",
+        "output_tokens": "34",
+    }
+
+
+def test_billing_frame_without_model_or_usage_carries_cost_only():
+    frame = ohttp_controller._build_billing_frame({"opengradient": _COST_BLOCK})
+
+    assert _frame_json(frame) == {
+        "cost_opg": "1000",
+        "cost_usd": "0.001",
+        "opg_price_usd": "1",
+    }
+
+
+def test_streamed_response_splices_billing_frame_with_usage(monkeypatch):
+    sk, wire, _, _ = _encapsulate(b'{"model":"gpt-4.1","stream":true}')
+    final_event = {
+        "choices": [],
+        "model": "gpt-4.1",
+        "usage": {"prompt_tokens": 5, "completion_tokens": 9, "total_tokens": 14},
+        "opengradient": _COST_BLOCK,
+    }
+    sse_chunks = [
+        b'data: {"a":1}\n\n',
+        b"data: " + json.dumps(final_event).encode() + b"\n\n",
+        b"data: [DONE]\n\n",
+    ]
+
+    def inner():
+        return (
+            "200 OK",
+            [("Content-Type", "text/event-stream")],
+            _CloseTrackingIter(sse_chunks),
+        )
+
+    app, _, fake_keys = _make_app(inner, sk)
+    monkeypatch.setattr(ohttp_controller, "get_tee_keys", fake_keys)
+
+    resp = app.test_client().post(
+        "/v1/ohttp", data=wire, content_type="message/ohttp-req"
+    )
+
+    body = resp.get_data()
+    start = body.index(ohttp_controller.OHTTP_BILLING_FRAME_MAGIC)
+    magic_len = len(ohttp_controller.OHTTP_BILLING_FRAME_MAGIC)
+    length = int.from_bytes(body[start + magic_len : start + magic_len + 4], "big")
+    frame = body[start : start + magic_len + 4 + length]
+    parsed = _frame_json(frame)
+    assert parsed["model"] == "gpt-4.1"
+    assert parsed["input_tokens"] == "5"
+    assert parsed["output_tokens"] == "9"
+    # Usage never rides the outer headers on the streaming path: those were
+    # flushed before the reply existed.
+    assert "X-Inference-Model" not in resp.headers
+    assert "X-Inference-Input-Tokens" not in resp.headers
 
 
 # ---------------------------------------------------------------------------

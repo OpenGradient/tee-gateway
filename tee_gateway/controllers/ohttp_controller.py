@@ -20,15 +20,16 @@ Two response modes are supported, dispatched by the inner ``stream`` flag:
 Billing channel for the relay (both modes settle the real cost via x402
 against the relay's x-payment; the gateway is the source of truth for the
 amount):
-  * stream=false: outer headers expose ONLY the settled cost —
+  * stream=false: outer headers expose the settled cost —
     X-Inference-Cost-OPG (smallest units, the integer x402 actually charged)
-    and X-Inference-Cost-USD (the equivalent USD at the price used). No
-    model name, no token counts: those would be a fingerprint of the
-    inner request and have no role in billing.
+    and X-Inference-Cost-USD (the equivalent USD at the price used) — and
+    the request's usage, X-Inference-Model, X-Inference-Input-Tokens and
+    X-Inference-Output-Tokens, so the relay can report usage to its
+    customer.
   * stream=true: outer response headers are flushed before any body chunk
-    is yielded, so cost isn't known at header-write time. The relay reads
-    the settled amount from x402: either by querying the facilitator with
-    its X-Upto-Session, or via X-Payment-Response on its next request. The
+    is yielded, so cost isn't known at header-write time. The gateway
+    splices a private plaintext billing frame (the same cost and usage
+    fields) in before the final sealed chunk, which the relay strips. The
     client still sees cost in the final SSE event inside the encrypted
     stream (the ``opengradient`` block written by the chat controller).
 
@@ -41,8 +42,8 @@ Trust / payment model:
     request.
   * The ENCLAVE decrypts the inner payload, forwards the request to its own
     chat endpoint with the relay's ``x-payment`` header, and returns. The
-    relay sees status and settlement headers and, for non-stream, the outer
-    ``X-Inference-Cost-OPG`` / ``X-Inference-Cost-USD`` billing headers, but
+    relay sees status and settlement headers and the cost, model and token
+    counts (outer headers for non-stream, the billing frame for stream), but
     never sees the inner prompt or completion.
 
 Privacy properties:
@@ -50,10 +51,11 @@ Privacy properties:
     so the relay DOES see the client's IP at the network layer — that's
     unavoidable. What the relay does NOT see is the request/response
     content: it observes only the OHTTP-encapsulated ciphertext, its own
-    wallet's x-payment material, and (single-shot only) the settled-cost
-    outer headers it needs to bill its own customer. Model name and token
-    counts are deliberately NOT surfaced — they'd fingerprint the inner
-    request without adding anything billing-relevant.
+    wallet's x-payment material, and the settled cost, model and
+    input/output token counts it needs to bill and report usage to its own
+    customer. These say which model ran and how long the prompt and reply
+    were (which the ciphertext sizes already approximate); they say nothing
+    about content.
   * Enclave (compute position): sees the plaintext prompt and completion
     (they are decrypted inside the enclave to run the LLM call), but at
     the network layer it only sees the RELAY's IP — never the client's.
@@ -80,6 +82,7 @@ from flask import Response, current_app, request as flask_request
 
 from tee_gateway import ohttp
 from tee_gateway.tee_manager import get_tee_keys
+from tee_gateway.model_registry import get_model_config
 from tee_gateway.pricing import SessionCost
 from tee_gateway.body_preread import MAX_PAID_REQUEST_BYTES
 
@@ -230,9 +233,10 @@ def _build_outer_response(
     inner_content_type: str,
 ) -> Response:
     """Single-shot OHTTP response. Seals the body on 2xx (contains user
-    prompts/completions) and surfaces only extracted cost/price headers as
-    outer headers for relay billing (including `X-Inference-Price-OPG-USD`);
-    usage details remain sealed in the encapsulated body. Non-2xx bodies
+    prompts/completions) and surfaces only extracted cost/price, model and
+    token count headers as outer headers for relay billing (including
+    `X-Inference-Price-OPG-USD`); everything else remains sealed in the
+    encapsulated body. Non-2xx bodies
     (x402 payment requirements, validation errors) are forwarded as
     plaintext so the relay can act on them."""
     # Keep headers as a list of (name, value) tuples — WSGI gives us a list
@@ -351,9 +355,8 @@ def _drain(sub_iter: Iterator[bytes]) -> bytes:
 
 def _extract_cost_headers(body_bytes: bytes) -> dict[str, str]:
     """Project the response's ``opengradient`` cost block onto outer headers
-    for the relay's billing pipeline. Cost is the only metadata the relay
-    needs — model name and token counts stay sealed (they'd fingerprint the
-    inner request without being billing-relevant). The price is surfaced too
+    for the relay's billing pipeline, with the model and token counts it
+    reports as usage when the response has them. The price is surfaced too
     so the relay (and downstream auditors) can verify
     ``cost_usd == cost_opg / 10^decimals * opg_price_usd`` without trusting us.
     """
@@ -374,19 +377,64 @@ def _extract_cost_headers(body_bytes: bytes) -> dict[str, str]:
         )
         return {}
     wire = cost.model_dump(mode="json")
-    return {
+    headers = {
         "X-Inference-Cost-OPG": wire["cost_opg"],
         "X-Inference-Cost-USD": wire["cost_usd"],
         "X-Inference-Price-OPG-USD": wire["opg_price_usd"],
     }
+    for key, value in _usage_fields(body).items():
+        headers[_USAGE_HEADERS[key]] = value
+    return headers
+
+
+# Outer header for each usage field on the non-streaming path; the streaming
+# billing frame carries the same fields under these keys.
+_USAGE_HEADERS = {
+    "model": "X-Inference-Model",
+    "input_tokens": "X-Inference-Input-Tokens",
+    "output_tokens": "X-Inference-Output-Tokens",
+}
+
+
+def _usage_fields(response_json: dict[str, Any]) -> dict[str, str]:
+    """What the relay reports as usage for this response: the model and the
+    input and output token counts. Strings, like the cost fields, so every
+    value on the billing channel has one type.
+
+    ``model`` is the registry's name for the response's model (lowercased,
+    as pricing looks it up), and only a model the registry knows, so the
+    value is always one of a fixed set and safe as a header. Token counts come
+    from the OpenAI ``usage`` block, both or neither, so the relay never
+    records half a pair. Each is left out when the response doesn't carry it
+    (web search has neither).
+    """
+    fields: dict[str, str] = {}
+    model = response_json.get("model")
+    if isinstance(model, str):
+        try:
+            get_model_config(model)
+        except ValueError:
+            pass
+        else:
+            fields["model"] = model.strip().lower()
+    usage = response_json.get("usage")
+    if isinstance(usage, dict):
+        counts = (usage.get("prompt_tokens"), usage.get("completion_tokens"))
+        if all(
+            isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in counts
+        ):
+            fields["input_tokens"] = str(counts[0])
+            fields["output_tokens"] = str(counts[1])
+    return fields
 
 
 def _build_billing_frame(response_json: dict[str, Any] | None) -> bytes:
     """Build the private gateway-to-relay billing frame for streaming OHTTP.
 
-    This plaintext frame carries only the same billing fields projected as
-    outer headers for non-streaming OHTTP. The relay strips it before forwarding
-    bytes to the browser.
+    This plaintext frame carries only the same fields projected as outer
+    headers for non-streaming OHTTP: the cost, and ``model`` /
+    ``input_tokens`` / ``output_tokens`` when the response has them. The
+    relay strips it before forwarding bytes to the browser.
     """
     if not isinstance(response_json, dict):
         return b""
@@ -401,7 +449,7 @@ def _build_billing_frame(response_json: dict[str, Any] | None) -> bytes:
         )
         return b""
     payload = json.dumps(
-        cost.model_dump(mode="json"),
+        cost.model_dump(mode="json") | _usage_fields(response_json),
         separators=(",", ":"),
     ).encode("utf-8")
     return OHTTP_BILLING_FRAME_MAGIC + len(payload).to_bytes(4, "big") + payload
